@@ -1943,15 +1943,11 @@ async function doLogin() {
         };
         const firebaseUnavailable = /identity-toolkit|api-has-not-been-used|service firebase|forbidden|403/i.test(String(e.message || ''));
         if (firebaseUnavailable) {
-            window._firebaseAvailable = false;
-            updateAuthModeUI();
-            showToast('Connexion cloud indisponible. Passage automatique en mode local.', 'info', 5000);
-            enterLocalMode();
+            showAuthError('loginErr', 'Service d\'authentification temporairement indisponible. Réessayez dans quelques secondes.');
+            showToast('Erreur serveur Firebase. Réessayez.', 'err', 5000);
             return;
         }
-        showAuthError('loginErr', firebaseUnavailable
-            ? 'Firebase est indisponible sur cet environnement. Utilisez le mode local gratuit ci-dessous.'
-            : (msgs[e.code] || `Erreur : ${e.message}`));
+        showAuthError('loginErr', msgs[e.code] || `Erreur : ${e.message}`);
     }
 }
 
