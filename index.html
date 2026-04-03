@@ -482,12 +482,13 @@
         .lightbox-overlay {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.92); z-index: 100000; justify-content: center; align-items: center;
-            flex-direction: column; cursor: zoom-out;
+            flex-direction: column; cursor: zoom-out; touch-action: none;
         }
         .lightbox-overlay.active { display: flex; }
         .lightbox-overlay img {
             max-width: 95vw; max-height: 85vh; object-fit: contain; border-radius: 8px;
             box-shadow: 0 0 40px rgba(0,85,204,0.3); user-select: none;
+            touch-action: none; transform-origin: center center; transition: transform 0.1s ease;
         }
         .lightbox-close {
             position: absolute; top: 12px; right: 16px; font-size: 2rem; color: #fff;
@@ -4538,25 +4539,106 @@ function updateChatBadge(count) {
 </script>
 
 <!-- LIGHTBOX ZOOM PHOTO -->
-<div class="lightbox-overlay" id="lightboxOverlay" onclick="closeLightbox()">
+<div class="lightbox-overlay" id="lightboxOverlay">
     <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
     <img id="lightboxImg" src="" alt="Zoom">
     <div class="lightbox-label" id="lightboxLabel"></div>
 </div>
 
 <script>
-// === LIGHTBOX ===
+// === LIGHTBOX + PINCH-TO-ZOOM ===
+let _lbScale = 1, _lbStartDist = 0, _lbPanning = false, _lbStartX = 0, _lbStartY = 0, _lbTransX = 0, _lbTransY = 0;
+
 function openLightbox(src, label) {
     if (!src) return;
-    document.getElementById('lightboxImg').src = src;
+    _lbScale = 1; _lbTransX = 0; _lbTransY = 0;
+    const img = document.getElementById('lightboxImg');
+    img.src = src;
+    img.style.transform = 'scale(1) translate(0px,0px)';
     document.getElementById('lightboxLabel').textContent = label || '';
     document.getElementById('lightboxOverlay').classList.add('active');
 }
 function closeLightbox() {
     document.getElementById('lightboxOverlay').classList.remove('active');
     document.getElementById('lightboxImg').src = '';
+    _lbScale = 1; _lbTransX = 0; _lbTransY = 0;
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
+
+// Pinch-to-zoom + drag
+(function() {
+    const overlay = document.getElementById('lightboxOverlay');
+    const img = document.getElementById('lightboxImg');
+    if (!overlay || !img) return;
+
+    function applyTransform() {
+        img.style.transform = `scale(${_lbScale}) translate(${_lbTransX}px, ${_lbTransY}px)`;
+    }
+
+    function getDist(t) {
+        return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    }
+
+    overlay.addEventListener('touchstart', function(e) {
+        if (e.touches.length === 2) {
+            e.preventDefault();
+            _lbStartDist = getDist(e.touches);
+        } else if (e.touches.length === 1 && _lbScale > 1) {
+            _lbPanning = true;
+            _lbStartX = e.touches[0].clientX - _lbTransX;
+            _lbStartY = e.touches[0].clientY - _lbTransY;
+        }
+    }, { passive: false });
+
+    overlay.addEventListener('touchmove', function(e) {
+        if (e.touches.length === 2) {
+            e.preventDefault();
+            const dist = getDist(e.touches);
+            const newScale = _lbScale * (dist / _lbStartDist);
+            _lbScale = Math.min(Math.max(newScale, 1), 5);
+            _lbStartDist = dist;
+            if (_lbScale <= 1) { _lbTransX = 0; _lbTransY = 0; }
+            applyTransform();
+        } else if (e.touches.length === 1 && _lbPanning && _lbScale > 1) {
+            e.preventDefault();
+            _lbTransX = e.touches[0].clientX - _lbStartX;
+            _lbTransY = e.touches[0].clientY - _lbStartY;
+            applyTransform();
+        }
+    }, { passive: false });
+
+    overlay.addEventListener('touchend', function(e) {
+        _lbPanning = false;
+        if (e.touches.length === 0 && _lbScale <= 1.05) {
+            // Simple tap with no zoom → close
+            if (_lbScale <= 1 && !e.target.closest('.lightbox-close')) {
+                // Only close if wasn't pinching
+            }
+        }
+    });
+
+    // Double-tap to toggle zoom
+    let lastTap = 0;
+    overlay.addEventListener('touchend', function(e) {
+        if (e.touches.length > 0) return;
+        const now = Date.now();
+        if (now - lastTap < 300) {
+            e.preventDefault();
+            if (_lbScale > 1) {
+                _lbScale = 1; _lbTransX = 0; _lbTransY = 0;
+            } else {
+                _lbScale = 2.5;
+            }
+            applyTransform();
+        }
+        lastTap = now;
+    });
+
+    // Close on single tap outside image (only if not zoomed)
+    overlay.addEventListener('click', function(e) {
+        if (e.target === overlay && _lbScale <= 1) closeLightbox();
+    });
+})();
 
 // Rendre les photos cliquables pour zoom (photo-slots + preview + chat)
 document.addEventListener('click', function(e) {
