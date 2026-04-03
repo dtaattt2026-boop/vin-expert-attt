@@ -1,0 +1,1762 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ATTT · Panneau Admin</title>
+<!-- QRCode.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail }
+  from "https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js";
+import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, query, orderBy, limit, serverTimestamp }
+  from "https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDna-johvghNyNdCpcyL5uI6BGbrrRDcX4",
+  authDomain: "vin-expert-attt.firebaseapp.com",
+  projectId: "vin-expert-attt",
+  storageBucket: "vin-expert-attt.firebasestorage.app",
+  messagingSenderId: "841987458694",
+  appId: "1:841987458694:web:72465a1c53b04b34dc7307"
+};
+
+const app  = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db   = getFirestore(app);
+
+window._fb = { auth, db, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail,
+  doc, setDoc, getDoc, collection, getDocs, updateDoc, query, orderBy, limit, serverTimestamp };
+
+onAuthStateChanged(auth, async (user) => {
+  if (user) {
+    const snap = await getDoc(doc(db, "users", user.uid));
+    if (!snap.exists() || snap.data().role !== 'admin') {
+      await signOut(auth);
+      if (typeof showLogin === 'function') showLogin("Accès réservé aux administrateurs.");
+      return;
+    }
+    window._admin = snap.data();
+    // Attendre que les fonctions soient disponibles (script classique pas encore chargé)
+    const waitFor = () => {
+      if (typeof showPanel === 'function') { showPanel(); }
+      else { setTimeout(waitFor, 50); }
+    };
+    waitFor();
+  } else {
+    const waitLogin = () => {
+      if (typeof showLogin === 'function') { showLogin(); }
+      else { setTimeout(waitLogin, 50); }
+    };
+    waitLogin();
+  }
+});
+</script>
+<style>
+:root {
+  --bg: #080c14; --panel: #0d1220; --panel2: #111827;
+  --blue: #0055cc; --blue2: #1a7fff; --gold: #c8a84b;
+  --green: #00c87a; --red: #e03050; --orange: #f0a020;
+  --text: #d0daf0; --dim: #556070; --border: rgba(0,85,204,0.3);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',sans-serif;min-height:100vh}
+
+/* ── LOGIN ── */
+#loginScreen{display:none;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+#loginScreen.active{display:flex}
+.login-card{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:40px 32px;width:100%;max-width:380px}
+.login-logo{text-align:center;font-size:2.2rem;margin-bottom:6px}
+.login-title{text-align:center;font-size:1.3rem;font-weight:700;color:var(--blue2);margin-bottom:4px;letter-spacing:2px}
+.login-sub{text-align:center;font-size:0.75rem;color:var(--dim);margin-bottom:28px}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:0.75rem;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+.field input{width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:11px 14px;color:var(--text);font-size:0.95rem;outline:none}
+.field input:focus{border-color:var(--blue)}
+.btn-login{width:100%;background:var(--blue);color:#fff;border:none;border-radius:8px;padding:13px;font-size:0.95rem;font-weight:700;cursor:pointer;letter-spacing:1px;margin-top:8px}
+.btn-login:hover{background:var(--blue2)}
+#loginErr{color:var(--red);font-size:0.82rem;margin-top:10px;text-align:center;min-height:20px}
+
+/* ── PANEL ── */
+#panel{display:none}
+#panel.active{display:block}
+.topbar{background:var(--panel);border-bottom:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.topbar-title{font-size:1.1rem;font-weight:700;color:var(--blue2);letter-spacing:2px}
+.topbar-right{display:flex;align-items:center;gap:12px}
+.topbar-user{font-size:0.8rem;color:var(--dim)}
+.btn-out{background:rgba(224,48,80,0.15);color:var(--red);border:1px solid rgba(224,48,80,0.3);border-radius:6px;padding:6px 14px;font-size:0.8rem;cursor:pointer}
+.nav{display:flex;gap:6px;padding:16px 24px;flex-wrap:wrap;background:var(--panel);border-bottom:1px solid var(--border)}
+.nav-btn{background:transparent;color:var(--dim);border:1px solid transparent;border-radius:8px;padding:9px 18px;font-size:0.85rem;cursor:pointer;transition:.2s}
+.nav-btn:hover{color:var(--text);background:rgba(255,255,255,0.05)}
+.nav-btn.active{color:var(--blue2);background:rgba(0,85,204,0.15);border-color:var(--border)}
+.content{padding:20px 24px;max-width:1100px;margin:0 auto}
+.section{display:none}.section.active{display:block}
+
+/* ── CARDS ── */
+.card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px}
+.card-title{font-size:0.85rem;font-weight:700;color:var(--blue2);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
+.stat{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center}
+.stat-val{font-size:2rem;font-weight:700;color:var(--blue2)}
+.stat-label{font-size:0.72rem;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin-top:4px}
+
+/* ── AGENTS ── */
+.filter-bar{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.filter-btn{background:transparent;color:var(--dim);border:1px solid var(--border);border-radius:6px;padding:6px 14px;font-size:0.8rem;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.filter-btn.active{color:var(--gold);background:rgba(200,168,75,0.12);border-color:rgba(200,168,75,0.4)}
+.flt-cnt{background:rgba(255,255,255,0.1);color:var(--text);font-size:0.65rem;padding:1px 6px;border-radius:10px;font-weight:700;min-width:18px;text-align:center}
+.agent-row{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.agent-info{flex:1;min-width:0}
+.agent-name{font-size:0.9rem;font-weight:600}
+.agent-meta{font-size:0.75rem;color:var(--dim);margin-top:3px}
+.agent-actions{display:flex;gap:6px;flex-wrap:wrap}
+.badge{display:inline-block;font-size:0.65rem;padding:2px 8px;border-radius:4px;text-transform:uppercase;letter-spacing:.5px;margin-left:6px}
+.b-admin{background:rgba(200,168,75,0.2);color:var(--gold)}
+.b-agent{background:rgba(0,200,122,0.2);color:var(--green)}
+.b-pending{background:rgba(240,160,32,0.2);color:var(--orange)}
+.b-disabled{background:rgba(224,48,80,0.2);color:var(--red)}
+.btn-sm{font-size:0.75rem;padding:5px 12px;border-radius:5px;border:none;cursor:pointer}
+.btn-approve{background:rgba(0,200,122,0.2);color:var(--green);border:1px solid rgba(0,200,122,0.3)}
+.btn-admin{background:rgba(200,168,75,0.2);color:var(--gold);border:1px solid rgba(200,168,75,0.3)}
+.btn-reset{background:rgba(0,85,204,0.2);color:var(--blue2);border:1px solid var(--border)}
+.btn-disable{background:rgba(224,48,80,0.15);color:var(--red);border:1px solid rgba(224,48,80,0.3)}
+.btn-enable{background:rgba(0,200,122,0.15);color:var(--green);border:1px solid rgba(0,200,122,0.3)}
+.empty{text-align:center;color:var(--dim);padding:30px;font-size:0.85rem}
+
+/* ── PUBLICATION ── */
+.pub-form .field{margin-bottom:14px}
+.pub-form input[type=text]{width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:11px 14px;color:var(--text);font-size:0.95rem;outline:none}
+.pub-form input[type=text]:focus{border-color:var(--blue)}
+.pub-form textarea{width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:11px 14px;color:var(--text);font-size:0.9rem;resize:vertical;min-height:80px;outline:none;font-family:inherit}
+.toggle-row{display:flex;align-items:center;gap:10px;font-size:0.88rem;padding:10px 0}
+.toggle-row input[type=checkbox]{width:18px;height:18px;cursor:pointer;accent-color:var(--red)}
+.btn-pub{background:linear-gradient(135deg,#0040ad,#0070ff);color:#fff;border:none;border-radius:8px;padding:13px 28px;font-size:0.95rem;font-weight:700;cursor:pointer;letter-spacing:1px;display:flex;align-items:center;gap:8px}
+.btn-pub:hover{opacity:.9}
+.btn-pub:disabled{opacity:.4;cursor:not-allowed}
+.progress-log{background:#050810;border:1px solid var(--border);border-radius:8px;padding:14px;font-family:'Courier New',monospace;font-size:0.8rem;min-height:120px;max-height:220px;overflow-y:auto;line-height:1.8;margin-top:16px}
+.log-ok{color:var(--green)}.log-err{color:var(--red)}.log-info{color:var(--blue2)}.log-dim{color:var(--dim)}
+.ver-current{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:14px 18px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between}
+.ver-label{font-size:0.75rem;color:var(--dim);text-transform:uppercase;letter-spacing:1px}
+.ver-val{font-size:1.5rem;font-weight:700;color:var(--gold);font-family:'Courier New',monospace}
+
+/* ── TOKEN CONFIG ── */
+.token-status{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:20px;font-size:0.78rem}
+.token-ok{background:rgba(0,200,122,0.15);color:var(--green);border:1px solid rgba(0,200,122,0.3)}
+.token-missing{background:rgba(224,48,80,0.15);color:var(--red);border:1px solid rgba(224,48,80,0.3)}
+.config-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+.config-row .field{flex:1;min-width:200px;margin-bottom:0}
+.btn-save-cfg{background:var(--panel2);color:var(--blue2);border:1px solid var(--border);border-radius:8px;padding:10px 20px;cursor:pointer;font-size:0.85rem;white-space:nowrap}
+.info-box{background:rgba(0,85,204,0.08);border:1px solid var(--border);border-radius:8px;padding:14px;font-size:0.82rem;color:var(--dim);line-height:1.7;margin-bottom:16px}
+.info-box a{color:var(--blue2);text-decoration:none}
+.info-box b{color:var(--text)}
+
+/* ── RAPPORTS ── */
+.report-row{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:6px;font-size:0.82rem}
+.report-vin{font-family:'Courier New',monospace;font-size:0.95rem;color:var(--blue2);font-weight:700}
+.report-meta{color:var(--dim);font-size:0.75rem;margin-top:3px}
+.report-valid{color:var(--green)}.report-invalid{color:var(--red)}
+
+/* ── GUIDE ── */
+.guide-hero{text-align:center;padding:28px 20px 20px;border-bottom:1px solid var(--border);margin-bottom:24px}
+.guide-hero-title{font-size:1.6rem;font-weight:700;color:var(--blue2);letter-spacing:3px;margin-bottom:6px}
+.guide-hero-sub{font-size:0.85rem;color:var(--dim);max-width:560px;margin:0 auto}
+.guide-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:16px}
+.guide-card{background:var(--panel2);border:1px solid var(--border);border-radius:12px;padding:18px}
+.guide-icon{font-size:1.8rem;margin-bottom:8px}
+.guide-card h3{font-size:0.85rem;font-weight:700;color:var(--blue2);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px}
+.guide-card ul{list-style:none;padding:0}
+.guide-card ul li{font-size:0.82rem;color:var(--dim);padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);display:flex;gap:8px}
+.guide-card ul li:last-child{border-bottom:none}
+.guide-card ul li::before{content:'›';color:var(--blue2);font-weight:700;flex-shrink:0}
+.guide-card ul li b{color:var(--text)}
+.qr-section{text-align:center;padding:24px}
+.qr-box{display:inline-block;background:#fff;border-radius:16px;padding:20px;box-shadow:0 0 40px rgba(0,85,204,0.3);margin-bottom:16px}
+.qr-label{font-size:0.78rem;color:var(--dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px}
+.qr-url{font-size:0.82rem;color:var(--blue2);word-break:break-all;max-width:360px;margin:0 auto 16px;background:rgba(0,85,204,0.08);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-family:'Courier New',monospace}
+.qr-instructions{font-size:0.82rem;color:var(--dim);max-width:400px;margin:0 auto;line-height:1.8}
+.qr-instructions b{color:var(--text)}
+.role-table{width:100%;border-collapse:collapse;font-size:0.82rem}
+.role-table th{text-align:left;color:var(--dim);text-transform:uppercase;letter-spacing:1px;font-size:0.72rem;padding:8px 12px;border-bottom:1px solid var(--border)}
+.role-table td{padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.04);color:var(--text)}
+.role-table tr:last-child td{border-bottom:none}
+.badge-role{display:inline-block;font-size:0.65rem;padding:2px 8px;border-radius:4px;text-transform:uppercase;font-weight:700}
+/* ── TOAST ── */
+.toast-wrap{position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;flex-direction:column;gap:8px}
+.toast{padding:11px 18px;border-radius:8px;font-size:0.85rem;animation:fadeIn .3s}
+.toast.ok{background:rgba(0,200,122,0.2);border:1px solid rgba(0,200,122,0.4);color:var(--green)}
+.toast.err{background:rgba(224,48,80,0.2);border:1px solid rgba(224,48,80,0.4);color:var(--red)}
+.toast.info{background:rgba(0,85,204,0.2);border:1px solid var(--border);color:var(--blue2)}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+
+@media(max-width:600px){
+  .content{padding:12px}
+  .nav{padding:10px 12px}
+  .topbar{padding:12px 16px}
+  .agent-actions{justify-content:flex-end}
+}
+</style>
+</head>
+<body>
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<!-- Alerte file:// -->
+<div id="fileAlert" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99999;background:#b71c1c;color:#fff;padding:12px 20px;font-size:0.9rem;text-align:center;font-weight:600">
+  ⚠️ Ouvrez ce panneau via <b>ATTT.bat → option 2</b> pour éviter les erreurs de sécurité.
+  <button onclick="document.getElementById('fileAlert').style.display='none'" style="margin-left:16px;background:rgba(255,255,255,0.2);border:none;color:#fff;padding:4px 12px;border-radius:4px;cursor:pointer">✕</button>
+</div>
+<script>
+  if (location.protocol === 'file:') document.getElementById('fileAlert').style.display = 'block';
+</script>
+
+<!-- ── LOGIN ── -->
+<div id="loginScreen" class="active">
+  <div class="login-card">
+    <div class="login-logo">🛡️</div>
+    <div class="login-title">PANNEAU ADMIN</div>
+    <div class="login-sub">ATTT · VIN Expert — Accès administrateur</div>
+    <div class="field">
+      <label>Email</label>
+      <input type="email" id="loginEmail" placeholder="dta.attt.2026@gmail.com" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <div class="field">
+      <label>Mot de passe</label>
+      <input type="password" id="loginPass" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="btn-login" onclick="doLogin()">CONNEXION</button>
+    <div id="loginErr"></div>
+  </div>
+</div>
+
+<!-- ── PANEL ── -->
+<div id="panel">
+  <div class="topbar">
+    <div class="topbar-title">🛡️ ATTT · Panneau Admin</div>
+    <div class="topbar-right">
+      <span class="topbar-user" id="topUser"></span>
+      <button class="btn-out" onclick="doLogout()">Déconnexion</button>
+    </div>
+  </div>
+  <div class="nav">
+    <button class="nav-btn active" onclick="goTab('dashboard')">📊 Tableau de bord</button>
+    <button class="nav-btn" onclick="goTab('agents')">👥 Agents</button>
+    <button class="nav-btn" onclick="goTab('publication')">🚀 Publication</button>
+    <button class="nav-btn" onclick="goTab('rapports')">📋 Rapports</button>
+    <button class="nav-btn" onclick="goTab('config')">⚙️ Configuration</button>
+    <button class="nav-btn" onclick="goTab('guide')">📖 Guide & QR</button>
+  </div>
+  <div class="content">
+
+    <!-- ══ DASHBOARD ══ -->
+    <div class="section active" id="sec-dashboard">
+      <div class="stats-grid" id="statsGrid">
+        <div class="stat"><div class="stat-val" id="st-agents">—</div><div class="stat-label">Agents actifs</div></div>
+        <div class="stat"><div class="stat-val" id="st-pending">—</div><div class="stat-label">En attente</div></div>
+        <div class="stat"><div class="stat-val" id="st-reports">—</div><div class="stat-label">Identifications</div></div>
+        <div class="stat"><div class="stat-val" id="st-version" style="font-size:1.3rem">—</div><div class="stat-label">Version déployée</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">🔗 Accès rapides Firebase</div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px">
+          <a href="https://console.firebase.google.com/project/vin-expert-attt/authentication/users" target="_blank" style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px 16px;color:var(--blue2);text-decoration:none;font-size:0.82rem">👥 Authentification</a>
+          <a href="https://console.firebase.google.com/project/vin-expert-attt/firestore" target="_blank" style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px 16px;color:var(--blue2);text-decoration:none;font-size:0.82rem">🗃️ Firestore</a>
+          <a href="https://github.com/dtaattt2026-boop/vin-expert-attt" target="_blank" style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px 16px;color:var(--blue2);text-decoration:none;font-size:0.82rem">📦 GitHub Repo</a>
+          <a href="https://dtaattt2026-boop.github.io/vin-expert-attt/" target="_blank" style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px 16px;color:var(--green);text-decoration:none;font-size:0.82rem">🌐 Site en ligne</a>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">⏰ Agents en attente d'approbation</div>
+        <div id="dashPending"><div class="empty">Chargement...</div></div>
+      </div>
+    </div>
+
+    <!-- ══ AGENTS ══ -->
+    <div class="section" id="sec-agents">
+      <div class="card">
+        <div class="card-title">👥 Gestion des agents
+          <button onclick="loadAgents()" style="background:transparent;color:var(--blue2);border:none;cursor:pointer;font-size:0.8rem;margin-left:auto">🔄 Actualiser</button>
+        </div>
+        <!-- Filtres avec compteurs -->
+        <div class="filter-bar" style="margin-bottom:10px">
+          <button class="filter-btn active" id="flt-all"      onclick="filterAgents('all',this)">Tous <span class="flt-cnt" id="cnt-all"></span></button>
+          <button class="filter-btn"        id="flt-pending"  onclick="filterAgents('pending',this)">⏳ En attente <span class="flt-cnt" id="cnt-pending"></span></button>
+          <button class="filter-btn"        id="flt-agent"    onclick="filterAgents('agent',this)">Agents <span class="flt-cnt" id="cnt-agent"></span></button>
+          <button class="filter-btn"        id="flt-admin"    onclick="filterAgents('admin',this)">★ Admins <span class="flt-cnt" id="cnt-admin"></span></button>
+          <button class="filter-btn"        id="flt-disabled" onclick="filterAgents('disabled',this)">Désactivés <span class="flt-cnt" id="cnt-disabled"></span></button>
+        </div>
+        <!-- Barre de recherche -->
+        <div style="position:relative;margin-bottom:12px">
+          <input type="text" id="agentSearch" placeholder="Rechercher par nom, matricule, lieu, email..." oninput="renderAgents()"
+            style="width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px 14px 10px 38px;color:var(--text);font-size:0.85rem;outline:none;box-sizing:border-box">
+          <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--dim);pointer-events:none;font-size:0.9rem">🔍</span>
+        </div>
+        <div id="agentList"><div class="empty">Chargement...</div></div>
+      </div>
+    </div>
+
+    <!-- ══ PUBLICATION ══ -->
+    <div class="section" id="sec-publication">
+
+      <!-- Sous-onglets -->
+      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+        <button class="filter-btn active" id="ptab1" onclick="pubSubTab('deploy',this)">🌐 Premier déploiement</button>
+        <button class="filter-btn" id="ptab2" onclick="pubSubTab('update',this)">🔄 Publier une mise à jour</button>
+      </div>
+
+      <!-- ─── PREMIER DÉPLOIEMENT ─── -->
+      <div id="pubSub-deploy">
+        <div class="card">
+          <div class="card-title">📡 Statut GitHub Pages</div>
+          <div id="ghStatusBox" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+            <button class="btn-save-cfg" onclick="checkGhStatus()">🔍 Vérifier</button>
+            <span id="ghStatusMsg" style="font-size:0.85rem;color:var(--dim)">Cliquez pour vérifier...</span>
+          </div>
+        </div>
+
+        <!-- ═══ SYNCHRONISER TOUT (automatique, sans sélection de dossier) ═══ -->
+        <div class="card pub-form" style="border:2px solid var(--green);border-radius:14px">
+          <div class="card-title">🔄 Synchroniser tout le code vers GitHub</div>
+          <div class="info-box">
+            <b>Un seul clic</b> : envoie tous les fichiers du serveur local vers GitHub Pages.<br>
+            Aucune sélection de dossier nécessaire. Utilise le token déjà configuré.
+          </div>
+          <button class="btn-pub" id="btnSyncAll" onclick="syncAllToGithub()" style="background:linear-gradient(135deg,#0055cc,#0088ff);font-size:1rem;padding:14px 28px">
+            🔄 SYNCHRONISER TOUT VERS GITHUB
+          </button>
+          <div class="progress-log" id="syncLog" style="display:none"></div>
+        </div>
+
+        <div class="card pub-form">
+          <div class="card-title">🌐 Déploiement initial (sélection dossier)</div>
+          <div class="info-box" style="font-size:0.8rem;color:var(--dim)">
+            Utilisez ceci uniquement pour le tout premier déploiement, ou si la synchronisation ne fonctionne pas.
+          </div>
+
+          <div class="field">
+            <label>Sélectionner le dossier "vin expert" complet</label>
+            <input type="file" id="deployFolder" webkitdirectory
+              style="background:var(--panel2);border:1px dashed var(--blue);border-radius:8px;padding:12px;color:var(--text);width:100%;cursor:pointer;font-size:0.85rem">
+          </div>
+          <div id="deployFileCount" style="font-size:0.8rem;color:var(--dim);margin-bottom:12px"></div>
+
+          <button class="btn-pub" id="btnDeploy" onclick="initialDeploy()" style="background:linear-gradient(135deg,#006000,#00a000)">
+            🚀 DÉPLOYER SUR GITHUB PAGES
+          </button>
+          <div class="progress-log" id="deployLog" style="display:none"></div>
+
+          <div id="deployResult" style="display:none;margin-top:16px;background:rgba(0,200,122,0.08);border:1px solid rgba(0,200,122,0.3);border-radius:10px;padding:16px">
+            <div style="font-size:1rem;font-weight:700;color:var(--green);margin-bottom:8px">✓ Application déployée avec succès !</div>
+            <div style="font-size:0.85rem;color:var(--dim);margin-bottom:10px">Disponible dans 2-5 minutes sur :</div>
+            <a id="deployUrl" href="#" target="_blank" style="font-size:1rem;color:var(--blue2);font-weight:700;word-break:break-all"></a>
+            <div style="margin-top:14px;font-size:0.82rem;color:var(--dim)">
+              📱 Android : Chrome → menu ⋮ → Ajouter à l'écran d'accueil<br>
+              🍎 iPhone : Safari → Partager → Sur l'écran d'accueil<br>
+              💻 PC : icône ⊕ dans la barre d'adresse Chrome
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── PUBLIER MISE À JOUR ─── -->
+      <div id="pubSub-update" style="display:none">
+        <div class="card">
+          <div class="card-title">📡 Version actuellement déployée</div>
+          <div class="ver-current">
+            <div>
+              <div class="ver-label">Version sur Firestore</div>
+              <div class="ver-val" id="pubCurVer">—</div>
+            </div>
+            <div style="text-align:right">
+              <div class="ver-label">Version dans index.html (GitHub)</div>
+              <div class="ver-val" id="pubCurAppVer">—</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card pub-form">
+          <div class="card-title">🚀 Publier une mise à jour</div>
+
+          <div class="info-box">
+            <b>Comment ça fonctionne :</b><br>
+            1. Saisissez le nouveau numéro de version et les notes<br>
+            2. Cliquez <b>Publier</b> → Firestore + GitHub mis à jour automatiquement<br>
+            3. Toutes les apps installées verront la mise à jour <b>au prochain démarrage</b><br>
+            4. Si <b>Obligatoire</b> : l'app est bloquée jusqu'à la mise à jour
+          </div>
+
+          <div class="field">
+            <label>Nouvelle version</label>
+            <input type="text" id="pubVer" placeholder="ex: 1.2.0">
+          </div>
+          <div class="field">
+            <label>Notes de mise à jour</label>
+            <textarea id="pubNotes" placeholder="ex: Amélioration de l'OCR, correction de bugs..."></textarea>
+          </div>
+          <div class="toggle-row">
+            <input type="checkbox" id="pubForce">
+            <label for="pubForce"><b style="color:var(--red)">Mise à jour obligatoire</b> — bloque l'app jusqu'à la mise à jour</label>
+          </div>
+          <div class="toggle-row" style="display:none" id="pubMinVerRow">
+            <span style="color:var(--dim);font-size:0.82rem">Obligatoire à partir de la version :</span>
+            <input type="text" id="pubMinVer" placeholder="ex: 1.0.0" style="width:120px;background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text);font-size:0.85rem;outline:none;margin-left:8px">
+          </div>
+          <div style="margin-top:6px">
+          <div style="margin-top:16px">
+            <button class="btn-pub" id="btnPublier" onclick="publier()">🚀 PUBLIER ET DÉPLOYER</button>
+            <div style="font-size:0.75rem;color:var(--dim);margin-top:6px">Met à jour Firestore + synchronise tous les fichiers sur GitHub en un seul clic</div>
+          </div>
+          <div class="progress-log" id="pubLog" style="display:none"></div>
+        </div>
+
+        <!-- ── Notifier les agents (force-update par email) ── -->
+        <div class="card" style="margin-top:16px;border:1px solid var(--blue);border-radius:12px">
+          <div class="card-title">📧 Notifier les agents de la mise à jour</div>
+          <div class="info-box" style="margin-bottom:12px">
+            Envoie un email à tous les agents actifs avec un <b>lien de mise à jour automatique</b>.<br>
+            L'agent clique sur le lien → l'application se met à jour instantanément, sans aucune manipulation.
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <button class="btn-pub" style="background:var(--blue)" onclick="notifierAgentsMaj()">📧 ENVOYER LA NOTIFICATION</button>
+            <button class="btn-pub" style="background:var(--panel2);color:var(--blue2);border:1px solid var(--border)" onclick="copierLienMaj()">🔗 COPIER LE LIEN</button>
+          </div>
+          <div id="notifAgentsLog" style="margin-top:10px;font-size:0.82rem;color:var(--dim)"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ══ RAPPORTS ══ -->
+    <div class="section" id="sec-rapports">
+      <div class="card">
+        <div class="card-title">📋 Dernières identifications VIN
+          <button onclick="loadReports()" style="background:transparent;color:var(--blue2);border:none;cursor:pointer;font-size:0.8rem;margin-left:auto">🔄 Actualiser</button>
+        </div>
+        <div id="reportList"><div class="empty">Chargement...</div></div>
+      </div>
+    </div>
+
+    <!-- ══ CONFIG ══ -->
+    <div class="section" id="sec-config">
+      <div class="card">
+        <div class="card-title">🔑 Token GitHub
+          <span class="token-status" id="tokenStatus">
+            <span>⚪ Non configuré</span>
+          </span>
+        </div>
+        <div class="info-box">
+          Le token GitHub permet au panneau de <b>déployer automatiquement</b> les mises à jour sur GitHub Pages.<br>
+          <b>Créer un token :</b> <a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a><br>
+          → Cochez <b>repo</b> (accès complet au dépôt) → Générer → Copiez le token ici.<br>
+          Le token est sauvegardé uniquement sur <b>cet ordinateur</b> (localStorage).
+        </div>
+        <div class="config-row">
+          <div class="field">
+            <label>GitHub Personal Access Token</label>
+            <input type="password" id="cfgToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx">
+          </div>
+          <button class="btn-save-cfg" onclick="saveToken()">💾 Sauvegarder</button>
+          <button class="btn-save-cfg" style="color:var(--red)" onclick="clearToken()">🗑️ Supprimer</button>
+        </div>
+        <div id="tokenTestResult" style="margin-top:10px;font-size:0.82rem"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">📦 Configuration GitHub Repository</div>
+        <div class="config-row">
+          <div class="field">
+            <label>Propriétaire (username GitHub)</label>
+            <input type="text" id="cfgOwner" placeholder="dtaattt2026-boop" value="dtaattt2026-boop">
+          </div>
+          <div class="field">
+            <label>Nom du dépôt</label>
+            <input type="text" id="cfgRepo" placeholder="vin-expert-attt" value="vin-expert-attt">
+          </div>
+          <button class="btn-save-cfg" onclick="saveGhConfig()">💾 Sauvegarder</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ GUIDE & QR ══ -->
+    <div class="section" id="sec-guide">
+
+      <!-- Hero -->
+      <div class="card">
+        <div class="guide-hero">
+          <div style="font-size:3rem;margin-bottom:10px">🛡️</div>
+          <div class="guide-hero-title">VIN EXPERT ATTT</div>
+          <div class="guide-hero-sub">Application web progressive (PWA) pour l'identification, la vérification et la traçabilité des numéros de châssis VIN — Agence Technique de Traitement des Titres de Transport</div>
+        </div>
+
+        <!-- Description générale -->
+        <div class="guide-grid">
+          <div class="guide-card">
+            <div class="guide-icon">🔍</div>
+            <h3>Identification VIN</h3>
+            <ul>
+              <li><b>Saisie manuelle</b> — entrez le VIN (17 caractères) directement</li>
+              <li><b>Scan photo</b> — photographiez la plaque VIN, l'OCR extrait le code automatiquement (Tesseract.js)</li>
+              <li><b>Décodage automatique</b> — via l'API NHTSA (base de données officielle US/EU)</li>
+              <li><b>OCR local</b> — lecture et correction du VIN entièrement sur l'appareil avec Tesseract.js</li>
+            </ul>
+          </div>
+          <div class="guide-card">
+            <div class="guide-icon">📄</div>
+            <h3>Rapports PDF</h3>
+            <ul>
+              <li><b>Génération instantanée</b> — rapport PDF officiel ATTT après chaque identification</li>
+              <li><b>Contenu</b> — marque, modèle, année, moteur, pays de fabrication, statut validité</li>
+              <li><b>Signature agent</b> — nom de l'agent, date, heure et numéro de rapport</li>
+              <li><b>Sauvegarde Firestore</b> — chaque rapport est archivé dans la base de données</li>
+            </ul>
+          </div>
+          <div class="guide-card">
+            <div class="guide-icon">👥</div>
+            <h3>Gestion agents</h3>
+            <ul>
+              <li><b>Inscription sur invitation</b> — code unique ATT-XXXXXXXX requis pour s'inscrire</li>
+              <li><b>Validation admin</b> — tout nouveau compte doit être approuvé manuellement</li>
+              <li><b>Rôles</b> — Admin, Agent actif, En attente, Désactivé</li>
+              <li><b>Email invitation Gmail</b> — l'agent envoie l'invitation depuis son propre compte Gmail</li>
+            </ul>
+          </div>
+          <div class="guide-card">
+            <div class="guide-icon">🚀</div>
+            <h3>Déploiement</h3>
+            <ul>
+              <li><b>GitHub Pages</b> — hébergement gratuit, accessible sur tous les appareils</li>
+              <li><b>Premier déploiement</b> — dans l'onglet Publication, section déploiement initial</li>
+              <li><b>Mises à jour</b> — publiez une nouvelle version avec notes de mise à jour</li>
+              <li><b>Service Worker PWA</b> — mise à jour automatique notifiée à tous les appareils</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tableau des rôles -->
+      <div class="card">
+        <div class="card-title">👤 Rôles et permissions</div>
+        <table class="role-table">
+          <thead>
+            <tr>
+              <th>Rôle</th><th>Identification VIN</th><th>Rapports PDF</th><th>Invitations</th><th>Panneau admin</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="badge-role" style="background:rgba(200,168,75,0.2);color:#c8a84b">ADMIN</span></td>
+              <td>✅</td><td>✅</td><td>✅ (génère des codes)</td><td>✅ accès complet</td>
+            </tr>
+            <tr>
+              <td><span class="badge-role" style="background:rgba(0,200,122,0.2);color:#00c87a">AGENT</span></td>
+              <td>✅</td><td>✅</td><td>✅ (génère des codes)</td><td>❌</td>
+            </tr>
+            <tr>
+              <td><span class="badge-role" style="background:rgba(240,160,32,0.2);color:#f0a020">EN ATTENTE</span></td>
+              <td>❌ (attente validation)</td><td>❌</td><td>❌</td><td>❌</td>
+            </tr>
+            <tr>
+              <td><span class="badge-role" style="background:rgba(224,48,80,0.2);color:#e03050">DÉSACTIVÉ</span></td>
+              <td>❌</td><td>❌</td><td>❌</td><td>❌</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Guide étape par étape -->
+      <div class="card">
+        <div class="card-title">📋 Procédure d'utilisation — étape par étape</div>
+        <div class="guide-grid">
+          <div class="guide-card">
+            <div class="guide-icon">1️⃣</div>
+            <h3>Premier déploiement</h3>
+            <ul>
+              <li>Lancez <b>ATTT.bat → option 2</b> pour ouvrir le panneau admin</li>
+              <li>Connectez-vous avec le compte <b>dta.attt.2026@gmail.com</b></li>
+              <li>Allez dans <b>⚙️ Configuration</b> → saisissez votre token GitHub → Sauvegarder</li>
+              <li>Allez dans <b>🚀 Publication</b> → section "Premier déploiement" → sélectionnez les fichiers du dossier</li>
+              <li>Cliquez <b>DÉPLOYER</b> et attendez la confirmation</li>
+            </ul>
+          </div>
+          <div class="guide-card">
+            <div class="guide-icon">2️⃣</div>
+            <h3>Ajouter un agent</h3>
+            <ul>
+              <li>Dans l'app (index.html), allez dans <b>Mon compte → Invitations</b></li>
+              <li>Cliquez <b>Envoyer par email</b>, saisissez l'email du futur agent</li>
+              <li>Gmail s'ouvre avec tout pré-rempli — cliquez ENVOYER</li>
+              <li>Le destinataire clique le lien dans l'email et s'inscrit avec le code</li>
+              <li>Dans ce panneau → <b>👥 Agents</b> → approuvez le compte</li>
+            </ul>
+          </div>
+          <div class="guide-card">
+            <div class="guide-icon">3️⃣</div>
+            <h3>Identifier un VIN</h3>
+            <ul>
+              <li>Ouvrez l'application sur mobile ou PC (lien ci-dessous)</li>
+              <li>Connectez-vous avec votre compte agent</li>
+              <li>Tapez le VIN (17 caractères) ou cliquez <b>📷 Scanner</b></li>
+              <li>Photographiez la plaque — l'OCR extrait automatiquement le VIN</li>
+              <li>Cliquez <b>IDENTIFIER</b> → consultez les résultats</li>
+              <li>Téléchargez le <b>rapport PDF</b> officiel</li>
+            </ul>
+          </div>
+          <div class="guide-card">
+            <div class="guide-icon">4️⃣</div>
+            <h3>Publier une mise à jour</h3>
+            <ul>
+              <li>Modifiez les fichiers sources localement</li>
+              <li>Ouvrez le panneau → <b>🚀 Publication</b></li>
+              <li>Incrémentez la version (ex: 1.0.0 → 1.1.0)</li>
+              <li>Rédigez les notes de mise à jour</li>
+              <li>Cliquez <b>PUBLIER</b> → les agents reçoivent une notification de mise à jour</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- QR Code -->
+      <div class="card">
+        <div class="card-title">📱 QR Code — Télécharger & Connecter l'application</div>
+        <div class="qr-section">
+          <div class="qr-label">Scannez pour ouvrir l'application sur mobile</div>
+          <div class="qr-box">
+            <div id="qrCodeCanvas"></div>
+          </div>
+          <div class="qr-url" id="qrUrlDisplay">https://dtaattt2026-boop.github.io/vin-expert-attt/</div>
+          <div class="qr-instructions">
+            <b>Sur Android / iPhone :</b><br>
+            1. Scannez le QR code avec l'appareil photo<br>
+            2. Ouvrez le lien dans Chrome (Android) ou Safari (iPhone)<br>
+            3. Le navigateur propose d'<b>"Ajouter à l'écran d'accueil"</b><br>
+            4. L'application s'installe comme une vraie app (PWA)<br><br>
+            <b>Sur PC :</b><br>
+            Lancez <b>ATTT.bat → option 1</b> pour ouvrir l'application en local
+          </div>
+          <div style="margin-top:20px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+            <button class="btn-save-cfg" onclick="downloadQR()">⬇️ Télécharger QR Code (PNG)</button>
+            <a href="https://dtaattt2026-boop.github.io/vin-expert-attt/" target="_blank" class="btn-save-cfg" style="text-decoration:none;display:inline-block">🌐 Ouvrir l'application</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Informations techniques -->
+      <div class="card">
+        <div class="card-title">🔧 Informations techniques</div>
+        <div class="guide-grid">
+          <div class="guide-card">
+            <div class="guide-icon">☁️</div>
+            <h3>Infrastructure</h3>
+            <ul>
+              <li><b>Backend</b> — Firebase (Google) : Auth + Firestore</li>
+              <li><b>Hébergement</b> — GitHub Pages (gratuit, HTTPS)</li>
+              <li><b>OCR</b> — Tesseract.js local (gratuit, sans service cloud)</li>
+              <li><b>Données VIN</b> — API NHTSA (base officielle)</li>
+              <li><b>PDF</b> — jsPDF 2.5.1 (génération côté client)</li>
+            </ul>
+          </div>
+          <div class="guide-card">
+            <div class="guide-icon">🔒</div>
+            <h3>Sécurité</h3>
+            <ul>
+              <li><b>Authentification</b> — Firebase Auth (email + mot de passe)</li>
+              <li><b>Contrôle d'accès</b> — rôles vérifiés côté Firestore</li>
+              <li><b>Invitations</b> — codes à usage unique, expiration automatique</li>
+              <li><b>Token GitHub</b> — stocké dans Firestore (chiffré), jamais en localStorage</li>
+              <li><b>Connexion secours</b> — accès admin local en cas d'urgence</li>
+            </ul>
+          </div>
+          <div class="guide-card">
+            <div class="guide-icon">📡</div>
+            <h3>Navigateurs compatibles</h3>
+            <ul>
+              <li><b>Chrome 90+</b> — recommandé (PWA, caméra, PDF)</li>
+              <li><b>Edge 90+</b> — compatible</li>
+              <li><b>Firefox 88+</b> — compatible (sans installation PWA)</li>
+              <li><b>Safari 14+</b> — iOS iPhone/iPad (PWA via Safari)</li>
+              <li><b>Samsung Internet</b> — Android</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /sec-guide -->
+
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════
+//  UTILITAIRES
+// ══════════════════════════════════════════════
+function toast(msg, type='info', dur=3500) {
+  const w = document.getElementById('toastWrap');
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.textContent = msg;
+  w.appendChild(t);
+  setTimeout(() => t.remove(), dur);
+}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function showLogin(err='') {
+  document.getElementById('loginScreen').classList.add('active');
+  document.getElementById('panel').classList.remove('active');
+  if (err) document.getElementById('loginErr').textContent = err;
+}
+
+async function showPanel() {
+  document.getElementById('loginScreen').classList.remove('active');
+  document.getElementById('panel').classList.add('active');
+  document.getElementById('topUser').textContent = `${window._admin?.prenom||''} ${window._admin?.nom||''}`.trim();
+  // Charger la config GitHub depuis Firestore (token + owner + repo)
+  await loadGhConfigFromFirestore();
+  loadDashboard();
+  checkTokenStatus();
+}
+
+// ══════════════════════════════════════════════
+//  AUTH
+// ══════════════════════════════════════════════
+async function doLogin() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass  = document.getElementById('loginPass').value;
+  document.getElementById('loginErr').textContent = '';
+  if (!email || !pass) { document.getElementById('loginErr').textContent='Remplissez tous les champs.'; return; }
+  const fb = window._fb; if (!fb) return;
+  try {
+    await fb.signInWithEmailAndPassword(fb.auth, email, pass);
+  } catch(e) {
+    const msgs = {
+      'auth/wrong-password':'Mot de passe incorrect.',
+      'auth/user-not-found':'Email introuvable.',
+      'auth/invalid-credential':'Email ou mot de passe incorrect.',
+      'auth/too-many-requests':'Trop de tentatives. Réessayez plus tard.'
+    };
+    document.getElementById('loginErr').textContent = msgs[e.code] || e.message;
+  }
+}
+
+async function doLogout() {
+  const fb = window._fb;
+  if (fb) await fb.signOut(fb.auth);
+  window._admin = null;
+  document.getElementById('loginEmail').value = '';
+  document.getElementById('loginPass').value  = '';
+  showLogin();
+}
+
+// ══════════════════════════════════════════════
+//  NAVIGATION
+// ══════════════════════════════════════════════
+function goTab(name) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('sec-'+name).classList.add('active');
+  event.currentTarget.classList.add('active');
+  if (name === 'agents')      loadAgents();
+  if (name === 'publication') { loadGhConfigFromFirestore().then(() => checkGhStatus()); }
+  if (name === 'rapports')    loadReports();
+  if (name === 'config')      { loadGhConfigFromFirestore().then(checkTokenStatus); loadGhConfig(); }
+  if (name === 'guide')       generateQRCode();
+}
+
+// ══════════════════════════════════════════════
+//  DASHBOARD
+// ══════════════════════════════════════════════
+async function loadDashboard() {
+  const fb = window._fb; if (!fb) return;
+  try {
+    // Stats agents
+    const usersSnap = await fb.getDocs(fb.collection(fb.db, 'users'));
+    let total=0, pending=0;
+    usersSnap.forEach(d => {
+      const data = d.data();
+      if (!data.disabled) total++;
+      if (data.role === 'pending' && !data.disabled) pending++;
+    });
+    document.getElementById('st-agents').textContent = total - pending;
+    document.getElementById('st-pending').textContent = pending;
+
+    // Stats reports
+    const reportsSnap = await fb.getDocs(fb.collection(fb.db, 'reports'));
+    document.getElementById('st-reports').textContent = reportsSnap.size;
+
+    // Version
+    const verSnap = await fb.getDoc(fb.doc(fb.db, 'config', 'appVersion'));
+    document.getElementById('st-version').textContent = verSnap.exists() ? verSnap.data().version : 'N/A';
+
+    // Pending agents list
+    let pendingHtml = '';
+    usersSnap.forEach(d => {
+      const u = d.data();
+      if (u.role === 'pending' && !u.disabled) {
+        pendingHtml += `<div class="agent-row">
+          <div class="agent-info">
+            <div class="agent-name">${esc(u.prenom)} ${esc(u.nom)} <span class="badge b-pending">EN ATTENTE</span></div>
+            <div class="agent-meta">${esc(u.matricule)} · ${esc(u.lieuTravail)} · ${esc(u.email)}</div>
+          </div>
+          <div class="agent-actions">
+            <button class="btn-sm btn-approve" onclick="approveUser('${d.id}')">✓ Valider</button>
+            <button class="btn-sm btn-disable" onclick="rejectUser('${d.id}')">✗ Refuser</button>
+          </div>
+        </div>`;
+      }
+    });
+    document.getElementById('dashPending').innerHTML = pendingHtml || '<div class="empty">Aucun agent en attente ✓</div>';
+  } catch(e) { toast('Erreur chargement dashboard : ' + e.message, 'err'); }
+}
+
+// ══════════════════════════════════════════════
+//  AGENTS
+// ══════════════════════════════════════════════
+let _agentsAll = [];
+let _agentsFilter = 'all';
+
+async function loadAgents() {
+  const fb = window._fb; if (!fb) return;
+  document.getElementById('agentList').innerHTML = '<div class="empty">Chargement...</div>';
+  try {
+    const snap = await fb.getDocs(fb.collection(fb.db, 'users'));
+    _agentsAll = [];
+    snap.forEach(d => _agentsAll.push({ id: d.id, ...d.data() }));
+    renderAgents();
+  } catch(e) { toast('Erreur : ' + e.message, 'err'); }
+}
+
+function filterAgents(f, btn) {
+  _agentsFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  // Vider la recherche quand on change de filtre
+  const searchEl = document.getElementById('agentSearch');
+  if (searchEl) searchEl.value = '';
+  renderAgents();
+}
+
+function updateFilterCounts() {
+  const counts = {
+    all:      _agentsAll.length,
+    pending:  _agentsAll.filter(u => u.role === 'pending' && !u.disabled).length,
+    agent:    _agentsAll.filter(u => u.role === 'agent'   && !u.disabled).length,
+    admin:    _agentsAll.filter(u => u.role === 'admin'   && !u.disabled).length,
+    disabled: _agentsAll.filter(u => u.disabled).length,
+  };
+  Object.entries(counts).forEach(([k, v]) => {
+    const el = document.getElementById('cnt-' + k);
+    if (el) el.textContent = v || '';
+  });
+}
+
+function renderAgents() {
+  updateFilterCounts();
+  const q = (document.getElementById('agentSearch')?.value || '').toLowerCase().trim();
+  let list = _agentsAll;
+  if (_agentsFilter === 'pending')  list = list.filter(u => u.role === 'pending' && !u.disabled);
+  if (_agentsFilter === 'agent')    list = list.filter(u => u.role === 'agent'   && !u.disabled);
+  if (_agentsFilter === 'admin')    list = list.filter(u => u.role === 'admin'   && !u.disabled);
+  if (_agentsFilter === 'disabled') list = list.filter(u => u.disabled);
+
+  // Filtrage par recherche texte
+  if (q) {
+    list = list.filter(u =>
+      (u.prenom + ' ' + u.nom).toLowerCase().includes(q) ||
+      (u.matricule || '').toLowerCase().includes(q) ||
+      (u.lieuTravail || '').toLowerCase().includes(q) ||
+      (u.email || '').toLowerCase().includes(q)
+    );
+  }
+
+  if (!list.length) { document.getElementById('agentList').innerHTML = '<div class="empty">Aucun résultat.</div>'; return; }
+
+  const html = list.map(u => {
+    const bClass = u.disabled ? 'b-disabled' : (u.role==='admin'?'b-admin':u.role==='pending'?'b-pending':'b-agent');
+    const bLabel = u.disabled ? 'DÉSACTIVÉ' : u.role.toUpperCase();
+    const safeEmail = (u.email||'').replace(/'/g,"\\'");
+    const safeName  = esc(u.prenom+' '+u.nom);
+    return `<div class="agent-row">
+      <div class="agent-info">
+        <div class="agent-name">${esc(u.prenom)} ${esc(u.nom)} <span class="badge ${bClass}">${bLabel}</span></div>
+        <div class="agent-meta">Mat: ${esc(u.matricule)} · ${esc(u.lieuTravail)} · ${esc(u.email)}</div>
+      </div>
+      <div class="agent-actions">
+        ${u.role==='pending'&&!u.disabled ? `<button class="btn-sm btn-approve" onclick="approveUser('${u.id}')">✓ Valider</button>` : ''}
+        ${u.role==='agent'&&!u.disabled   ? `<button class="btn-sm btn-admin"   onclick="makeAdmin('${u.id}')">★ Admin</button>` : ''}
+        ${u.role==='admin'&&!u.disabled&&u.email!==window._admin?.email ? `<button class="btn-sm btn-approve" onclick="demoteAgent('${u.id}')">↓ Agent</button>` : ''}
+        <button class="btn-sm btn-reset" onclick="resetPass('${safeEmail}','${safeName}')">🔑 Reset MDP</button>
+        ${!u.disabled ? `<button class="btn-sm btn-disable" onclick="toggleUser('${u.id}',true)">✗ Désact.</button>`
+                       : `<button class="btn-sm btn-enable"  onclick="toggleUser('${u.id}',false)">✓ Réact.</button>`}
+      </div>
+    </div>`;
+  }).join('');
+  document.getElementById('agentList').innerHTML = html;
+}
+
+async function approveUser(uid) {
+  const fb = window._fb; if (!fb) return;
+  await fb.updateDoc(fb.doc(fb.db,'users',uid), { role:'agent' });
+  toast('Agent validé.', 'ok');
+  loadAgents(); loadDashboard();
+}
+async function rejectUser(uid) {
+  if (!confirm('Refuser et désactiver cet agent ?')) return;
+  const fb = window._fb; if (!fb) return;
+  await fb.updateDoc(fb.doc(fb.db,'users',uid), { disabled:true });
+  toast('Agent refusé.', 'info');
+  loadAgents(); loadDashboard();
+}
+async function makeAdmin(uid) {
+  if (!confirm('Promouvoir cet agent en administrateur ?')) return;
+  const fb = window._fb; if (!fb) return;
+  await fb.updateDoc(fb.doc(fb.db,'users',uid), { role:'admin' });
+  toast('Agent promu admin.', 'ok');
+  loadAgents();
+}
+async function demoteAgent(uid) {
+  if (!confirm('Rétrograder cet admin en agent ?')) return;
+  const fb = window._fb; if (!fb) return;
+  await fb.updateDoc(fb.doc(fb.db,'users',uid), { role:'agent' });
+  toast('Admin rétrogradé en agent.', 'info');
+  loadAgents();
+}
+async function toggleUser(uid, disable) {
+  const fb = window._fb; if (!fb) return;
+  await fb.updateDoc(fb.doc(fb.db,'users',uid), { disabled: disable });
+  toast(disable ? 'Agent désactivé.' : 'Agent réactivé.', disable ? 'err' : 'ok');
+  loadAgents(); loadDashboard();
+}
+async function resetPass(email, nom) {
+  const fb = window._fb; if (!fb) return;
+  try {
+    await fb.sendPasswordResetEmail(fb.auth, email);
+    toast(`Email de réinitialisation envoyé à ${email}`, 'ok');
+  } catch(e) { toast('Erreur : ' + e.message, 'err'); }
+}
+
+// ══════════════════════════════════════════════
+//  PUBLICATION MISE À JOUR
+// ══════════════════════════════════════════════
+document.getElementById('pubForce').addEventListener('change', function() {
+  document.getElementById('pubMinVerRow').style.display = this.checked ? 'flex' : 'none';
+});
+
+async function loadPubCurrentVersion() {
+  const fb = window._fb; if (!fb) return;
+  try {
+    const snap = await fb.getDoc(fb.doc(fb.db,'config','appVersion'));
+    document.getElementById('pubCurVer').textContent = snap.exists() ? snap.data().version : 'Non définie';
+    // Get app version from GitHub if token available
+    const token = getToken();
+    const { owner, repo } = getGhConfig();
+    if (token && owner && repo) {
+      try {
+        const res = await ghGetFile(token, owner, repo, 'index.html');
+        const content = res.content;
+        const m = content.match(/APP_VERSION\s*=\s*["']([^"']+)["']/);
+        document.getElementById('pubCurAppVer').textContent = m ? m[1] : '?';
+      } catch { document.getElementById('pubCurAppVer').textContent = '(token requis)'; }
+    } else {
+      document.getElementById('pubCurAppVer').textContent = '(token requis)';
+    }
+  } catch(e) {}
+}
+
+function log(msg, type='info') {
+  const el = document.getElementById('pubLog');
+  el.style.display = 'block';
+  el.innerHTML += `<div class="log-${type}">${type === 'ok' ? '✓' : type === 'err' ? '✗' : '→'} ${esc(msg)}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+function logClear() {
+  const el = document.getElementById('pubLog');
+  el.innerHTML = '';
+  el.style.display = 'block';
+}
+
+function dlog(msg, type='info') {
+  const el = document.getElementById('deployLog');
+  el.style.display = 'block';
+  el.innerHTML += `<div class="log-${type}">${type === 'ok' ? '✓' : type === 'err' ? '✗' : '→'} ${esc(msg)}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+// ── Sous-onglets Publication ──────────────────────────────────
+function pubSubTab(name, btn) {
+  document.getElementById('pubSub-deploy').style.display  = name === 'deploy' ? '' : 'none';
+  document.getElementById('pubSub-update').style.display  = name === 'update' ? '' : 'none';
+  document.querySelectorAll('#ptab1,#ptab2').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  if (name === 'update') loadPubCurrentVersion();
+}
+
+// ── Vérifier le statut GitHub Pages ──────────────────────────
+async function checkGhStatus() {
+  const token = getToken();
+  const { owner, repo } = getGhConfig();
+  const el = document.getElementById('ghStatusMsg');
+  el.textContent = 'Vérification...';
+  el.style.color = 'var(--dim)';
+  if (!token) { el.textContent = '✗ Token GitHub manquant — allez dans ⚙️ Configuration'; el.style.color = 'var(--red)'; return; }
+  try {
+    // Vérifier repo
+    const repoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+      headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+    });
+    if (repoRes.status === 404) {
+      el.innerHTML = '✗ Dépôt introuvable — cliquez <b>🚀 DÉPLOYER</b> pour le créer';
+      el.style.color = 'var(--red)'; return;
+    }
+    if (!repoRes.ok) { el.textContent = `✗ Erreur ${repoRes.status}`; el.style.color = 'var(--red)'; return; }
+    // Vérifier Pages
+    const pagesRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/pages`, {
+      headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+    });
+    if (pagesRes.ok) {
+      const p = await pagesRes.json();
+      const url = `https://${owner}.github.io/${repo}/`;
+      el.innerHTML = `✓ GitHub Pages actif : <a href="${url}" target="_blank" style="color:var(--blue2)">${url}</a>`;
+      el.style.color = 'var(--green)';
+    } else {
+      el.textContent = '⚠ Dépôt existe mais GitHub Pages non activé — cliquez 🚀 DÉPLOYER';
+      el.style.color = 'var(--orange)';
+    }
+  } catch(e) { el.textContent = '✗ Erreur : ' + e.message; el.style.color = 'var(--red)'; }
+}
+
+// ── Déploiement initial complet ───────────────────────────────
+document.getElementById('deployFolder').addEventListener('change', function() {
+  const n = this.files.length;
+  document.getElementById('deployFileCount').textContent = n > 0
+    ? `✓ ${n} fichiers sélectionnés`
+    : '';
+});
+
+async function initialDeploy() {
+  const token = getToken();
+  const { owner, repo } = getGhConfig();
+  if (!token) { toast('Token GitHub requis — allez dans ⚙️ Configuration', 'err'); return; }
+
+  const fileInput = document.getElementById('deployFolder');
+  const files = Array.from(fileInput.files);
+  if (!files.length) { toast('Sélectionnez d\'abord le dossier "vin expert"', 'err'); return; }
+
+  const btn = document.getElementById('btnDeploy');
+  btn.disabled = true;
+  document.getElementById('deployLog').style.display = 'block';
+  document.getElementById('deployLog').innerHTML = '';
+  document.getElementById('deployResult').style.display = 'none';
+
+  // Filtrer : exclure _deployer.ps1, _serveur.ps1, ATTT.bat
+  const excluded = ['_deployer.ps1', '_serveur.ps1', 'ATTT.bat'];
+  const toUpload = files.filter(f => {
+    const name = f.name;
+    return !excluded.includes(name) && !name.startsWith('.');
+  });
+
+  dlog(`${toUpload.length} fichiers à déployer...`, 'info');
+
+  try {
+    // ── 1. Vérifier / créer le dépôt ──
+    dlog('Vérification du dépôt GitHub...');
+    const checkRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+      headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+    });
+    if (checkRes.status === 404) {
+      dlog(`Création du dépôt "${repo}"...`);
+      const createRes = await fetch('https://api.github.com/user/repos', {
+        method: 'POST',
+        headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: repo, public: true, description: 'ATTT VIN Expert - Identification chassis VIN', auto_init: false })
+      });
+      if (!createRes.ok) { const e = await createRes.json(); throw new Error('Création dépôt : ' + e.message); }
+      dlog(`Dépôt "${repo}" créé`, 'ok');
+      await new Promise(r => setTimeout(r, 2000));
+    } else if (!checkRes.ok) {
+      throw new Error(`Token invalide ou erreur réseau (${checkRes.status})`);
+    } else {
+      dlog('Dépôt existant', 'ok');
+    }
+
+    // ── 2. Uploader chaque fichier ──
+    dlog(`Envoi des fichiers...`);
+    let ok = 0, err = 0;
+    for (const file of toUpload) {
+      // Calculer le chemin relatif (enlever le nom du dossier parent)
+      let path = file.webkitRelativePath || file.name;
+      // Supprimer le premier segment (nom du dossier sélectionné)
+      const slashIdx = path.indexOf('/');
+      if (slashIdx > -1) path = path.substring(slashIdx + 1);
+      if (!path) continue;
+
+      try {
+        const b64 = await readFileAsBase64(file);
+        // Obtenir le SHA si le fichier existe déjà
+        let sha = null;
+        const existRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
+          headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+        });
+        if (existRes.ok) { const d = await existRes.json(); sha = d.sha; }
+
+        const body = { message: `Déploiement initial - ${path}`, content: b64 };
+        if (sha) body.sha = sha;
+
+        const upRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
+          method: 'PUT',
+          headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        if (upRes.ok) { dlog(`${path}`, 'ok'); ok++; }
+        else { const e = await upRes.json(); dlog(`${path} — ${e.message}`, 'err'); err++; }
+      } catch(e) { dlog(`${path} — ${e.message}`, 'err'); err++; }
+    }
+    dlog(`Upload terminé : ${ok} OK, ${err} erreurs`, err > 0 ? 'err' : 'ok');
+
+    // ── 3. Activer GitHub Pages ──
+    dlog('Activation de GitHub Pages...');
+    const pRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/pages`, {
+      method: 'POST',
+      headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: { branch: 'main', path: '/' } })
+    });
+    if (pRes.ok || pRes.status === 409) { // 409 = already exists
+      dlog('GitHub Pages activé', 'ok');
+    } else {
+      dlog('GitHub Pages : vérifiez manuellement dans les paramètres du dépôt', 'err');
+    }
+
+    // ── 4. Résultat ──
+    const url = `https://${owner}.github.io/${repo}/`;
+    dlog('', 'info');
+    dlog(`══ DÉPLOIEMENT RÉUSSI ! ══`, 'ok');
+    dlog(`URL : ${url}`, 'ok');
+    dlog('Disponible dans 2-5 minutes', 'info');
+
+    document.getElementById('deployResult').style.display = 'block';
+    const linkEl = document.getElementById('deployUrl');
+    linkEl.href = url;
+    linkEl.textContent = url;
+
+    toast('Déploiement terminé !', 'ok', 6000);
+    await loadDashboard();
+
+  } catch(e) {
+    dlog('ERREUR : ' + e.message, 'err');
+    toast('Erreur : ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const bytes = new Uint8Array(e.target.result);
+      let b64 = '', chunk = 8192;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        b64 += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.length)));
+      }
+      resolve(btoa(b64));
+    };
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+
+async function publier() {
+  const fb = window._fb; if (!fb) return;
+
+  const ver   = document.getElementById('pubVer').value.trim();
+  const notes = document.getElementById('pubNotes').value.trim();
+  const force = document.getElementById('pubForce').checked;
+  const minVer= document.getElementById('pubMinVer').value.trim() || '0.0.0';
+  const doGh  = true; // Toujours synchroniser avec GitHub
+
+  if (!ver) { toast('Saisissez un numéro de version.', 'err'); return; }
+  if (!/^\d+\.\d+(\.\d+)?$/.test(ver)) { toast('Format de version invalide. Ex: 1.2.0', 'err'); return; }
+
+  // Normaliser X.Y → X.Y.0
+  const verNorm = ver.split('.').length === 2 ? ver + '.0' : ver;
+
+  const btn = document.getElementById('btnPublier');
+  btn.disabled = true;
+  logClear();
+
+  try {
+    // ── 1. Firestore ──────────────────────────────
+    log('Mise à jour Firestore config/appVersion...');
+    await fb.setDoc(fb.doc(fb.db,'config','appVersion'), {
+      version: verNorm,
+      notes: notes || '',
+      forceUpdate: force,
+      minVersion: minVer,
+      updatedAt: new Date().toISOString(),
+      updatedBy: `${window._admin?.prenom||''} ${window._admin?.nom||''}`.trim()
+    });
+    log(`Firestore mis à jour → version ${verNorm}`, 'ok');
+
+    // ── 2. GitHub : synchroniser TOUS les fichiers ──
+    if (doGh) {
+      const token = getToken();
+      const { owner, repo } = getGhConfig();
+
+      if (!token) {
+        log('Token GitHub manquant → mise à jour GitHub ignorée', 'err');
+        log('Configurez le token dans ⚙️ Configuration', 'err');
+      } else if (!owner || !repo) {
+        log('Owner/repo GitHub non configurés', 'err');
+      } else {
+        log('Vérification du token GitHub...');
+        const testRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+          headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+        });
+        if (!testRes.ok) {
+          log(`Token invalide ou dépôt inaccessible (${testRes.status})`, 'err');
+        } else {
+          log('Token GitHub valide ✓', 'ok');
+
+          // Liste de tous les fichiers à synchroniser
+          const baseUrl = window.location.origin;
+          const textFiles = ['index.html','sw.js','manifest.json','panneau.html','gas-drive.js','admin-dashboard.html'];
+          const binaryFiles = ['icons/icon-192.png','icons/icon-512.png'];
+          let ghOk = 0, ghErr = 0;
+
+          // ── Fichiers texte ──
+          for (const file of textFiles) {
+            try {
+              const res = await fetch(`${baseUrl}/${file}`, { cache: 'no-store' });
+              if (!res.ok) { log(`${file} — non trouvé localement, ignoré`, 'err'); continue; }
+              let content = await res.text();
+
+              // Mettre à jour la version dans index.html et sw.js
+              if (file === 'index.html') {
+                content = content.replace(/window\.APP_VERSION\s*=\s*["'][^"']*["']/, `window.APP_VERSION = "${verNorm}"`);
+              }
+              if (file === 'sw.js') {
+                content = content.replace(/const CACHE_NAME\s*=\s*['"][^'"]*['"]/, `const CACHE_NAME = 'vin-expert-v${verNorm}'`);
+              }
+
+              const bytes = new TextEncoder().encode(content);
+              let binary = '';
+              const chunk = 8192;
+              for (let i = 0; i < bytes.length; i += chunk) {
+                binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.length)));
+              }
+              const b64 = btoa(binary);
+
+              let sha = null;
+              const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${file}`, {
+                headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+              });
+              if (ghRes.ok) { sha = (await ghRes.json()).sha; }
+
+              const body = { message: `v${verNorm} — ${file}`, content: b64 };
+              if (sha) body.sha = sha;
+
+              const upRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${file}`, {
+                method: 'PUT',
+                headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+              });
+              if (upRes.ok) { log(`${file} ✓`, 'ok'); ghOk++; }
+              else { const e = await upRes.json(); log(`${file} — ${e.message}`, 'err'); ghErr++; }
+            } catch(e) { log(`${file} — ${e.message}`, 'err'); ghErr++; }
+          }
+
+          // ── Fichiers binaires ──
+          for (const file of binaryFiles) {
+            try {
+              const res = await fetch(`${baseUrl}/${file}`, { cache: 'no-store' });
+              if (!res.ok) continue;
+              const buf = await res.arrayBuffer();
+              const bytes = new Uint8Array(buf);
+              let binary = '';
+              const chunk = 8192;
+              for (let i = 0; i < bytes.length; i += chunk) {
+                binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.length)));
+              }
+              const b64 = btoa(binary);
+
+              let sha = null;
+              const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${file}`, {
+                headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+              });
+              if (ghRes.ok) { sha = (await ghRes.json()).sha; }
+
+              const body = { message: `v${verNorm} — ${file}`, content: b64 };
+              if (sha) body.sha = sha;
+
+              const upRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${file}`, {
+                method: 'PUT',
+                headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+              });
+              if (upRes.ok) { log(`${file} ✓`, 'ok'); ghOk++; }
+              else { ghErr++; }
+            } catch(e) { ghErr++; }
+          }
+
+          log(`GitHub : ${ghOk} fichiers synchronisés` + (ghErr > 0 ? `, ${ghErr} erreurs` : ''), ghErr > 0 ? 'err' : 'ok');
+          log(`Site : https://${owner}.github.io/${repo}/`, 'ok');
+        }
+      }
+    }
+
+    log('');
+    log(`═══ VERSION ${verNorm} PUBLIÉE AVEC SUCCÈS ═══`, 'ok');
+    log(force ? '⚠ Mise à jour OBLIGATOIRE activée' : '→ Mise à jour optionnelle', force ? 'err' : 'info');
+    toast(`Version ${verNorm} publiée !`, 'ok', 5000);
+
+    // Mettre à jour l'affichage
+    await loadPubCurrentVersion();
+    await loadDashboard();
+
+  } catch(e) {
+    log('ERREUR : ' + e.message, 'err');
+    toast('Erreur : ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── Lien force-update ─────────────────────────
+function getLienMaj() {
+  const { owner, repo } = getGhConfig();
+  return `https://${owner}.github.io/${repo}/?force-update=1`;
+}
+
+function copierLienMaj() {
+  const lien = getLienMaj();
+  navigator.clipboard.writeText(lien).then(() => {
+    toast('Lien copié : ' + lien, 'ok', 4000);
+    document.getElementById('notifAgentsLog').innerHTML = `<span style="color:var(--green)">✓ Lien copié dans le presse-papiers</span><br><code style="font-size:0.75rem;word-break:break-all">${esc(lien)}</code>`;
+  }).catch(() => {
+    // Fallback
+    prompt('Copiez ce lien :', lien);
+  });
+}
+
+async function notifierAgentsMaj() {
+  const fb = window._fb; if (!fb) { toast('Firebase non disponible', 'err'); return; }
+  const logEl = document.getElementById('notifAgentsLog');
+  logEl.innerHTML = '<span style="color:var(--dim)">Chargement des agents...</span>';
+
+  try {
+    // Récupérer tous les agents actifs
+    const snap = await fb.getDocs(fb.collection(fb.db, 'users'));
+    const agents = [];
+    snap.forEach(d => {
+      const u = d.data();
+      if (!u.disabled && u.email && u.role !== 'pending') {
+        agents.push({ nom: u.prenom + ' ' + u.nom, email: u.email });
+      }
+    });
+
+    if (agents.length === 0) {
+      logEl.innerHTML = '<span style="color:var(--orange)">Aucun agent actif trouvé</span>';
+      return;
+    }
+
+    const lien = getLienMaj();
+    const version = document.getElementById('pubCurVer')?.textContent || '?';
+    const emails = agents.map(a => a.email);
+
+    // Ouvrir le client email avec tous les destinataires
+    const subject = encodeURIComponent(`VIN Expert ATTT — Mise à jour ${version} disponible`);
+    const body = encodeURIComponent(
+`Bonjour,
+
+Une nouvelle version de VIN Expert ATTT (${version}) est disponible.
+
+👉 Cliquez sur ce lien pour mettre à jour automatiquement :
+${lien}
+
+L'application se mettra à jour toute seule en quelques secondes.
+
+Si le lien ne fonctionne pas, ouvrez l'application normalement — elle se mettra à jour au prochain lancement.
+
+Cordialement,
+Direction Technique d'Automobiles — ATTT`
+    );
+
+    // Ouvrir le client mail
+    const mailto = `mailto:?bcc=${emails.join(',')}&subject=${subject}&body=${body}`;
+    window.open(mailto, '_blank');
+
+    logEl.innerHTML = `<span style="color:var(--green)">✓ Email préparé pour <b>${agents.length}</b> agent(s)</span><br>` +
+      `<span style="color:var(--dim)">${emails.join(', ')}</span>`;
+    toast(`Email préparé pour ${agents.length} agents`, 'ok', 4000);
+
+  } catch(e) {
+    logEl.innerHTML = `<span style="color:var(--red)">✗ Erreur : ${esc(e.message)}</span>`;
+    toast('Erreur : ' + e.message, 'err');
+  }
+}
+
+// ══════════════════════════════════════════════
+//  SYNCHRONISER TOUT LE CODE VERS GITHUB
+// ══════════════════════════════════════════════
+function slog(msg, type='info') {
+  const el = document.getElementById('syncLog');
+  el.style.display = 'block';
+  el.innerHTML += `<div class="log-${type}">${type === 'ok' ? '✓' : type === 'err' ? '✗' : '→'} ${esc(msg)}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+async function syncAllToGithub() {
+  const token = getToken();
+  const { owner, repo } = getGhConfig();
+  if (!token) { toast('Token GitHub requis → ⚙️ Configuration', 'err'); return; }
+
+  const btn = document.getElementById('btnSyncAll');
+  btn.disabled = true;
+  document.getElementById('syncLog').innerHTML = '';
+  document.getElementById('syncLog').style.display = 'block';
+
+  // Liste des fichiers à synchroniser (texte + binaires)
+  const textFiles = [
+    'index.html', 'sw.js', 'manifest.json', 'panneau.html',
+    'gas-drive.js', 'admin-dashboard.html'
+  ];
+  const binaryFiles = [
+    'icons/icon-192.png', 'icons/icon-512.png'
+  ];
+
+  // Déterminer la base URL du serveur local
+  const baseUrl = window.location.origin;
+
+  try {
+    slog('Vérification du dépôt GitHub...');
+    const checkRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+      headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+    });
+    if (!checkRes.ok) throw new Error(`Dépôt inaccessible (${checkRes.status}). Vérifiez le token.`);
+    slog('Dépôt OK', 'ok');
+
+    let ok = 0, errors = 0;
+
+    // ── Fichiers texte ──
+    for (const file of textFiles) {
+      try {
+        slog(`Lecture locale de ${file}...`);
+        const res = await fetch(`${baseUrl}/${file}`, { cache: 'no-store' });
+        if (!res.ok) { slog(`${file} — non trouvé localement (${res.status}), ignoré`, 'err'); continue; }
+        const content = await res.text();
+
+        // Encoder en base64 (UTF-8 safe)
+        const bytes = new TextEncoder().encode(content);
+        let binary = '';
+        const chunk = 8192;
+        for (let i = 0; i < bytes.length; i += chunk) {
+          binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.length)));
+        }
+        const b64 = btoa(binary);
+
+        // Obtenir le SHA si le fichier existe déjà sur GitHub
+        let sha = null;
+        const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${file}`, {
+          headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+        });
+        if (ghRes.ok) { sha = (await ghRes.json()).sha; }
+
+        const body = { message: `Sync ${file} — v${window.APP_VERSION || '?'}`, content: b64 };
+        if (sha) body.sha = sha;
+
+        const upRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${file}`, {
+          method: 'PUT',
+          headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        if (upRes.ok) { slog(`${file} ✓`, 'ok'); ok++; }
+        else { const e = await upRes.json(); slog(`${file} — ${e.message}`, 'err'); errors++; }
+      } catch(e) { slog(`${file} — ${e.message}`, 'err'); errors++; }
+    }
+
+    // ── Fichiers binaires (images) ──
+    for (const file of binaryFiles) {
+      try {
+        slog(`Lecture locale de ${file}...`);
+        const res = await fetch(`${baseUrl}/${file}`, { cache: 'no-store' });
+        if (!res.ok) { slog(`${file} — non trouvé, ignoré`, 'err'); continue; }
+        const buf = await res.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        let binary = '';
+        const chunk = 8192;
+        for (let i = 0; i < bytes.length; i += chunk) {
+          binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.length)));
+        }
+        const b64 = btoa(binary);
+
+        let sha = null;
+        const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${file}`, {
+          headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+        });
+        if (ghRes.ok) { sha = (await ghRes.json()).sha; }
+
+        const body = { message: `Sync ${file}`, content: b64 };
+        if (sha) body.sha = sha;
+
+        const upRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${file}`, {
+          method: 'PUT',
+          headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        if (upRes.ok) { slog(`${file} ✓`, 'ok'); ok++; }
+        else { slog(`${file} — erreur`, 'err'); errors++; }
+      } catch(e) { slog(`${file} — ${e.message}`, 'err'); errors++; }
+    }
+
+    slog('');
+    if (errors === 0) {
+      slog(`══ SYNCHRONISATION RÉUSSIE : ${ok} fichiers ══`, 'ok');
+      slog(`GitHub Pages se met à jour dans 1-3 minutes`, 'info');
+      slog(`URL : https://${owner}.github.io/${repo}/`, 'ok');
+      toast(`${ok} fichiers synchronisés vers GitHub !`, 'ok', 5000);
+    } else {
+      slog(`${ok} OK, ${errors} erreurs`, 'err');
+      toast(`Sync partielle : ${ok} OK, ${errors} erreurs`, 'err');
+    }
+  } catch(e) {
+    slog('ERREUR : ' + e.message, 'err');
+    toast('Erreur : ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ══════════════════════════════════════════════
+//  GITHUB API
+// ══════════════════════════════════════════════
+async function ghGetFile(token, owner, repo, path) {
+  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
+    headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+  });
+  if (!res.ok) throw new Error(`GitHub : impossible de lire ${path} (${res.status})`);
+  const data = await res.json();
+  // Décoder le contenu base64
+  const b64 = data.content.replace(/\n/g, '');
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const content = new TextDecoder('utf-8').decode(bytes);
+  return { content, sha: data.sha };
+}
+
+async function ghUpdateFile(token, owner, repo, path, content, sha, message) {
+  // Encoder UTF-8 → base64
+  const bytes = new TextEncoder().encode(content);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  const b64 = btoa(binary);
+
+  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
+    method: 'PUT',
+    headers: {
+      'Authorization': `token ${token}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/vnd.github.v3+json'
+    },
+    body: JSON.stringify({ message, content: b64, sha })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(`GitHub erreur ${res.status} : ${err.message || 'inconnue'}`);
+  }
+  return res.json();
+}
+
+// ══════════════════════════════════════════════
+//  RAPPORTS
+// ══════════════════════════════════════════════
+async function loadReports() {
+  const fb = window._fb; if (!fb) return;
+  document.getElementById('reportList').innerHTML = '<div class="empty">Chargement...</div>';
+  try {
+    const q = fb.query(fb.collection(fb.db,'reports'), fb.orderBy('createdAt','desc'), fb.limit(60));
+    const snap = await fb.getDocs(q);
+    if (snap.empty) { document.getElementById('reportList').innerHTML = '<div class="empty">Aucun rapport.</div>'; return; }
+    let html = '';
+    snap.forEach(d => {
+      const r = d.data();
+      const isValid = r.is_valid;
+      const date = r.createdAt ? new Date(r.createdAt.seconds ? r.createdAt.seconds*1000 : r.createdAt).toLocaleString('fr-FR') : '—';
+      html += `<div class="report-row">
+        <span class="report-vin">${esc(r.vin||'—')}</span>
+        <span class="${isValid?'report-valid':'report-invalid'}" style="margin-left:10px;font-size:0.8rem">${isValid?'✓ Valide':'✗ Invalide'}</span>
+        <div class="report-meta">${esc(r.agentNom||'—')} · ${esc(r.lieuTravail||'—')} · ${date}</div>
+        ${r.info?.Make ? `<div style="font-size:0.78rem;color:var(--dim);margin-top:2px">${esc(r.info.Make)} ${esc(r.info.Model||'')} ${esc(r.info.ModelYear||'')}</div>` : ''}
+      </div>`;
+    });
+    document.getElementById('reportList').innerHTML = html;
+  } catch(e) { document.getElementById('reportList').innerHTML = `<div class="empty">Erreur : ${e.message}</div>`; }
+}
+
+// ══════════════════════════════════════════════
+//  CONFIG TOKEN GITHUB — stocké dans Firestore
+//  (accessible depuis n'importe quel PC)
+// ══════════════════════════════════════════════
+
+// Cache local pour éviter des appels Firestore répétés
+let _tokenCache = '';
+let _ownerCache = 'dtaattt2026-boop';
+let _repoCache  = 'vin-expert-attt';
+
+function getToken()    { return _tokenCache; }
+function getGhConfig() { return { owner: _ownerCache, repo: _repoCache }; }
+
+// Charger la config depuis Firestore au login
+async function loadGhConfigFromFirestore() {
+  const fb = window._fb; if (!fb) return;
+  try {
+    const snap = await fb.getDoc(fb.doc(fb.db, 'config', 'github'));
+    if (snap.exists()) {
+      const d = snap.data();
+      _tokenCache = d.token || '';
+      _ownerCache = d.owner || 'dtaattt2026-boop';
+      _repoCache  = d.repo  || 'vin-expert-attt';
+      // Remplir les champs visuels
+      if (document.getElementById('cfgOwner')) document.getElementById('cfgOwner').value = _ownerCache;
+      if (document.getElementById('cfgRepo'))  document.getElementById('cfgRepo').value  = _repoCache;
+      checkTokenStatus();
+    }
+  } catch(e) {}
+}
+
+function checkTokenStatus() {
+  const token = getToken();
+  const el = document.getElementById('tokenStatus');
+  if (!el) return;
+  el.className = `token-status ${token ? 'token-ok' : 'token-missing'}`;
+  el.innerHTML = token ? '<span>✓ Token configuré</span>' : '<span>✗ Token manquant</span>';
+  if (document.getElementById('cfgToken')) {
+    document.getElementById('cfgToken').value = token ? '••••••••••••••••••••' : '';
+  }
+}
+
+async function saveToken() {
+  const val = document.getElementById('cfgToken').value.trim();
+  if (!val || val === '••••••••••••••••••••') { toast('Saisissez un token valide.', 'err'); return; }
+  document.getElementById('tokenTestResult').textContent = 'Test en cours...';
+  try {
+    // Vérifier le token via l'API GitHub
+    const res = await fetch('https://api.github.com/user', {
+      headers: { 'Authorization': `token ${val}`, 'Accept': 'application/vnd.github.v3+json' }
+    });
+    if (res.ok) {
+      const user = await res.json();
+      // Sauvegarder dans Firestore
+      const fb = window._fb;
+      const { owner, repo } = getGhConfig();
+      await fb.setDoc(fb.doc(fb.db, 'config', 'github'), {
+        token: val,
+        owner: owner,
+        repo:  repo,
+        updatedAt: new Date().toISOString(),
+        updatedBy: `${window._admin?.prenom||''} ${window._admin?.nom||''}`.trim()
+      });
+      _tokenCache = val;
+      document.getElementById('tokenTestResult').innerHTML =
+        `<span style="color:var(--green)">✓ Token valide — connecté en tant que <b>${user.login}</b><br>
+        Sauvegardé dans Firestore (disponible sur tous vos appareils)</span>`;
+      checkTokenStatus();
+      toast('Token GitHub sauvegardé dans Firestore.', 'ok');
+    } else {
+      document.getElementById('tokenTestResult').innerHTML =
+        `<span style="color:var(--red)">✗ Token invalide (${res.status}). Vérifiez et réessayez.</span>`;
+    }
+  } catch(e) {
+    document.getElementById('tokenTestResult').innerHTML =
+      `<span style="color:var(--red)">✗ Erreur : ${e.message}</span>`;
+  }
+}
+
+async function clearToken() {
+  const fb = window._fb;
+  if (fb) {
+    try {
+      const snap = await fb.getDoc(fb.doc(fb.db, 'config', 'github'));
+      if (snap.exists()) {
+        const d = snap.data();
+        await fb.setDoc(fb.doc(fb.db, 'config', 'github'), {
+          ...d, token: '', updatedAt: new Date().toISOString()
+        });
+      }
+    } catch(e) {}
+  }
+  _tokenCache = '';
+  document.getElementById('cfgToken').value = '';
+  document.getElementById('tokenTestResult').textContent = '';
+  checkTokenStatus();
+  toast('Token supprimé.', 'info');
+}
+
+async function saveGhConfig() {
+  const owner = document.getElementById('cfgOwner').value.trim();
+  const repo  = document.getElementById('cfgRepo').value.trim();
+  if (!owner || !repo) { toast('Remplissez les deux champs.', 'err'); return; }
+  _ownerCache = owner;
+  _repoCache  = repo;
+  const fb = window._fb;
+  if (fb) {
+    try {
+      const snap = await fb.getDoc(fb.doc(fb.db, 'config', 'github'));
+      const existing = snap.exists() ? snap.data() : {};
+      await fb.setDoc(fb.doc(fb.db, 'config', 'github'), {
+        ...existing, owner, repo, updatedAt: new Date().toISOString()
+      });
+    } catch(e) {}
+  }
+  toast('Configuration GitHub sauvegardée.', 'ok');
+}
+
+function loadGhConfig() {
+  // Appelée au démarrage — la vraie charge vient de Firestore via loadGhConfigFromFirestore()
+  if (document.getElementById('cfgOwner')) document.getElementById('cfgOwner').value = _ownerCache;
+  if (document.getElementById('cfgRepo'))  document.getElementById('cfgRepo').value  = _repoCache;
+}
+
+// ══════════════════════════════════════════════
+//  QR CODE
+// ══════════════════════════════════════════════
+let _qrGenerated = false;
+
+function generateQRCode() {
+  if (_qrGenerated) return;
+  const APP_URL = 'https://dtaattt2026-boop.github.io/vin-expert-attt/';
+  const el = document.getElementById('qrCodeCanvas');
+  if (!el) return;
+  el.innerHTML = '';
+  try {
+    new QRCode(el, {
+      text: APP_URL,
+      width: 220,
+      height: 220,
+      colorDark: '#000000',
+      colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.H
+    });
+    document.getElementById('qrUrlDisplay').textContent = APP_URL;
+    _qrGenerated = true;
+  } catch(e) {
+    el.innerHTML = '<p style="color:#e03050;font-size:0.8rem">Erreur QR : vérifiez la connexion internet (CDN requis)</p>';
+  }
+}
+
+function downloadQR() {
+  const canvas = document.querySelector('#qrCodeCanvas canvas');
+  if (!canvas) { toast('QR Code non généré.', 'err'); return; }
+  const link = document.createElement('a');
+  link.download = 'VIN-Expert-ATTT-QR.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+  toast('QR Code téléchargé.', 'ok');
+}
+</script>
+</body>
+</html>

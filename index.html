@@ -1,0 +1,4339 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0055cc">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="VIN Expert">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="application-name" content="VIN Expert ATTT">
+    <meta name="description" content="Identification VIN — ATTT Direction Technique d'Automobiles">
+    <title>ATTT · VIN Identification</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&family=Exo+2:wght@300;400;600&display=swap" rel="stylesheet">
+    <!-- Firebase SDK -->
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
+      import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail }
+        from "https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js";
+      import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, deleteDoc, addDoc, query, orderBy, serverTimestamp, onSnapshot, limit }
+        from "https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js";
+
+      // ===== FIREBASE CONFIG =====
+      const firebaseConfig = {
+        apiKey: "AIzaSyCqdDe3NmL7w2Aqg8ly6YlcfPWGwaonUSw",
+        authDomain: "vin-expert-attt.firebaseapp.com",
+        projectId: "vin-expert-attt",
+        storageBucket: "vin-expert-attt.firebasestorage.app",
+        messagingSenderId: "841987458694",
+        appId: "1:841987458694:web:72465a1c53b04b34dc7307"
+      };
+
+            window._firebaseAvailable = false;
+            window.APP_VERSION = "2.1.0";
+
+            try {
+                const app = initializeApp(firebaseConfig);
+                const auth = getAuth(app);
+                const db = getFirestore(app);
+
+                // Expose to global scope
+                window._fb = { auth, db, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail,
+                    doc, setDoc, getDoc, collection, getDocs, updateDoc, deleteDoc, addDoc, query, orderBy, serverTimestamp, onSnapshot, limit };
+                window._firebaseAvailable = true;
+
+                // Auth state listener
+                onAuthStateChanged(auth, async (user) => {
+        // Pendant l'inscription (doRegister), on gère le flux manuellement
+        if (window._registering) return;
+
+        if (user) {
+          // Check rescue account
+          const isRescue = (user.email === "rescue@attt.internal");
+          if (isRescue) {
+            window.currentUser = { uid: user.uid, email: user.email, nom: "Admin", prenom: "Secours", matricule: "RESCUE", lieuTravail: "DTA", role: "admin" };
+            showApp();
+            return;
+          }
+          // Load user profile from Firestore
+          try {
+            const snap = await getDoc(doc(db, "users", user.uid));
+            if (snap.exists()) {
+              const data = snap.data();
+              if (data.disabled) { await signOut(auth); showAuthScreen('login'); showToast("Compte désactivé. Contactez l'administrateur.", "err"); return; }
+              window.currentUser = { uid: user.uid, email: user.email, ...data };
+              // Afficher version
+              const vBadge = document.getElementById('appVerBadge');
+              if (vBadge) vBadge.textContent = 'v' + (window.APP_VERSION || '1.0.0');
+              // Check update
+              await checkAppUpdate();
+              showApp();
+            } else {
+              // Profile not yet created (edge case)
+              window.currentUser = { uid: user.uid, email: user.email, nom: "", prenom: "", matricule: "", lieuTravail: "", role: "agent" };
+              await checkAppUpdate();
+              showApp();
+            }
+          } catch(e) {
+            console.error(e);
+            showAuthScreen('login');
+          }
+        } else {
+          window.currentUser = null;
+          // Si lien d'invitation dans l'URL → aller directement sur l'écran d'inscription
+          const inviteParam = new URLSearchParams(window.location.search).get('invite');
+          if (inviteParam) {
+            window._pendingInviteCode = inviteParam.toUpperCase();
+            showAuthScreen('register');
+          } else {
+            showAuthScreen('login');
+          }
+        }
+                });
+            } catch (e) {
+                console.error('Firebase init error:', e);
+                window._fb = null;
+                window._firebaseAvailable = false;
+            }
+    </script>
+    
+    <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
+    <script>
+        // ══ Auto-purge cache si version différente OU force-update ══
+        (async function autoPurgeCache() {
+            try {
+                const CURRENT = window.APP_VERSION || '0';
+                const STORAGE_KEY = '_vin_cached_version';
+                const cached = localStorage.getItem(STORAGE_KEY);
+                const params = new URLSearchParams(window.location.search);
+                const forceUpdate = params.has('force-update');
+
+                // Si force-update OU version différente → purger
+                if (!forceUpdate && cached && cached === CURRENT) {
+                    return; // même version, pas de force-update, rien à faire
+                }
+
+                console.log('[PURGE] ' + (forceUpdate ? 'Force-update demandé' : 'Version changée: ' + (cached||'aucune') + ' → ' + CURRENT));
+
+                // 1. Supprimer tous les caches
+                if ('caches' in window) {
+                    const keys = await caches.keys();
+                    await Promise.all(keys.map(k => { console.log('[PURGE] Suppression cache:', k); return caches.delete(k); }));
+                }
+
+                // 2. Désenregistrer TOUS les anciens SW pour repartir propre
+                if ('serviceWorker' in navigator) {
+                    const regs = await navigator.serviceWorker.getRegistrations();
+                    await Promise.all(regs.map(r => { console.log('[PURGE] Désenregistrement SW:', r.scope); return r.unregister(); }));
+                }
+
+                // 3. Sauvegarder la nouvelle version
+                localStorage.setItem(STORAGE_KEY, CURRENT);
+
+                // 4. Recharger sans le paramètre force-update (URL propre)
+                if (forceUpdate || cached) {
+                    // Nettoyer l'URL en retirant ?force-update
+                    const cleanUrl = window.location.origin + window.location.pathname;
+                    console.log('[PURGE] Rechargement vers', cleanUrl);
+                    window.location.replace(cleanUrl);
+                    return;
+                }
+                console.log('[PURGE] Premier lancement, version ' + CURRENT + ' enregistrée');
+            } catch(e) {
+                console.warn('[PURGE] Erreur:', e.message);
+            }
+        })();
+
+        // ══ Enregistrement SW après purge ══
+        window._swInitialized = false;
+        
+        function initServiceWorkerEarly() {
+            if (window._swInitialized) return;
+            if (typeof setupServiceWorkerAutoUpdate === 'function') {
+                window._swInitialized = true;
+                setupServiceWorkerAutoUpdate();
+            } else {
+                setTimeout(initServiceWorkerEarly, 100);
+            }
+        }
+        
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initServiceWorkerEarly);
+        } else {
+            setTimeout(initServiceWorkerEarly, 50);
+        }
+    </script>
+    <style>
+        :root {
+            --blue: #0055cc;
+            --blue-light: #1a7fff;
+            --gold: #c8a84b;
+            --gold-light: #f0c040;
+            --bg: #080c14;
+            --panel: #0d1220;
+            --panel2: #111827;
+            --border: rgba(0,85,204,0.3);
+            --text: #d0daf0;
+            --text-dim: #556070;
+            --green: #00c87a;
+            --red: #e03050;
+            --orange: #f0a020;
+            --font-display: 'Rajdhani', sans-serif;
+            --font-mono: 'Share Tech Mono', monospace;
+            --font-body: 'Exo 2', sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font-body);
+            min-height: 100vh;
+            padding: 0;
+            overflow-x: hidden;
+        }
+
+        /* === SCANLINES BACKGROUND === */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,85,204,0.015) 2px, rgba(0,85,204,0.015) 4px);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .app-wrapper {
+            max-width: 480px;
+            margin: 0 auto;
+            padding: 15px 12px 40px;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* === HEADER === */
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 16px 18px;
+            background: linear-gradient(135deg, #0a0f1e 0%, #0d1830 100%);
+            border: 1px solid var(--border);
+            border-top: 3px solid var(--blue);
+            border-radius: 14px;
+            margin-bottom: 14px;
+            position: relative;
+            overflow: hidden;
+        }
+        .header::after {
+            content: '';
+            position: absolute;
+            right: -20px; top: -20px;
+            width: 120px; height: 120px;
+            background: radial-gradient(circle, rgba(0,85,204,0.15) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        .header img { width: 54px; height: 54px; border-radius: 8px; object-fit: contain; }
+        .header-text h1 { font-family: var(--font-display); font-size: 1rem; font-weight: 700; color: #fff; letter-spacing: 1px; text-transform: uppercase; line-height: 1.2; }
+        .header-text p { font-size: 0.72rem; color: var(--gold); font-family: var(--font-mono); opacity: 0.9; margin-top: 2px; }
+
+        /* === TABS === */
+        .tabs {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 14px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 5px;
+        }
+        .tab-btn {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: var(--text-dim);
+            padding: 10px 6px;
+            font-family: var(--font-display);
+            font-weight: 600;
+            font-size: 0.85rem;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            border-radius: 7px;
+            transition: all 0.2s;
+            text-transform: uppercase;
+        }
+        .tab-btn.active {
+            background: var(--blue);
+            color: white;
+            box-shadow: 0 0 15px rgba(0,85,204,0.5);
+        }
+
+        /* === CARD === */
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 16px;
+            margin-bottom: 12px;
+            position: relative;
+            overflow: hidden;
+        }
+        .card-title {
+            font-family: var(--font-display);
+            font-size: 0.72rem;
+            font-weight: 600;
+            color: var(--blue-light);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .card-title::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+
+        /* === PHOTO GRID === */
+        .photo-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .photo-slot {
+            aspect-ratio: 1;
+            border: 1px dashed rgba(0,85,204,0.4);
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0,0,0,0.3);
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.2s;
+        }
+        .photo-slot:active { transform: scale(0.94); }
+        .photo-slot.filled { border-color: var(--blue); border-style: solid; }
+        .photo-slot img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; cursor: zoom-in; }
+        .photo-slot .slot-icon { font-size: 1.1rem; }
+        .photo-slot .slot-label { font-size: 0.5rem; color: var(--text-dim); text-align: center; padding: 0 3px; line-height: 1.3; text-transform: uppercase; margin-top: 3px; }
+
+        /* === ACTION BUTTONS === */
+        .btn-row { display: flex; gap: 8px; margin-bottom: 10px; }
+        .btn {
+            flex: 1;
+            padding: 11px 8px;
+            border: none;
+            border-radius: 9px;
+            font-family: var(--font-display);
+            font-weight: 700;
+            font-size: 0.82rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+        }
+        .btn:active { transform: scale(0.97); }
+        .btn-cam { background: linear-gradient(135deg, #003fa3, #0060d0); color: white; box-shadow: 0 3px 12px rgba(0,85,204,0.3); }
+        .btn-gal { background: linear-gradient(135deg, #1a0060, #5030a0); color: white; box-shadow: 0 3px 12px rgba(80,48,160,0.3); }
+        .btn-ocr { background: rgba(0,85,204,0.15); color: var(--blue-light); border: 1px solid var(--border); width: 100%; margin-bottom: 10px; padding: 12px; }
+        .btn-ocr:hover { background: rgba(0,85,204,0.25); }
+        .btn-verify {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #0040aa, #0070e0);
+            color: white;
+            font-size: 1rem;
+            border-radius: 10px;
+            border: none;
+            cursor: pointer;
+            font-family: var(--font-display);
+            font-weight: 700;
+            letter-spacing: 1px;
+            box-shadow: 0 4px 20px rgba(0,85,204,0.4);
+            transition: all 0.2s;
+            text-transform: uppercase;
+        }
+        .btn-verify:active { transform: scale(0.98); }
+
+        /* === VIN INPUT === */
+        .vin-wrapper { position: relative; margin-bottom: 6px; }
+        .vin-input {
+            width: 100%;
+            padding: 14px 12px;
+            background: rgba(0,0,0,0.5);
+            border: 2px solid rgba(0,85,204,0.4);
+            border-radius: 10px;
+            color: #fff;
+            font-family: var(--font-mono);
+            font-size: 1.35rem;
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            font-weight: normal;
+            transition: border-color 0.2s;
+        }
+        .vin-input:focus { outline: none; border-color: var(--blue-light); box-shadow: 0 0 15px rgba(0,120,255,0.2); }
+        .vin-input::placeholder { color: #334; letter-spacing: 2px; font-size: 1rem; }
+
+        .vin-counter {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 5px;
+            margin-bottom: 12px;
+            font-size: 0.75rem;
+        }
+        .ocr-review-box {
+            display: none;
+            margin-bottom: 12px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(240,160,32,0.35);
+            background: rgba(240,160,32,0.08);
+        }
+        .ocr-review-box label {
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+            font-size: 0.8rem;
+            color: var(--text);
+            line-height: 1.45;
+        }
+        .ocr-review-box input { margin-top: 2px; }
+        .ocr-review-note {
+            margin-top: 6px;
+            font-size: 0.72rem;
+            color: var(--orange);
+        }
+        .ocr-double-box {
+            margin-bottom: 10px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(0,85,204,0.28);
+            background: rgba(0,85,204,0.08);
+        }
+        .ocr-double-title {
+            font-size: 0.68rem;
+            color: var(--blue-light);
+            letter-spacing: 1.6px;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+            font-weight: 700;
+        }
+        .ocr-double-status {
+            font-size: 0.82rem;
+            color: var(--text);
+            line-height: 1.5;
+        }
+        .ocr-double-status b { color: #fff; }
+        .ocr-double-actions {
+            margin-top: 8px;
+            display: flex;
+            justify-content: flex-end;
+        }
+        .btn-ocr-reset {
+            background: rgba(224,48,80,0.14);
+            color: var(--red);
+            border: 1px solid rgba(224,48,80,0.35);
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 0.72rem;
+            font-family: var(--font-display);
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .vin-dots { display: flex; gap: 3px; }
+        .vin-dot { width: 10px; height: 4px; border-radius: 2px; background: var(--text-dim); transition: background 0.1s; }
+        .vin-dot.filled { background: var(--blue-light); }
+        .vin-dot.complete { background: var(--green); }
+        .char-feedback { font-family: var(--font-body); font-size: 0.78rem; font-weight: 600; }
+        .msg-missing { color: var(--orange); }
+        .msg-ok { color: var(--green); }
+        .msg-err { color: var(--red); }
+
+        /* === LIGHTBOX ZOOM PHOTO === */
+        .lightbox-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.92); z-index: 100000; justify-content: center; align-items: center;
+            flex-direction: column; cursor: zoom-out;
+        }
+        .lightbox-overlay.active { display: flex; }
+        .lightbox-overlay img {
+            max-width: 95vw; max-height: 85vh; object-fit: contain; border-radius: 8px;
+            box-shadow: 0 0 40px rgba(0,85,204,0.3); user-select: none;
+        }
+        .lightbox-close {
+            position: absolute; top: 12px; right: 16px; font-size: 2rem; color: #fff;
+            cursor: pointer; z-index: 100001; background: none; border: none; opacity: 0.8;
+        }
+        .lightbox-close:hover { opacity: 1; }
+        .lightbox-label {
+            color: rgba(255,255,255,0.7); font-size: 0.82rem; margin-top: 10px; text-align: center;
+        }
+
+        /* === CHAT / MESSAGERIE === */
+        .chat-container { display: flex; flex-direction: column; height: calc(100vh - 180px); min-height: 400px; }
+        .chat-messages { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+        .chat-msg {
+            max-width: 80%; padding: 10px 14px; border-radius: 14px; font-size: 0.88rem;
+            line-height: 1.4; word-wrap: break-word; position: relative;
+        }
+        .chat-msg.mine { align-self: flex-end; background: rgba(0,85,204,0.25); color: var(--text); border-bottom-right-radius: 4px; }
+        .chat-msg.other { align-self: flex-start; background: var(--panel2); color: var(--text); border-bottom-left-radius: 4px; }
+        .chat-msg .chat-sender { font-size: 0.7rem; color: var(--gold); font-weight: 700; margin-bottom: 2px; }
+        .chat-msg .chat-time { font-size: 0.65rem; color: var(--text-dim); margin-top: 4px; text-align: right; }
+        .chat-msg img { max-width: 100%; max-height: 200px; border-radius: 8px; margin: 6px 0; cursor: pointer; }
+        .chat-input-bar {
+            display: flex; gap: 8px; padding: 10px; background: var(--panel); border-top: 1px solid var(--border);
+        }
+        .chat-input-bar input[type="text"] {
+            flex: 1; padding: 10px 14px; background: var(--panel2); border: 1px solid var(--border);
+            border-radius: 20px; color: var(--text); font-size: 0.88rem; outline: none;
+        }
+        .chat-input-bar button {
+            background: var(--blue); color: #fff; border: none; border-radius: 50%; width: 40px; height: 40px;
+            font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center;
+        }
+        .chat-badge { background: var(--red); color: #fff; font-size: 0.65rem; padding: 1px 5px; border-radius: 10px; margin-left: 4px; }
+
+        /* === LOADER === */
+        .loader {
+            display: none;
+            background: rgba(0,0,0,0.4);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 16px;
+            text-align: center;
+            margin-bottom: 12px;
+        }
+        .loader-bar {
+            height: 3px;
+            background: linear-gradient(90deg, var(--blue), var(--blue-light), var(--blue));
+            background-size: 200% 100%;
+            animation: scan 1.5s linear infinite;
+            border-radius: 3px;
+            margin-bottom: 10px;
+        }
+        @keyframes scan { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+        .loader-text { font-family: var(--font-mono); font-size: 0.78rem; color: var(--gold); }
+        .loader-sub { font-size: 0.7rem; color: var(--text-dim); margin-top: 4px; }
+
+        /* === RESULT BOX === */
+        .result-box {
+            display: none;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            margin-top: 12px;
+            animation: fadeIn 0.3s ease;
+        }
+        .result-header {
+            padding: 12px 16px;
+            font-family: var(--font-display);
+            font-size: 1rem;
+            font-weight: 700;
+            letter-spacing: 1px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .result-header.valid { background: linear-gradient(135deg, #003d20, #006030); border-bottom: 2px solid var(--green); }
+        .result-header.invalid { background: linear-gradient(135deg, #3d0010, #700020); border-bottom: 2px solid var(--red); }
+        .result-body { background: var(--panel2); padding: 14px; }
+        .result-row { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .result-row:last-child { margin: 0; padding: 0; border: none; }
+        .result-label { font-size: 0.65rem; font-weight: 600; color: var(--text-dim); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 3px; }
+        .result-value { font-family: var(--font-body); font-size: 0.9rem; color: var(--text); }
+        .result-value b { color: white; }
+        .check-valid { color: var(--green); font-weight: 700; }
+        .check-invalid { color: var(--red); font-weight: 700; }
+        .intel-badges { display: flex; gap: 8px; flex-wrap: wrap; }
+        .intel-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 0.72rem;
+            font-family: var(--font-mono);
+            border: 1px solid transparent;
+        }
+        .intel-badge.sure { background: rgba(0,200,122,0.14); color: var(--green); border-color: rgba(0,200,122,0.4); }
+        .intel-badge.unsure { background: rgba(240,160,32,0.14); color: var(--orange); border-color: rgba(240,160,32,0.4); }
+
+        /* === AI REPORT === */
+        .ai-report {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(200,168,75,0.2);
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 0.82rem;
+            line-height: 1.65;
+            color: #c8d8e8;
+            white-space: pre-wrap;
+            font-family: var(--font-body);
+        }
+
+        /* === CANVAS (hidden) === */
+        #processCanvas { display: none; }
+
+        /* === PREVIEW === */
+        #preview {
+            width: 100%;
+            max-height: 140px;
+            object-fit: contain;
+            border-radius: 8px;
+            display: none;
+            border: 1px solid var(--border);
+            background: rgba(0,0,0,0.3);
+            margin-bottom: 10px;
+            cursor: zoom-in;
+        }
+
+        /* === HISTORY === */
+        .hist-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: var(--panel2);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: border-color 0.2s;
+            animation: fadeIn 0.3s ease;
+        }
+        .hist-item:active { border-color: var(--blue-light); }
+        .hist-thumb { width: 50px; height: 50px; border-radius: 6px; object-fit: cover; border: 1px solid var(--border); background: rgba(0,0,0,0.3); flex-shrink: 0; cursor: zoom-in; }
+        .hist-info { flex: 1; min-width: 0; }
+        .hist-vin { font-family: var(--font-mono); font-size: 0.95rem; color: var(--blue-light); margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .hist-meta { font-size: 0.7rem; color: var(--text-dim); }
+        .hist-badge { padding: 2px 7px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; font-family: var(--font-display); letter-spacing: 1px; }
+        .badge-valid { background: rgba(0,200,122,0.2); color: var(--green); border: 1px solid rgba(0,200,122,0.3); }
+        .badge-invalid { background: rgba(224,48,80,0.2); color: var(--red); border: 1px solid rgba(224,48,80,0.3); }
+
+        /* === ZOOM OVERLAY === */
+        #zoomOverlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.97);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+        }
+        #zoomedImg { max-width: 97%; max-height: 90vh; border: 1px solid var(--border); border-radius: 6px; transition: transform 0.1s; }
+        .close-zoom { position: absolute; top: 20px; right: 20px; color: white; font-size: 2.5rem; cursor: pointer; z-index: 2100; line-height: 1; }
+
+        /* === SECTION TOGGLE === */
+        .section { display: none; }
+        .section.active { display: block; }
+
+        /* === EMPTY STATE === */
+        .empty-state { text-align: center; padding: 40px 20px; color: var(--text-dim); }
+        .empty-state .empty-icon { font-size: 2.5rem; margin-bottom: 10px; opacity: 0.5; }
+        .empty-state p { font-size: 0.82rem; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* === SEPARATOR === */
+        .or-sep { text-align: center; color: var(--text-dim); font-size: 0.72rem; letter-spacing: 2px; margin: 8px 0; position: relative; }
+        .or-sep::before, .or-sep::after { content: ''; position: absolute; top: 50%; width: 38%; height: 1px; background: var(--border); }
+        .or-sep::before { left: 0; } .or-sep::after { right: 0; }
+
+        /* === STATUS INDICATOR === */
+        .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); display: inline-block; animation: pulse 2s ease-in-out infinite; margin-right: 4px; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+        .report-photos { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 12px; }
+        .report-photo { aspect-ratio: 1; border-radius: 6px; overflow: hidden; cursor: pointer; border: 1px solid var(--border); }
+        .report-photo img { width: 100%; height: 100%; object-fit: cover; }
+
+        /* ===== AUTH SCREENS ===== */
+        #authScreen {
+            display: none;
+            position: fixed; inset: 0; z-index: 9000;
+            background: var(--bg);
+            overflow-y: auto;
+        }
+        #authScreen.active { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 20px 16px 40px; }
+        .auth-logo { text-align: center; margin-bottom: 24px; padding-top: 20px; }
+        .auth-logo img { width: 64px; height: 64px; border-radius: 12px; }
+        .auth-logo h1 { font-family: var(--font-display); font-size: 1.1rem; font-weight: 700; color: #fff; letter-spacing: 1px; margin-top: 10px; }
+        .auth-logo p { font-size: 0.72rem; color: var(--gold); font-family: var(--font-mono); margin-top: 3px; }
+        .auth-card {
+            width: 100%; max-width: 420px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-top: 3px solid var(--blue);
+            border-radius: 16px;
+            padding: 24px 20px;
+            animation: fadeIn 0.3s ease;
+        }
+        .auth-card h2 { font-family: var(--font-display); font-size: 1rem; font-weight: 700; color: #fff; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 20px; text-align: center; }
+        .form-group { margin-bottom: 14px; }
+        .form-group label { display: block; font-size: 0.7rem; font-weight: 600; color: var(--blue-light); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 6px; }
+        .form-group input, .form-group select {
+            width: 100%; padding: 12px 14px;
+            background: rgba(0,0,0,0.4);
+            border: 1px solid rgba(0,85,204,0.35);
+            border-radius: 9px;
+            color: var(--text);
+            font-family: var(--font-body);
+            font-size: 0.92rem;
+            transition: border-color 0.2s;
+        }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--blue-light); }
+        .form-group select option { background: #111827; }
+        .btn-auth {
+            width: 100%; padding: 14px;
+            background: linear-gradient(135deg, #0040aa, #0070e0);
+            color: white; border: none; border-radius: 10px;
+            font-family: var(--font-display); font-weight: 700; font-size: 0.95rem;
+            letter-spacing: 1px; text-transform: uppercase;
+            cursor: pointer; margin-top: 6px;
+            box-shadow: 0 4px 20px rgba(0,85,204,0.35);
+            transition: all 0.2s;
+        }
+        .btn-auth:active { transform: scale(0.98); }
+        .btn-auth.secondary { background: transparent; border: 1px solid var(--border); color: var(--text-dim); box-shadow: none; margin-top: 10px; }
+        .auth-switch { text-align: center; margin-top: 16px; font-size: 0.8rem; color: var(--text-dim); }
+        .auth-switch a { color: var(--blue-light); cursor: pointer; text-decoration: underline; }
+        .auth-err { background: rgba(224,48,80,0.15); border: 1px solid rgba(224,48,80,0.3); border-radius: 8px; padding: 10px 12px; font-size: 0.8rem; color: var(--red); margin-bottom: 14px; display: none; }
+        .auth-err.show { display: block; }
+        .pending-badge { background: rgba(240,160,32,0.15); border: 1px solid rgba(240,160,32,0.3); border-radius: 8px; padding: 12px; font-size: 0.8rem; color: var(--orange); text-align: center; line-height: 1.5; }
+
+        /* ===== USER BADGE IN HEADER ===== */
+        .user-badge {
+            display: flex; align-items: center; gap: 8px;
+            background: rgba(0,85,204,0.15); border: 1px solid var(--border);
+            border-radius: 8px; padding: 6px 10px;
+            font-size: 0.75rem; cursor: pointer;
+            margin-left: auto;
+        }
+        .user-badge .user-name { font-weight: 700; color: #fff; font-family: var(--font-display); }
+        .user-badge .user-role { color: var(--gold); font-size: 0.65rem; font-family: var(--font-mono); }
+
+        /* ===== TOAST ===== */
+        #toastContainer { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+        .toast { padding: 10px 18px; border-radius: 8px; font-size: 0.82rem; font-family: var(--font-body); font-weight: 600; animation: fadeIn 0.3s ease; white-space: nowrap; }
+        .toast.ok { background: rgba(0,200,122,0.9); color: #fff; }
+        .toast.err { background: rgba(224,48,80,0.9); color: #fff; }
+        .toast.info { background: rgba(0,85,204,0.9); color: #fff; }
+
+        /* ===== TRACE DTA ===== */
+        #tracePanel {
+            position: fixed;
+            right: 10px;
+            bottom: 88px;
+            width: min(420px, calc(100vw - 20px));
+            max-height: 45vh;
+            z-index: 99998;
+            background: rgba(6, 10, 22, 0.96);
+            border: 1px solid rgba(0, 85, 204, 0.45);
+            border-radius: 10px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+            display: none;
+            overflow: hidden;
+        }
+        #tracePanel.active { display: block; }
+        .trace-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            border-bottom: 1px solid rgba(0, 85, 204, 0.3);
+            background: rgba(0, 85, 204, 0.12);
+            font-family: var(--font-display);
+            font-size: 0.75rem;
+            color: #d0daf0;
+        }
+        .trace-actions { display: flex; gap: 6px; }
+        .trace-btn {
+            background: rgba(0,0,0,0.25);
+            border: 1px solid var(--border);
+            color: #cfd8ee;
+            border-radius: 6px;
+            padding: 2px 8px;
+            font-size: 0.7rem;
+            cursor: pointer;
+        }
+        #traceBody {
+            max-height: calc(45vh - 40px);
+            overflow: auto;
+            padding: 8px 10px;
+            font-family: var(--font-mono);
+            font-size: 0.68rem;
+            line-height: 1.5;
+            color: #9fb0d4;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        #traceToggle {
+            position: fixed;
+            right: 12px;
+            bottom: 50px;
+            z-index: 99999;
+            border: 1px solid rgba(0,85,204,0.45);
+            background: rgba(5, 20, 45, 0.92);
+            color: #cfe0ff;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 0.72rem;
+            font-family: var(--font-display);
+            cursor: pointer;
+            display: none;
+        }
+
+        /* ===== UPDATE OVERLAY ===== */
+        #updateOverlay {
+            display: none; position: fixed; inset: 0; z-index: 8000;
+            background: rgba(0,0,0,0.95);
+            justify-content: center; align-items: center;
+            padding: 20px;
+        }
+        #updateOverlay.active { display: flex; }
+        .update-card {
+            background: var(--panel); border: 1px solid var(--gold);
+            border-top: 3px solid var(--gold); border-radius: 16px;
+            padding: 30px 24px; max-width: 380px; width: 100%;
+            text-align: center; animation: fadeIn 0.3s ease;
+        }
+        .update-icon { font-size: 3rem; margin-bottom: 14px; }
+        .update-card h2 { font-family: var(--font-display); font-size: 1.2rem; font-weight: 700; color: var(--gold); margin-bottom: 8px; }
+        .update-card p { font-size: 0.85rem; color: var(--text); line-height: 1.6; margin-bottom: 20px; }
+        .btn-update { background: linear-gradient(135deg, #a07000, #d4a017); color: #fff; border: none; border-radius: 10px; padding: 12px 24px; font-family: var(--font-display); font-weight: 700; font-size: 0.9rem; cursor: pointer; width: 100%; transition: opacity 0.2s; }
+        .btn-update:disabled { opacity: 0.65; cursor: not-allowed; }
+        .btn-skip-update { background: transparent; border: 1px solid var(--border); color: var(--text-dim); border-radius: 10px; padding: 10px 24px; font-family: var(--font-display); font-size: 0.85rem; cursor: pointer; width: 100%; margin-top: 8px; }
+
+        /* ===== ADMIN PANEL ===== */
+        #adminSection { display: none; }
+        #adminSection.active { display: block; }
+        .admin-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+        .admin-nav button {
+            padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border);
+            background: var(--panel2); color: var(--text-dim);
+            font-family: var(--font-display); font-size: 0.78rem; font-weight: 600;
+            cursor: pointer; letter-spacing: 0.5px; text-transform: uppercase; transition: all 0.2s;
+        }
+        .admin-nav button.active { background: var(--blue); color: white; border-color: var(--blue); }
+        .admin-sub { display: none; }
+        .admin-sub.active { display: block; }
+        .user-row {
+            display: flex; align-items: center; gap: 10px;
+            padding: 12px; background: var(--panel2);
+            border: 1px solid var(--border); border-radius: 10px;
+            margin-bottom: 8px;
+        }
+        .user-row-info { flex: 1; min-width: 0; }
+        .user-row-name { font-weight: 700; font-size: 0.9rem; color: #fff; }
+        .user-row-meta { font-size: 0.68rem; color: var(--text-dim); margin-top: 2px; }
+        .badge-role { padding: 2px 8px; border-radius: 4px; font-size: 0.62rem; font-weight: 700; font-family: var(--font-display); letter-spacing: 1px; }
+        .badge-admin { background: rgba(200,168,75,0.2); color: var(--gold); border: 1px solid rgba(200,168,75,0.3); }
+        .badge-agent { background: rgba(0,85,204,0.2); color: var(--blue-light); border: 1px solid rgba(0,85,204,0.3); }
+        .badge-disabled { background: rgba(224,48,80,0.2); color: var(--red); border: 1px solid rgba(224,48,80,0.3); }
+        .badge-pending { background: rgba(240,160,32,0.2); color: var(--orange); border: 1px solid rgba(240,160,32,0.3); }
+        .btn-sm { padding: 5px 10px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.72rem; font-family: var(--font-display); font-weight: 700; }
+        .btn-approve { background: rgba(0,200,122,0.2); color: var(--green); border: 1px solid rgba(0,200,122,0.3); }
+        .btn-disable { background: rgba(224,48,80,0.2); color: var(--red); border: 1px solid rgba(224,48,80,0.3); }
+        .btn-enable { background: rgba(0,85,204,0.2); color: var(--blue-light); border: 1px solid rgba(0,85,204,0.3); }
+        .btn-make-admin { background: rgba(200,168,75,0.2); color: var(--gold); border: 1px solid rgba(200,168,75,0.3); }
+        .version-card { background: var(--panel2); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+        .version-current { font-family: var(--font-mono); font-size: 1.4rem; color: var(--blue-light); text-align: center; margin: 12px 0; }
+        .form-inline { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+        .form-inline .form-group { flex: 1; min-width: 120px; margin-bottom: 0; }
+        .toggle-wrap { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+        .toggle-wrap label { font-size: 0.8rem; color: var(--text); }
+        input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--blue); }
+
+        /* ===== PASSWORD TOGGLE ===== */
+        .pass-wrap { position: relative; }
+        .pass-wrap input { padding-right: 46px !important; width: 100%; }
+        .pass-toggle {
+            position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+            background: none; border: none; cursor: pointer;
+            color: var(--text-dim); font-size: 1.05rem; padding: 4px; line-height: 1;
+            transition: color 0.2s;
+        }
+        .pass-toggle:hover { color: var(--blue-light); }
+
+        /* ===== INVITATION ===== */
+        .invite-box {
+            background: rgba(0,85,204,0.08);
+            border: 1px solid rgba(0,85,204,0.25);
+            border-radius: 12px; padding: 16px; margin-top: 4px;
+        }
+        .invite-code-display {
+            display: flex; align-items: center; gap: 8px;
+            background: rgba(0,0,0,0.4); border: 1px solid var(--border);
+            border-radius: 8px; padding: 10px 14px; margin: 10px 0;
+        }
+        .invite-code-val {
+            font-family: var(--font-mono); font-size: 1.3rem;
+            color: var(--gold-light); letter-spacing: 4px; flex: 1;
+        }
+        .invite-link-small { font-size: 0.68rem; color: var(--text-dim); word-break: break-all; margin-bottom: 8px; }
+        .invite-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+        .btn-invite { flex: 1; padding: 9px 8px; border-radius: 8px; border: none; cursor: pointer; font-family: var(--font-display); font-weight: 700; font-size: 0.78rem; letter-spacing: 0.5px; text-transform: uppercase; transition: all 0.2s; }
+        .btn-copy { background: rgba(0,85,204,0.2); color: var(--blue-light); border: 1px solid rgba(0,85,204,0.3); }
+        .btn-share-email { background: rgba(0,200,122,0.2); color: var(--green); border: 1px solid rgba(0,200,122,0.3); }
+        .btn-regen { background: rgba(240,160,32,0.15); color: var(--orange); border: 1px solid rgba(240,160,32,0.3); }
+        .invite-used-badge { font-size: 0.7rem; color: var(--text-dim); margin-top: 8px; text-align: center; }
+        .invite-section { display: none; }
+        .invite-section.active { display: block; }
+
+        /* ===== PROFILE SECTION ===== */
+        #profileSection { display: none; }
+        #profileSection.active { display: block; }
+</style>
+</head>
+<body>
+<canvas id="processCanvas"></canvas>
+
+<!-- ===== BANNIÈRE INSTALLATION PWA ===== -->
+<!-- Android : affiché via beforeinstallprompt -->
+<div id="installBanner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:99999;background:linear-gradient(135deg,#0d1220,#0d2040);border-top:2px solid #0055cc;padding:14px 16px;display:none;align-items:center;gap:12px;box-shadow:0 -4px 20px rgba(0,85,204,0.4)">
+  <img src="Logo.png" alt="ATTT" width="36" height="36" style="flex-shrink:0;border-radius:8px;object-fit:contain">
+  <div style="flex:1;min-width:0">
+    <div style="font-size:0.88rem;font-weight:700;color:#d0daf0">Installer VIN Expert ATTT</div>
+    <div style="font-size:0.72rem;color:#556070">Accès rapide depuis votre écran d'accueil</div>
+  </div>
+  <button id="installBtn" style="background:#0055cc;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-weight:700;font-size:0.82rem;cursor:pointer;white-space:nowrap">INSTALLER</button>
+  <button onclick="document.getElementById('installBanner').style.display='none'" style="background:transparent;border:none;color:#556070;font-size:1.2rem;cursor:pointer;padding:4px">✕</button>
+</div>
+
+<!-- iOS : instructions manuelles -->
+<div id="iosBanner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:99999;background:linear-gradient(135deg,#0d1220,#0d2040);border-top:2px solid #c8a84b;padding:14px 16px;box-shadow:0 -4px 20px rgba(200,168,75,0.3)">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start">
+    <div style="font-size:0.88rem;font-weight:700;color:#c8a84b;margin-bottom:6px">📱 Installer sur iPhone / iPad</div>
+    <button onclick="document.getElementById('iosBanner').style.display='none'" style="background:transparent;border:none;color:#556070;font-size:1.2rem;cursor:pointer">✕</button>
+  </div>
+  <div style="font-size:0.78rem;color:#d0daf0;line-height:1.8">
+    1. Appuyez sur <b style="color:#0af">partager</b> <span style="font-size:1rem">⬆</span> (bouton en bas de Safari)<br>
+    2. Faites défiler et choisissez <b style="color:#0af">« Sur l'écran d'accueil »</b> <span style="font-size:1rem">➕</span><br>
+    3. Confirmez en appuyant sur <b style="color:#0af">Ajouter</b>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toastContainer"></div>
+
+<!-- TRACE DTA -->
+<button id="traceToggle" onclick="toggleTracePanel()">TRACE DTA: OFF</button>
+<div id="tracePanel">
+    <div class="trace-head">
+        <span>TRACE TOTALE DTA</span>
+        <div class="trace-actions">
+            <button class="trace-btn" onclick="clearTraceLog()">Vider</button>
+            <button class="trace-btn" onclick="copyTraceLog()">Copier</button>
+            <button class="trace-btn" onclick="toggleTraceMode()" id="traceModeBtn">Désactiver</button>
+        </div>
+    </div>
+    <div id="traceBody"></div>
+</div>
+
+<!-- UPDATE OVERLAY -->
+<div id="updateOverlay">
+  <div class="update-card">
+    <div class="update-icon">🔄</div>
+    <h2>Mise à jour disponible</h2>
+    <p id="updateMsg">Une nouvelle version de VIN Expert est disponible.<br>Veuillez mettre à jour pour continuer.</p>
+    <button class="btn-update" onclick="doUpdate()">Mettre à jour maintenant</button>
+    <button class="btn-skip-update" id="btnSkipUpdate" onclick="closeUpdateOverlay()" style="display:none">Ignorer (optionnel)</button>
+  </div>
+</div>
+
+<!-- ===== AUTH SCREEN ===== -->
+<div id="authScreen">
+  <div class="auth-logo">
+    <img src="Logo.png" alt="ATTT" width="80" height="80" style="border-radius:14px;margin-bottom:4px;object-fit:contain">
+    <h1>ATTT · VIN Expert</h1>
+    <p>Direction Technique d'Automobiles</p>
+  </div>
+
+  <!-- LOGIN FORM -->
+  <div class="auth-card" id="loginCard">
+    <h2>🔐 Connexion</h2>
+    <div class="auth-err" id="loginErr"></div>
+        <div id="authModeHint" style="font-size:0.75rem;color:var(--text-dim);margin-bottom:10px">Si Firebase est indisponible, utilisez le mode local pour l'OCR, l'historique local et les PDF.</div>
+    <div class="form-group">
+      <label>Identifiant (Login ou Email)</label>
+      <input type="text" id="loginId" placeholder="ex: AB12345 ou email" autocomplete="username">
+    </div>
+    <div class="form-group">
+      <label>Mot de passe</label>
+      <div class="pass-wrap">
+        <input type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password">
+        <button type="button" class="pass-toggle" onclick="togglePass('loginPass',this)" title="Voir/Cacher">👁</button>
+      </div>
+    </div>
+    <button class="btn-auth" onclick="doLogin()">SE CONNECTER</button>
+        <button class="btn-auth secondary" id="forgotBtn" onclick="showAuthScreen('forgot')">Mot de passe oublié ?</button>
+        <button class="btn-auth secondary" id="localModeBtn" onclick="enterLocalMode()">UTILISER LE MODE LOCAL GRATUIT</button>
+        <div class="auth-switch" id="registerSwitch">Pas encore de compte ? <a onclick="showAuthScreen('register')">S'inscrire</a></div>
+  </div>
+
+  <!-- REGISTER FORM -->
+  <div class="auth-card" id="registerCard" style="display:none">
+    <h2>📝 Inscription Agent</h2>
+    <div class="auth-err" id="registerErr"></div>
+    <div class="form-group">
+      <label>Prénom</label>
+      <input type="text" id="regPrenom" placeholder="Prénom">
+    </div>
+    <div class="form-group">
+      <label>Nom</label>
+      <input type="text" id="regNom" placeholder="Nom de famille">
+    </div>
+    <div class="form-group">
+      <label>Matricule</label>
+      <input type="text" id="regMatricule" placeholder="ex: 12345/A" autocomplete="username">
+    </div>
+    <div class="form-group">
+      <label>Lieu de travail</label>
+      <input type="text" id="regLieu" placeholder="ex: Centre CTV Tunis">
+    </div>
+    <div class="form-group">
+      <label>Email professionnel</label>
+      <input type="email" id="regEmail" placeholder="agent@attt.gov.tn">
+    </div>
+    <div class="form-group">
+      <label>Mot de passe</label>
+      <div class="pass-wrap">
+        <input type="password" id="regPass" placeholder="Min. 8 caractères">
+        <button type="button" class="pass-toggle" onclick="togglePass('regPass',this)" title="Voir/Cacher">👁</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Confirmer mot de passe</label>
+      <div class="pass-wrap">
+        <input type="password" id="regPass2" placeholder="Retapez le mot de passe">
+        <button type="button" class="pass-toggle" onclick="togglePass('regPass2',this)" title="Voir/Cacher">👁</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Code d'invitation <span style="color:var(--text-dim);font-size:0.65rem;font-weight:400">(recommandé — approbation immédiate)</span></label>
+      <input type="text" id="regInviteCode" placeholder="ex: ATT-A1B2C3D4" autocomplete="off" style="text-transform:uppercase;letter-spacing:2px;font-family:var(--font-mono)">
+    </div>
+    <button class="btn-auth" onclick="doRegister()">ENVOYER LA DEMANDE</button>
+    <div class="auth-switch"><a onclick="showAuthScreen('login')">← Retour connexion</a></div>
+  </div>
+
+  <!-- FORGOT PASSWORD -->
+  <div class="auth-card" id="forgotCard" style="display:none">
+    <h2>🔑 Réinitialisation</h2>
+    <div class="auth-err" id="forgotErr"></div>
+    <div class="form-group">
+      <label>Email du compte</label>
+      <input type="email" id="forgotEmail" placeholder="votre@email.com">
+    </div>
+    <button class="btn-auth" onclick="doForgot()">ENVOYER LE LIEN</button>
+    <div class="auth-switch"><a onclick="showAuthScreen('login')">← Retour connexion</a></div>
+  </div>
+
+  <!-- PENDING -->
+  <div class="auth-card" id="pendingCard" style="display:none">
+    <h2>⏳ Compte en attente</h2>
+    <div class="pending-badge">
+      Votre demande d'inscription a été soumise.<br>
+      Un administrateur doit valider votre compte.<br><br>
+      <b>Vous avez un code d'invitation ? Retournez vous inscrire avec le code pour une approbation immédiate.</b>
+    </div>
+    <button class="btn-auth secondary" style="margin-top:10px" onclick="showAuthScreen('register')">Retourner à l'inscription</button>
+    <button class="btn-auth secondary" style="margin-top:8px" onclick="doLogout()">Se déconnecter</button>
+  </div>
+</div>
+
+<!-- ===== MAIN APP ===== -->
+<div id="mainApp" style="display:none">
+<div class="app-wrapper">
+
+    <!-- HEADER -->
+    <div class="header">
+        <img src="Logo.png" alt="ATTT" width="38" height="38" style="border-radius:9px;object-fit:contain;flex-shrink:0">
+        <div class="header-text">
+            <h1>Agence Technique des Transports Terrestres</h1>
+            <p><span class="status-dot"></span>Direction Technique d'Automobiles &nbsp;<span id="appVerBadge" style="font-size:0.7rem;opacity:0.95;font-family:var(--font-mono);color:var(--gold-light);background:rgba(200,168,75,0.12);padding:2px 8px;border-radius:10px"></span></p>
+        </div>
+        <div class="user-badge" onclick="toggleUserMenu()">
+            <div>
+                <div class="user-name" id="hdrName">—</div>
+                <div class="user-role" id="hdrRole">AGENT</div>
+            </div>
+            <span>⚙</span>
+        </div>
+    </div>
+
+    <!-- USER MENU -->
+    <div id="userMenu" style="display:none; margin-bottom:10px;">
+      <div class="card" style="padding:12px">
+        <div style="display:flex; flex-wrap:wrap; gap:8px;">
+          <button class="btn-sm btn-enable" onclick="switchTab('profile')">👤 Mon profil & Invitations</button>
+          <button class="btn-sm btn-make-admin" id="btnAdminPanel" onclick="switchTab('admin')" style="display:none">⚙️ Admin</button>
+          <button class="btn-sm" id="btnPanneau" onclick="window.open('panneau.html','_blank')" style="display:none;background:rgba(200,168,75,0.15);color:var(--gold);border:1px solid rgba(200,168,75,0.3)">🛡️ Panneau</button>
+          <button class="btn-sm btn-disable" onclick="doLogout()">🚪 Déconnexion</button>
+        </div>
+      </div>
+    </div>
+
+        <div class="card" id="localModeBanner" style="display:none;padding:12px 14px;background:linear-gradient(135deg,rgba(0,85,204,0.18),rgba(0,200,122,0.12));border-color:rgba(0,127,255,0.35)">
+            <div style="font-family:var(--font-display);font-size:0.85rem;font-weight:700;letter-spacing:1px;color:#fff">MODE LOCAL GRATUIT</div>
+            <div style="font-size:0.78rem;color:var(--text);margin-top:4px">OCR local, historique local et PDF disponibles. Connexion cloud, invitations et synchronisation sont désactivées.</div>
+        </div>
+
+    <!-- TABS -->
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('scan')">NOUVEL Identification</button>
+        <button class="tab-btn" onclick="switchTab('history')" id="histTab">HISTORIQUE <span id="hCount">0</span></button>
+        <button class="tab-btn" onclick="switchTab('chat')" id="tabChat">💬<span id="chatBadge" class="chat-badge" style="display:none">0</span></button>
+        <button class="tab-btn" id="tabProfile" onclick="switchTab('profile')">👤</button>
+        <button class="tab-btn" id="tabAdmin" onclick="switchTab('admin')" style="display:none">⚙️ ADMIN</button>
+    </div>
+
+    <!-- ====== SCAN SECTION ====== -->
+    <div class="section active" id="scanSection">
+
+        <!-- PHOTOS -->
+        <div class="card">
+            <div class="card-title">📷 Captures Terrain</div>
+            <div class="photo-grid">
+                <div class="photo-slot" id="slot0" onclick="takePic(0)">
+                    <img id="p0">
+                    <div class="slot-icon">📸</div>
+                    <div class="slot-label">N° Châssis</div>
+                </div>
+                <div class="photo-slot" id="slot1" onclick="takePic(1)">
+                    <img id="p1">
+                    <div class="slot-icon">📸</div>
+                    <div class="slot-label">Plaque Constr.</div>
+                </div>
+                <div class="photo-slot" id="slot2" onclick="takePic(2)">
+                    <img id="p2">
+                    <div class="slot-icon">📸</div>
+                    <div class="slot-label">Bloc Moteur</div>
+                </div>
+                <div class="photo-slot" id="slot3" onclick="takePic(3)">
+                    <img id="p3">
+                    <div class="slot-icon">📸</div>
+                    <div class="slot-label">Documents</div>
+                </div>
+            </div>
+            <input type="file" id="camInp" accept="image/*" capture="environment" style="display:none">
+            <input type="file" id="galInp" accept="image/*" style="display:none">
+        </div>
+
+        <!-- VIN ENTRY -->
+        <div class="card">
+            <div class="card-title">🔢 Numéro de Châssis (VIN)</div>
+
+            <div class="btn-row">
+                <button class="btn btn-cam" onclick="document.getElementById('camInp').click()">📷 CAMÉRA</button>
+                <button class="btn btn-gal" onclick="document.getElementById('galInp').click()">🖼️ GALERIE</button>
+            </div>
+
+            <img id="preview" onclick="openZoom(this.src)">
+
+            <div class="ocr-double-box">
+                <div class="ocr-double-title">Double lecture OCR</div>
+                <div class="ocr-double-status" id="ocrDoubleStatus">En attente du 1er scan OCR.</div>
+                <div class="ocr-double-actions">
+                    <button class="btn-ocr-reset" onclick="resetDoubleScanState(true)">Réinitialiser la double lecture</button>
+                </div>
+            </div>
+
+            <button class="btn btn-ocr" onclick="ocrVIN()" id="ocrBtn">🔍 OCR LOCAL GRATUIT</button>
+
+            <div class="vin-wrapper">
+                <input type="text" id="vinField" class="vin-input" placeholder="_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _" maxlength="17" oninput="handleVinInput()">
+            </div>
+            <div class="vin-counter">
+                <div class="vin-dots" id="vinDots"></div>
+                <span class="char-feedback" id="charFeedback"></span>
+            </div>
+            <div class="ocr-review-box" id="ocrReviewBox">
+                <label>
+                    <input type="checkbox" id="ocrReviewConfirm">
+                    <span>Je confirme avoir relu visuellement le VIN sur la photo avant validation.</span>
+                </label>
+                <div class="ocr-review-note" id="ocrReviewNote"></div>
+            </div>
+
+            <!-- LOADER -->
+            <div class="loader" id="loader">
+                <div class="loader-bar"></div>
+                <div class="loader-text" id="loaderText">⚙️ Analyse en cours...</div>
+                <div class="loader-sub" id="loaderSub"></div>
+            </div>
+
+            <button class="btn-verify" onclick="fullVerify()">🚀 VÉRIFIER & ENREGISTRER</button>
+
+            <!-- RESULT -->
+            <div class="result-box" id="resultBox">
+                <div id="resultHeader" class="result-header valid">
+                    <span id="resultIcon">✅</span>
+                    <span id="resultTitle">CHÂSSIS VALIDE</span>
+                </div>
+                <div class="result-body">
+                    <div class="result-row">
+                        <div class="result-label">Check Digit · Position 9</div>
+                        <div class="result-value" id="resCheckDetail"></div>
+                    </div>
+                    <div class="result-row">
+                        <div class="result-label">Identification Véhicule (NHTSA)</div>
+                        <div class="result-value" id="resVehicle"></div>
+                    </div>
+                    <div class="result-row" id="resIntelRow" style="display:none">
+                        <div class="result-label">Synthèse rapport VIN</div>
+                        <div class="intel-badges">
+                            <span class="intel-badge sure" id="sureCountBadge">Sûres: 0</span>
+                            <span class="intel-badge unsure" id="unsureCountBadge">Non sûres: 0</span>
+                        </div>
+                    </div>
+                    <div class="result-row" id="resAiRow" style="display:none">
+                        <div class="result-label">Rapport complémentaire</div>
+                        <div class="ai-report" id="resAiReport"></div>
+                    </div>
+                    <div class="result-row" style="margin-top:12px">
+                        <button class="btn-verify" style="background:linear-gradient(135deg,#004020,#007040);font-size:0.85rem" onclick="envoyerRapportPDF()">
+                            📧 Envoyer rapport PDF par email
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ====== HISTORY SECTION ====== -->
+    <div class="section" id="historySection">
+        <div class="card">
+            <div class="card-title">📋 Identifications Enregistrés</div>
+            <div id="histList"></div>
+        </div>
+    </div>
+
+    <!-- ====== PROFILE & INVITATION SECTION ====== -->
+    <div class="section" id="profileSection">
+
+      <!-- Profil info -->
+      <div class="card">
+        <div class="card-title">👤 Mon Profil</div>
+        <div id="profileInfo" style="font-size:0.85rem;line-height:2;color:var(--text)"></div>
+        <button class="btn-auth secondary" style="margin-top:12px;padding:10px" onclick="showChangePassModal()">🔑 Changer mon mot de passe</button>
+      </div>
+
+      <!-- Mon code d'invitation -->
+      <div class="card">
+        <div class="card-title">🎟️ Mon Code d'Invitation</div>
+        <p style="font-size:0.8rem;color:var(--text-dim);margin-bottom:10px;line-height:1.5">
+          Partagez ce code avec un collègue pour qu'il s'inscrive directement sans attente de validation.
+          Chaque code ne peut être utilisé qu'<b style="color:var(--gold)">une seule fois</b>.
+        </p>
+        <div class="invite-box">
+          <div style="font-size:0.68rem;color:var(--text-dim);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px">Votre code actuel</div>
+          <div class="invite-code-display">
+            <span class="invite-code-val" id="myInviteCode">────────</span>
+            <span id="myInviteStatus" style="font-size:0.65rem;color:var(--orange)"></span>
+          </div>
+          <div class="invite-link-small" id="myInviteLink"></div>
+          <div class="invite-actions">
+            <button class="btn-invite btn-copy" onclick="copyInviteCode()">📋 Copier code</button>
+            <button class="btn-invite btn-copy" onclick="copyInviteLink()">🔗 Copier lien</button>
+            <button class="btn-invite btn-share-email" onclick="showSendInviteModal()">📧 Envoyer par email</button>
+          </div>
+          <div style="margin-top:10px;text-align:center">
+            <button class="btn-invite btn-regen" style="width:100%" onclick="regenererCode()">🔄 Générer un nouveau code</button>
+          </div>
+          <div class="invite-used-badge" id="myInviteUsedInfo"></div>
+        </div>
+      </div>
+
+      <!-- Mes invitations envoyées -->
+      <div class="card">
+        <div class="card-title">📨 Historique invitations</div>
+        <div id="myInviteHistory"><div class="empty-state"><div class="empty-icon">📨</div><p>Chargement...</p></div></div>
+      </div>
+    </div>
+
+    <!-- MODAL: Envoyer invitation par email -->
+    <div id="sendInviteModal" style="display:none;position:fixed;inset:0;z-index:7000;background:rgba(0,0,0,0.85);justify-content:center;align-items:center;padding:20px">
+      <div class="auth-card" style="max-width:400px">
+        <h2>📧 Envoyer l'invitation</h2>
+        <div class="form-group">
+          <label>Email du destinataire</label>
+          <input type="email" id="inviteEmailTo" placeholder="collegue@attt.gov.tn">
+        </div>
+        <button class="btn-auth" onclick="envoyerInvitationEmail()">ENVOYER</button>
+        <button class="btn-auth secondary" onclick="document.getElementById('sendInviteModal').style.display='none'">Annuler</button>
+      </div>
+    </div>
+
+    <!-- MODAL: Changer mot de passe -->
+    <div id="changePassModal" style="display:none;position:fixed;inset:0;z-index:7000;background:rgba(0,0,0,0.85);justify-content:center;align-items:center;padding:20px">
+      <div class="auth-card" style="max-width:400px">
+        <h2>🔑 Changer mon mot de passe</h2>
+        <p style="font-size:0.8rem;color:var(--text-dim);margin-bottom:14px">Un email de réinitialisation sera envoyé à votre adresse.</p>
+        <div style="background:rgba(0,85,204,0.1);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:0.82rem;color:var(--blue-light);margin-bottom:14px" id="changePassEmail"></div>
+        <button class="btn-auth" onclick="envoyerResetSelf()">✉️ ENVOYER L'EMAIL DE RÉINITIALISATION</button>
+        <button class="btn-auth secondary" onclick="document.getElementById('changePassModal').style.display='none'">Annuler</button>
+      </div>
+    </div>
+
+
+    <!-- ═══ CHAT SECTION ═══ -->
+    <div class="section" id="chatSection">
+      <div class="card" style="padding:0;overflow:hidden;display:flex;flex-direction:column;height:calc(100vh - 160px)">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+          <span style="font-size:1.1rem">💬</span>
+          <span style="font-weight:700;font-size:0.95rem">Discussion équipe</span>
+          <span style="flex:1"></span>
+          <span id="chatOnlineCount" style="font-size:0.75rem;color:var(--green)"></span>
+        </div>
+        <div class="chat-messages" id="chatMessages">
+          <div style="text-align:center;color:var(--text-dim);padding:40px;font-size:0.85rem">Chargement...</div>
+        </div>
+        <div class="chat-input-bar">
+          <label style="cursor:pointer;display:flex;align-items:center">
+            <input type="file" id="chatPhotoInput" accept="image/*" style="display:none" onchange="envoyerPhotoChatFromInput(this)">
+            <span style="font-size:1.3rem;padding:4px">📷</span>
+          </label>
+          <input type="text" id="chatInput" placeholder="Écrire un message..." onkeydown="if(event.key==='Enter')envoyerMessageChat()">
+          <button onclick="envoyerMessageChat()">➤</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="section" id="adminSection">      <div class="card">
+        <div class="card-title">⚙️ Panneau d'administration</div>
+        <div class="admin-nav">
+          <button class="active" onclick="switchAdmin('users')">👥 Agents</button>
+          <button onclick="switchAdmin('update')">🔄 Mise à jour</button>
+          <button onclick="switchAdmin('reports')">📊 Rapports</button>
+        </div>
+
+        <!-- AGENTS SUB -->
+        <div class="admin-sub active" id="adminUsers">
+          <div style="display:flex; gap:8px; margin-bottom:12px;">
+            <button class="btn-auth" style="padding:10px;font-size:0.78rem;border-radius:8px; margin-top:0" onclick="loadAdminUsers()">🔄 Actualiser</button>
+          </div>
+          <div id="adminUserList"><div class="empty-state"><div class="empty-icon">👥</div><p>Chargement...</p></div></div>
+        </div>
+
+        <!-- UPDATE SUB -->
+        <div class="admin-sub" id="adminUpdate">
+          <div class="version-card">
+            <div class="card-title" style="margin-bottom:8px">Version actuelle de l'app</div>
+            <div class="version-current" id="adminCurVersion">—</div>
+            <div style="font-size:0.72rem;color:var(--text-dim);text-align:center;margin-bottom:16px">Déployée sur les appareils des agents</div>
+
+            <div class="form-group">
+              <label>Nouvelle version</label>
+              <input type="text" id="newVersionInput" placeholder="ex: 1.1.0">
+            </div>
+            <div class="form-group">
+              <label>Notes de mise à jour</label>
+              <input type="text" id="newVersionNotes" placeholder="ex: Correction bugs OCR...">
+            </div>
+            <div class="toggle-wrap">
+              <input type="checkbox" id="forceUpdate">
+              <label for="forceUpdate">Mise à jour <b>obligatoire</b> (bloque l'app)</label>
+            </div>
+            <div class="form-group" id="minVerGroup" style="margin-top:12px">
+              <label>Obligatoire à partir de la version</label>
+              <input type="text" id="minVersionInput" placeholder="ex: 0.9.0 (laisser vide = toutes)">
+            </div>
+            <button class="btn-auth" style="margin-top:16px" onclick="publierMiseAJour()">🚀 PUBLIER LA MISE À JOUR</button>
+          </div>
+        </div>
+
+        <!-- REPORTS SUB -->
+        <div class="admin-sub" id="adminReports">
+          <div id="adminReportList"><div class="empty-state"><div class="empty-icon">📊</div><p>Chargement des rapports...</p></div></div>
+          <button class="btn-auth" style="padding:10px;font-size:0.78rem;margin-top:8px;border-radius:8px" onclick="loadAdminReports()">🔄 Actualiser</button>
+        </div>
+
+      </div>
+    </div>
+
+</div><!-- end app-wrapper -->
+</div><!-- end mainApp -->
+
+<!-- ZOOM -->
+<div id="zoomOverlay" onclick="closeZoom()">
+    <span class="close-zoom">&times;</span>
+    <img id="zoomedImg">
+</div>
+
+<script>
+// ========== CONFIG ==========
+function safeStorageGet(key, fallback = null) {
+    try {
+        const v = localStorage.getItem(key);
+        return v === null ? fallback : v;
+    } catch(e) {
+        return fallback;
+    }
+}
+
+function safeStorageSet(key, value) {
+    try {
+        localStorage.setItem(key, value);
+        return true;
+    } catch(e) {
+        console.warn('[STORAGE] setItem failed for', key, e.message);
+        return false;
+    }
+}
+
+function safeStorageRemove(key) {
+    try { localStorage.removeItem(key); } catch(e) {}
+}
+
+const GAS_DRIVE_URL = "https://script.google.com/macros/s/AKfycbwJu4hNrvh3e9_sT9GcQ8Q2CMWo3kC64F2n7RVCmM1gjQtnHbud9k-FPV3piRfSgUxC/exec";
+console.info('[DTA-DRIVE] URL active:', GAS_DRIVE_URL);
+const IS_LOCAL_DEV = /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname);
+let TRACE_TOTAL = safeStorageGet('trace_total', '0') === '1' || new URLSearchParams(window.location.search).get('trace') === '1';
+let traceLines = [];
+
+// Compte de secours (hash stocké côté client — pour usage hors-ligne uniquement)
+const RESCUE_LOGIN = "347";
+const RESCUE_PASS  = "90134111";
+const RESCUE_ROLE  = "admin";
+
+const VIN_MAP = {'A':1,'B':2,'C':3,'D':4,'E':5,'F':6,'G':7,'H':8,'J':1,'K':2,'L':3,'M':4,'N':5,'P':7,'R':9,'S':2,'T':3,'U':4,'V':5,'W':6,'X':7,'Y':8,'Z':9};
+const VIN_WEIGHTS = [8,7,6,5,4,3,2,10,0,9,8,7,6,5,4,3,2];
+
+let photos = [null, null, null, null];
+let currentPhotoIdx = 0;
+let lastOcrPhotoData = "";
+let lastOcrPhotoOriginal = ""; // image originale pour les variantes OCR locales
+let lastOcrVariants = [];
+let lastOcrDiagnostics = null;
+let doubleScanState = {
+    firstVin: '',
+    firstSource: '',
+    firstMode: '',
+    pending: false,
+    confirmedVin: '',
+    mismatchCount: 0
+};
+let historique = [];
+let lastVerifyRecord = null;
+
+try {
+    historique = JSON.parse(safeStorageGet('attt_forensic_v1', '[]') || '[]');
+    // Nettoyage auto : supprimer les photos des anciens rapports pour libérer le quota
+    let cleaned = false;
+    historique = historique.map(r => {
+        if (r.photos && r.photos.some(p => p && p.length > 500)) { cleaned = true; return Object.assign({}, r, { photos: [], ocrPhoto: null }); }
+        if (r.ocrPhoto && r.ocrPhoto.length > 500) { cleaned = true; return Object.assign({}, r, { ocrPhoto: null }); }
+        return r;
+    });
+    if (cleaned) {
+        if (safeStorageSet('attt_forensic_v1', JSON.stringify(historique))) {
+            console.log('[STORAGE] Historique nettoyé (photos supprimées).');
+        } else {
+            safeStorageRemove('attt_forensic_v1');
+            historique = [];
+        }
+    }
+} catch(e) { historique = []; safeStorageRemove('attt_forensic_v1'); }
+
+// ========== TOAST ==========
+function showToast(msg, type = 'info', duration = 3500) {
+    const c = document.getElementById('toastContainer');
+    const t = document.createElement('div');
+    t.className = `toast ${type}`;
+    t.textContent = msg;
+    c.appendChild(t);
+    setTimeout(() => t.remove(), duration);
+}
+
+function updateVersionBadge(serverVersion) {
+    const vBadge = document.getElementById('appVerBadge');
+    if (!vBadge) return;
+    const localVer = window.APP_VERSION || '1.0.0';
+    if (serverVersion && compareVersions(localVer, serverVersion) < 0) {
+        vBadge.textContent = `v${localVer} → v${serverVersion}`;
+        vBadge.style.color = 'var(--orange)';
+        vBadge.style.opacity = '1';
+    } else {
+        vBadge.textContent = `v${localVer}`;
+        vBadge.style.color = 'var(--gold-light)';
+        vBadge.style.opacity = '0.95';
+    }
+}
+
+function setupServiceWorkerAutoUpdate() {
+    if (!('serviceWorker' in navigator)) {
+        console.warn('[SW] Service Worker non supporté');
+        return;
+    }
+
+    // updateViaCache:'none' = TOUJOURS télécharger sw.js du serveur, ignorer le cache HTTP
+    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then((reg) => {
+        console.log('[SW] Enregistré, scope:', reg.scope);
+
+        const applyUpdate = (worker) => {
+            console.log('[SW] skipWaiting demandé...');
+            worker.postMessage({type: 'SKIP_WAITING'});
+        };
+
+        // Si un SW est déjà en attente au chargement → l'activer immédiatement
+        if (reg.waiting) {
+            console.log('[SW] SW en attente trouvé au chargement, activation...');
+            applyUpdate(reg.waiting);
+        }
+
+        reg.addEventListener('updatefound', () => {
+            console.log('[SW] Nouvelle version trouvée');
+            const installing = reg.installing;
+            if (!installing) return;
+            installing.addEventListener('statechange', () => {
+                console.log('[SW] State:', installing.state);
+                if (installing.state === 'installed') {
+                    if (navigator.serviceWorker.controller) {
+                        // Mise à jour d'un SW existant → activer immédiatement
+                        console.log('[SW] Mise à jour prête, activation automatique...');
+                        applyUpdate(installing);
+                    } else {
+                        // Premier install → rien à faire, page se rechargera
+                        console.log('[SW] Premier install terminé');
+                    }
+                }
+            });
+        });
+
+        // Vérifier toutes les 30s (assez fréquent pour être réactif, pas trop pour la batterie)
+        const checkUpdate = async () => {
+            try { await reg.update(); } catch(e) { /* réseau indisponible */ }
+        };
+        setInterval(checkUpdate, 30 * 1000);
+
+        // Aussi vérifier quand l'app revient au premier plan
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') checkUpdate();
+        });
+
+        // Et vérifier une fois immédiatement 2s après le chargement
+        setTimeout(checkUpdate, 2000);
+
+        console.log('[SW] Auto-update configuré');
+    }).catch((err) => {
+        console.error('[SW] Erreur enregistrement:', err);
+    });
+
+    // Quand le nouveau SW prend le contrôle → recharger la page automatiquement
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloaded) return;
+        reloaded = true;
+        console.log('[SW] Nouveau SW actif, rechargement...');
+        location.reload();
+    });
+}
+
+function nowTrace() {
+    return new Date().toLocaleTimeString('fr-TN', { hour12: false }) + '.' + String(new Date().getMilliseconds()).padStart(3, '0');
+}
+
+function pushTraceLine(line) {
+    traceLines.push(line);
+    if (traceLines.length > 300) traceLines.shift();
+    const body = document.getElementById('traceBody');
+    if (body) {
+        body.textContent = traceLines.join('\n');
+        body.scrollTop = body.scrollHeight;
+    }
+}
+
+function traceDta(eventName, data) {
+    if (!TRACE_TOTAL) return;
+    let suffix = '';
+    if (data !== undefined) {
+        try { suffix = ' | ' + JSON.stringify(data); }
+        catch(e) { suffix = ' | [non sérialisable]'; }
+    }
+    const line = `[${nowTrace()}] ${eventName}${suffix}`;
+    pushTraceLine(line);
+}
+
+function refreshTraceUI() {
+    const toggle = document.getElementById('traceToggle');
+    const panel = document.getElementById('tracePanel');
+    const btn = document.getElementById('traceModeBtn');
+    if (toggle) {
+        // Garder l'interface propre: le bouton n'apparait qu'en mode trace actif.
+        toggle.style.display = TRACE_TOTAL ? '' : 'none';
+        toggle.textContent = TRACE_TOTAL ? 'TRACE DTA: ON' : 'TRACE DTA: OFF';
+    }
+    if (panel) panel.classList.toggle('active', TRACE_TOTAL);
+    if (btn) btn.textContent = TRACE_TOTAL ? 'Désactiver' : 'Activer';
+}
+
+function toggleTraceMode() {
+    TRACE_TOTAL = !TRACE_TOTAL;
+    safeStorageSet('trace_total', TRACE_TOTAL ? '1' : '0');
+    refreshTraceUI();
+    traceDta('TRACE_MODE', { enabled: TRACE_TOTAL, gasUrl: GAS_DRIVE_URL });
+}
+
+function toggleTracePanel() {
+    const panel = document.getElementById('tracePanel');
+    if (!panel) return;
+    panel.classList.toggle('active');
+}
+
+function clearTraceLog() {
+    traceLines = [];
+    const body = document.getElementById('traceBody');
+    if (body) body.textContent = '';
+}
+
+function copyTraceLog() {
+    const txt = traceLines.join('\n');
+    if (!txt) { showToast('Aucune trace à copier.', 'info'); return; }
+    navigator.clipboard.writeText(txt)
+        .then(() => showToast('Trace copiée.', 'ok'))
+        .catch(() => showToast('Copie impossible.', 'err'));
+}
+
+function formatLocationSummary(locationInfo) {
+    if (!locationInfo) return 'Non disponible';
+    if (locationInfo.summary) return locationInfo.summary;
+    return 'Non disponible';
+}
+
+function collectCurrentLocation() {
+    return new Promise((resolve) => {
+        if (!navigator.geolocation) {
+            resolve({
+                status: 'unsupported',
+                summary: 'Non disponible (géolocalisation indisponible sur cet appareil)'
+            });
+            return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const latitude = Number(position.coords.latitude || 0);
+                const longitude = Number(position.coords.longitude || 0);
+                const accuracy = Number(position.coords.accuracy || 0);
+                resolve({
+                    status: 'ok',
+                    latitude,
+                    longitude,
+                    accuracy,
+                    capturedAt: new Date().toLocaleString('fr-TN'),
+                    summary: `Lat ${latitude.toFixed(6)}, Lng ${longitude.toFixed(6)}${accuracy ? `, précision ±${Math.round(accuracy)} m` : ''}`
+                });
+            },
+            (error) => {
+                const reason = {
+                    1: 'refusée par l’utilisateur',
+                    2: 'position indisponible',
+                    3: 'délai dépassé'
+                }[error.code] || 'non disponible';
+                resolve({
+                    status: 'error',
+                    errorCode: error.code,
+                    summary: `Non disponible (${reason})`
+                });
+            },
+            {
+                enableHighAccuracy: true,
+                timeout: 8000,
+                maximumAge: 60000
+            }
+        );
+    });
+}
+
+function buildLocationMapUrl(locationInfo) {
+    if (!locationInfo || locationInfo.status !== 'ok') return '';
+    const latitude = Number(locationInfo.latitude);
+    const longitude = Number(locationInfo.longitude);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return '';
+    return `https://maps.google.com/?q=${latitude},${longitude}`;
+}
+
+function buildReportFolderName(record) {
+    const safeVin = (record?.vin || 'VIN').replace(/[^A-Z0-9]/gi, '');
+    const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
+    return `${safeVin}_${stamp}`;
+}
+
+function buildArchiveMetadata(record, diagnostics) {
+    const locationMapUrl = buildLocationMapUrl(record?.locationInfo);
+    return {
+        vin: record?.vin || '',
+        agentNom: record?.agentNom || '',
+        matricule: record?.matricule || '',
+        lieuTravail: record?.lieuTravail || '',
+        date: record?.date || '',
+        statut: record?.is_valid ? 'CHÂSSIS VALIDE' : 'CHÂSSIS INVALIDE',
+        vehicule: record?.info || '',
+        localisation: record?.locationSummary || 'Non disponible',
+        localisationStatus: record?.locationInfo?.status || 'unknown',
+        latitude: record?.locationInfo?.latitude ?? '',
+        longitude: record?.locationInfo?.longitude ?? '',
+        precisionMetres: record?.locationInfo?.accuracy ?? '',
+        lienCarte: locationMapUrl,
+        ocrMode: diagnostics?.mode || '',
+        ocrSource: diagnostics?.source || '',
+        ocrConsensus: diagnostics?.consensus || '',
+        doubleScanConfirme: !!diagnostics?.doubleScanConfirmed
+    };
+}
+
+function buildArchiveMetadataLines(record, metadata) {
+    const lines = [
+        `Agent: ${record?.agentNom || '—'}`,
+        `Matricule: ${record?.matricule || '—'}`,
+        `Lieu de travail: ${record?.lieuTravail || '—'}`,
+        `Date: ${record?.date || '—'}`,
+        `Localisation: ${record?.locationSummary || 'Non disponible'}`,
+        `VIN: ${record?.vin || '—'}`,
+        `Véhicule: ${record?.info || 'Non identifié'}`,
+        `Statut: ${record?.is_valid ? 'CHÂSSIS VALIDE' : 'CHÂSSIS INVALIDE'}`
+    ];
+    if (metadata?.lienCarte) lines.push(`Lien carte: ${metadata.lienCarte}`);
+    return lines;
+}
+
+// ========== AUTH SCREENS ==========
+function showAuthScreen(view) {
+    if (window._firebaseAvailable === false && view !== 'login') view = 'login';
+    const screen = document.getElementById('authScreen');
+    screen.classList.add('active');
+    document.getElementById('mainApp').style.display = 'none';
+    ['loginCard','registerCard','forgotCard','pendingCard'].forEach(id => {
+        document.getElementById(id).style.display = 'none';
+    });
+    const map = { login:'loginCard', register:'registerCard', forgot:'forgotCard', pending:'pendingCard' };
+    document.getElementById(map[view] || 'loginCard').style.display = 'block';
+    // Clear errors
+    ['loginErr','registerErr','forgotErr'].forEach(id => {
+        const el = document.getElementById(id);
+        if(el) { el.textContent=''; el.classList.remove('show'); }
+    });
+    // Pre-fill invite code if coming from URL
+    if (view === 'register' && window._pendingInviteCode) {
+        const invField = document.getElementById('regInviteCode');
+        if (invField) invField.value = window._pendingInviteCode;
+    }
+    updateAuthModeUI();
+}
+
+function showAuthError(id, msg) {
+    const el = document.getElementById(id);
+    if (el) { el.textContent = msg; el.classList.add('show'); }
+}
+
+function updateAuthModeUI() {
+    const isFirebaseAvailable = window._firebaseAvailable !== false;
+    const authModeHint = document.getElementById('authModeHint');
+    const forgotBtn = document.getElementById('forgotBtn');
+    const registerSwitch = document.getElementById('registerSwitch');
+    const localModeBtn = document.getElementById('localModeBtn');
+
+    if (authModeHint) {
+        authModeHint.textContent = isFirebaseAvailable
+            ? "Connexion cloud disponible. En cas de blocage réseau, vous pouvez quand même utiliser le mode local gratuit."
+            : "Firebase est indisponible sur cet environnement. Utilisez le mode local gratuit pour l'OCR, l'historique local et les PDF.";
+    }
+    if (forgotBtn) forgotBtn.style.display = isFirebaseAvailable ? '' : 'none';
+    if (registerSwitch) registerSwitch.style.display = isFirebaseAvailable ? '' : 'none';
+    if (localModeBtn) localModeBtn.textContent = isFirebaseAvailable ? 'UTILISER LE MODE LOCAL GRATUIT' : 'CONTINUER EN MODE LOCAL';
+}
+
+function enterLocalMode() {
+    window.currentUser = {
+        uid: '',
+        email: 'local@offline',
+        nom: 'Local',
+        prenom: 'Mode',
+        matricule: 'LOCAL',
+        lieuTravail: 'Appareil',
+        role: 'agent',
+        localOnly: true
+    };
+    showToast('Mode local activé. Les fonctions cloud sont désactivées.', 'info', 4500);
+    showApp();
+}
+
+function showApp() {
+    const u = window.currentUser;
+    if (!u) return;
+    // Check if pending (not approved yet)
+    if (u.role === 'pending') {
+        showAuthScreen('pending');
+        return;
+    }
+    document.getElementById('authScreen').classList.remove('active');
+    document.getElementById('mainApp').style.display = 'block';
+    // Header
+    document.getElementById('hdrName').textContent = `${u.prenom || ''} ${u.nom || ''}`.trim() || u.email;
+    document.getElementById('hdrRole').textContent = u.localOnly ? 'LOCAL' : (u.role === 'admin' ? 'ADMIN' : 'AGENT');
+    document.getElementById('localModeBanner').style.display = u.localOnly ? 'block' : 'none';
+    // Admin buttons
+    const isAdmin = (u.role === 'admin') && !u.localOnly;
+    document.getElementById('tabAdmin').style.display = isAdmin ? '' : 'none';
+    document.getElementById('tabProfile').style.display = u.localOnly ? 'none' : '';
+    document.getElementById('btnAdminPanel').style.display = isAdmin ? '' : 'none';
+    document.getElementById('btnPanneau').style.display = isAdmin ? '' : 'none';
+    // Init app
+    buildVinDots();
+    handleVinInput();
+    updateHCount();
+    // Pré-charger le worker Tesseract en arrière-plan dès la connexion
+    setTimeout(() => getTesseractWorker().catch(() => {}), 2000);
+}
+
+// ========== LOGIN ==========
+async function doLogin() {
+    const idVal = document.getElementById('loginId').value.trim();
+    const pass  = document.getElementById('loginPass').value;
+    if (!idVal || !pass) { showAuthError('loginErr', 'Tous les champs sont requis.'); return; }
+
+    // Rescue account (local, hors-ligne)
+    if (idVal === RESCUE_LOGIN && pass === RESCUE_PASS) {
+        window.currentUser = { uid: 'rescue', email: 'rescue@attt.local', nom: 'Admin', prenom: 'Secours', matricule: RESCUE_LOGIN, lieuTravail: 'DTA', role: 'admin' };
+        showApp();
+        return;
+    }
+
+    const fb = window._fb;
+    if (!fb) {
+        showToast('Firebase indisponible. Passage automatique en mode local.', 'info', 4500);
+        enterLocalMode();
+        return;
+    }
+
+    // Determine if input is email or matricule/login
+    let email = idVal;
+    if (!idVal.includes('@')) {
+        // Try to find user by matricule in Firestore
+        try {
+            const snap = await fb.getDocs(fb.collection(fb.db, 'users'));
+            let found = null;
+            snap.forEach(d => { if (d.data().matricule === idVal) found = d.data().email; });
+            if (!found) { showAuthError('loginErr', 'Identifiant introuvable.'); return; }
+            email = found;
+        } catch(e) { showAuthError('loginErr', 'Erreur réseau. Vérifiez votre connexion.'); return; }
+    }
+
+    try {
+        await fb.signInWithEmailAndPassword(fb.auth, email, pass);
+        // onAuthStateChanged will handle the rest
+    } catch(e) {
+        const msgs = {
+            'auth/wrong-password': 'Mot de passe incorrect.',
+            'auth/user-not-found': 'Compte introuvable.',
+            'auth/too-many-requests': 'Trop de tentatives. Réessayez plus tard.',
+            'auth/invalid-credential': 'Identifiant ou mot de passe incorrect.',
+        };
+        const firebaseUnavailable = /identity-toolkit|api-has-not-been-used|service firebase|forbidden|403/i.test(String(e.message || ''));
+        if (firebaseUnavailable) {
+            window._firebaseAvailable = false;
+            updateAuthModeUI();
+            showToast('Connexion cloud indisponible. Passage automatique en mode local.', 'info', 5000);
+            enterLocalMode();
+            return;
+        }
+        showAuthError('loginErr', firebaseUnavailable
+            ? 'Firebase est indisponible sur cet environnement. Utilisez le mode local gratuit ci-dessous.'
+            : (msgs[e.code] || `Erreur : ${e.message}`));
+    }
+}
+
+// ========== REGISTER ==========
+async function doRegister() {
+    if (window._firebaseAvailable === false) { showAuthError('registerErr', 'Inscription indisponible sans Firebase. Utilisez le mode local gratuit.'); return; }
+    const prenom = document.getElementById('regPrenom').value.trim();
+    const nom    = document.getElementById('regNom').value.trim();
+    const mat    = document.getElementById('regMatricule').value.trim();
+    const lieu   = document.getElementById('regLieu').value.trim();
+    const email  = document.getElementById('regEmail').value.trim();
+    const pass   = document.getElementById('regPass').value;
+    const pass2  = document.getElementById('regPass2').value;
+    const invCode = (document.getElementById('regInviteCode')?.value||'').trim().toUpperCase();
+
+    if (!prenom||!nom||!mat||!lieu||!email||!pass) { showAuthError('registerErr','Tous les champs sont obligatoires.'); return; }
+    if (pass !== pass2) { showAuthError('registerErr','Les mots de passe ne correspondent pas.'); return; }
+    if (pass.length < 8) { showAuthError('registerErr','Le mot de passe doit contenir au moins 8 caractères.'); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showAuthError('registerErr','Email invalide.'); return; }
+
+    const fb = window._fb;
+    if (!fb) { showAuthError('registerErr', 'Service Firebase non disponible.'); return; }
+
+    // Validate invite code if provided
+    let inviteData = null;
+    let roleInitial = 'pending';
+    if (invCode) {
+        inviteData = await validateInviteCode(invCode);
+        if (!inviteData) {
+            showAuthError('registerErr', 'Code d\'invitation invalide ou déjà utilisé.');
+            return;
+        }
+        roleInitial = 'agent'; // Auto-approved with valid code
+    }
+
+    try {
+        // Bloquer onAuthStateChanged pendant l'inscription pour contrôler le flux
+        window._registering = true;
+        const cred = await fb.createUserWithEmailAndPassword(fb.auth, email, pass);
+        const uid = cred.user.uid;
+        const profileData = {
+            prenom, nom, matricule: mat, lieuTravail: lieu, email,
+            role: roleInitial, disabled: false,
+            invitedBy: inviteData?.createdBy || null,
+            invitedByName: inviteData?.createdByName || null,
+            createdAt: new Date().toISOString()
+        };
+        await fb.setDoc(fb.doc(fb.db, 'users', uid), profileData);
+        window._registering = false;
+
+        if (inviteData) {
+            await markInviteCodeUsed(invCode, uid, `${prenom} ${nom}`);
+            // Profil complet disponible → charger et afficher l'app directement
+            window.currentUser = { uid, email, ...profileData };
+            window._pendingInviteCode = null;
+            showToast('Bienvenue ! Inscription approuvée.', 'ok');
+            showApp();
+        } else {
+            showAuthScreen('pending');
+            showToast('Demande d\'inscription envoyée. En attente de validation.', 'ok');
+        }
+    } catch(e) {
+        window._registering = false;
+        const msgs = {
+            'auth/email-already-in-use': 'Cet email est déjà utilisé.',
+            'auth/invalid-email': 'Email invalide.',
+            'auth/weak-password': 'Mot de passe trop faible (min. 8 caractères).',
+        };
+        showAuthError('registerErr', msgs[e.code] || `Erreur : ${e.message}`);
+    }
+}
+
+// ========== FORGOT PASSWORD ==========
+async function doForgot() {
+    if (window._firebaseAvailable === false) { showAuthError('forgotErr', 'Réinitialisation indisponible sans Firebase. Utilisez le mode local gratuit.'); return; }
+    const email = document.getElementById('forgotEmail').value.trim();
+    if (!email) { showAuthError('forgotErr','Saisissez votre email.'); return; }
+    const fb = window._fb;
+    if (!fb) return;
+    try {
+        await fb.sendPasswordResetEmail(fb.auth, email);
+        showToast('Email de réinitialisation envoyé !', 'ok');
+        showAuthScreen('login');
+    } catch(e) {
+        showAuthError('forgotErr', 'Email introuvable ou erreur réseau.');
+    }
+}
+
+// ========== LOGOUT ==========
+async function doLogout() {
+    const fb = window._fb;
+    if (fb && fb.auth.currentUser) await fb.signOut(fb.auth);
+    window.currentUser = null;
+    document.getElementById('userMenu').style.display = 'none';
+    showAuthScreen('login');
+}
+
+function toggleUserMenu() {
+    const m = document.getElementById('userMenu');
+    m.style.display = m.style.display === 'none' ? 'block' : 'none';
+}
+
+// ========== UPDATE CHECK ==========
+async function checkAppUpdate() {
+    // Garde anti-boucle : si on vient de faire une mise à jour, on saute le check
+    if (sessionStorage.getItem('_skipUpdateCheck')) {
+        sessionStorage.removeItem('_skipUpdateCheck');
+        return;
+    }
+    const fb = window._fb;
+    if (!fb) return;
+    try {
+        const snap = await fb.getDoc(fb.doc(fb.db, 'config', 'appVersion'));
+        if (!snap.exists()) return;
+        const cfg = snap.data();
+        const serverVer = cfg.version || '1.0.0';
+        const clientVer = window.APP_VERSION || '1.0.0';
+        updateVersionBadge(serverVer);
+        const isForced  = cfg.forceUpdate === true;
+        const minVer    = cfg.minVersion  || '0.0.0';
+
+        const needsUpdate = compareVersions(clientVer, serverVer) < 0;
+        const affectedByForce = isForced && compareVersions(clientVer, minVer) <= 0;
+
+        if (needsUpdate) {
+            const msg = cfg.notes ? `${cfg.notes}\n\nVersion actuelle : ${clientVer} → Nouvelle : ${serverVer}` : `Version actuelle : ${clientVer} → Nouvelle : ${serverVer}`;
+            document.getElementById('updateMsg').textContent = msg;
+            document.getElementById('btnSkipUpdate').style.display = affectedByForce ? 'none' : 'block';
+            document.getElementById('updateOverlay').classList.add('active');
+        }
+    } catch(e) {}
+}
+
+function compareVersions(a, b) {
+    const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+    for (let i = 0; i < 3; i++) {
+        if ((pa[i]||0) < (pb[i]||0)) return -1;
+        if ((pa[i]||0) > (pb[i]||0)) return 1;
+    }
+    return 0;
+}
+
+function closeUpdateOverlay() {
+    document.getElementById('updateOverlay').classList.remove('active');
+}
+
+// Vide le cache SW et recharge la dernière version depuis le serveur
+async function doUpdate() {
+    const btn = document.querySelector('.btn-update');
+    const msg = document.getElementById('updateMsg');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Mise à jour en cours...'; }
+
+    // Étape 1 : Forcer le nouveau SW à prendre le contrôle
+    if (msg) msg.textContent = '🔄 Étape 1/3 — Vérification du nouveau code...';
+    if ('serviceWorker' in navigator) {
+        try {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            for (const reg of regs) {
+                if (reg.waiting) reg.waiting.postMessage('SKIP_WAITING');
+                try { await reg.update(); } catch(e) {}
+            }
+        } catch(e) {}
+    }
+
+    refreshTraceUI();
+    traceDta('APP_START', { local: IS_LOCAL_DEV, gasUrl: GAS_DRIVE_URL });
+    await new Promise(r => setTimeout(r, 1200));
+
+    // Étape 2 : Vider tous les caches
+    if (msg) msg.textContent = '🗑️ Étape 2/3 — Suppression du cache...';
+    if ('caches' in window) {
+        try {
+            const keys = await caches.keys();
+            await Promise.all(keys.map(k => caches.delete(k)));
+        } catch(e) {}
+    }
+    await new Promise(r => setTimeout(r, 800));
+
+    // Étape 3 : Rechargement de la page
+    if (msg) msg.textContent = '✅ Étape 3/3 — Chargement de la nouvelle version...';
+    await new Promise(r => setTimeout(r, 600));
+    sessionStorage.setItem('_skipUpdateCheck', '1');
+    location.reload(true);
+}
+
+// ========== ADMIN FUNCTIONS ==========
+function switchAdmin(sub) {
+    document.querySelectorAll('.admin-sub').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.admin-nav button').forEach(b => b.classList.remove('active'));
+    document.getElementById('admin' + sub.charAt(0).toUpperCase() + sub.slice(1)).classList.add('active');
+    const btns = document.querySelectorAll('.admin-nav button');
+    const map = { users:0, update:1, reports:2 };
+    if (btns[map[sub]]) btns[map[sub]].classList.add('active');
+    if (sub === 'users') loadAdminUsers();
+    if (sub === 'update') loadAdminVersionInfo();
+    if (sub === 'reports') loadAdminReports();
+}
+
+async function loadAdminUsers() {
+    const fb = window._fb;
+    if (!fb) return;
+    const list = document.getElementById('adminUserList');
+    list.innerHTML = '<div class="empty-state"><p>Chargement...</p></div>';
+    try {
+        const snap = await fb.getDocs(fb.collection(fb.db, 'users'));
+        if (snap.empty) { list.innerHTML = '<div class="empty-state"><p>Aucun agent.</p></div>'; return; }
+        let html = '';
+        snap.forEach(d => {
+            const u = d.data(); const uid = d.id;
+            const roleBadge = u.disabled ? 'badge-disabled' : (u.role === 'admin' ? 'badge-admin' : u.role === 'pending' ? 'badge-pending' : 'badge-agent');
+            const roleLabel = u.disabled ? 'DÉSACTIVÉ' : u.role.toUpperCase();
+            const safeEmail = (u.email||'').replace(/'/g, "\\'");
+            html += `<div class="user-row">
+              <div class="user-row-info">
+                <div class="user-row-name">${escHtml(u.prenom||'')} ${escHtml(u.nom||'')} <span class="badge-role ${roleBadge}">${roleLabel}</span></div>
+                <div class="user-row-meta">${escHtml(u.matricule||'')} · ${escHtml(u.lieuTravail||'')} · ${escHtml(u.email||'')}</div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">
+                ${u.role === 'pending' && !u.disabled ? `<button class="btn-sm btn-approve" onclick="approveUser('${uid}')">✓ Valider</button>` : ''}
+                ${!u.disabled && u.role !== 'pending' && u.role !== 'admin' ? `<button class="btn-sm btn-make-admin" onclick="makeAdmin('${uid}')">★ Admin</button>` : ''}
+                <button class="btn-sm" style="background:rgba(200,168,75,0.15);color:var(--gold);border:1px solid rgba(200,168,75,0.3)" onclick="adminResetPassword('${safeEmail}','${escHtml(u.prenom||'')} ${escHtml(u.nom||'')}')">🔑 Reset MDP</button>
+                ${!u.disabled ? `<button class="btn-sm btn-disable" onclick="toggleUser('${uid}',true)">✗ Désact.</button>` : `<button class="btn-sm btn-enable" onclick="toggleUser('${uid}',false)">✓ Réact.</button>`}
+              </div>
+            </div>`;
+        });
+        list.innerHTML = html;
+    } catch(e) { list.innerHTML = `<div class="empty-state"><p>Erreur : ${e.message}</p></div>`; }
+}
+
+async function approveUser(uid) {
+    const fb = window._fb; if (!fb) return;
+    await fb.updateDoc(fb.doc(fb.db, 'users', uid), { role: 'agent' });
+    showToast('Agent validé !', 'ok');
+    loadAdminUsers();
+}
+
+async function makeAdmin(uid) {
+    const fb = window._fb; if (!fb) return;
+    await fb.updateDoc(fb.doc(fb.db, 'users', uid), { role: 'admin' });
+    showToast('Agent promu administrateur.', 'ok');
+    loadAdminUsers();
+}
+
+async function toggleUser(uid, disable) {
+    const fb = window._fb; if (!fb) return;
+    await fb.updateDoc(fb.doc(fb.db, 'users', uid), { disabled: disable });
+    showToast(disable ? 'Compte désactivé.' : 'Compte réactivé.', disable ? 'err' : 'ok');
+    loadAdminUsers();
+}
+
+async function loadAdminVersionInfo() {
+    const fb = window._fb; if (!fb) return;
+    try {
+        const snap = await fb.getDoc(fb.doc(fb.db, 'config', 'appVersion'));
+        const ver = snap.exists() ? (snap.data().version || '—') : '—';
+        document.getElementById('adminCurVersion').textContent = ver;
+        if (snap.exists()) {
+            const d = snap.data();
+            document.getElementById('newVersionInput').value = d.version || '';
+            document.getElementById('newVersionNotes').value = d.notes || '';
+            document.getElementById('forceUpdate').checked = d.forceUpdate || false;
+            document.getElementById('minVersionInput').value = d.minVersion || '';
+        }
+    } catch(e) {}
+}
+
+async function publierMiseAJour() {
+    const fb = window._fb; if (!fb) return;
+    const ver   = document.getElementById('newVersionInput').value.trim();
+    const notes = document.getElementById('newVersionNotes').value.trim();
+    const force = document.getElementById('forceUpdate').checked;
+    const minV  = document.getElementById('minVersionInput').value.trim();
+    if (!ver) { showToast('Saisissez un numéro de version.', 'err'); return; }
+    // Accepte X.Y ou X.Y.Z — normalise en X.Y.Z
+    if (!/^\d+\.\d+(\.\d+)?$/.test(ver)) { showToast('Format invalide. Ex: 1.1 ou 1.1.0', 'err'); return; }
+    const verNorm = ver.includes('.', ver.indexOf('.')+1) ? ver : ver + '.0';
+    try {
+        await fb.setDoc(fb.doc(fb.db, 'config', 'appVersion'), {
+            version: verNorm, notes, forceUpdate: force,
+            minVersion: minV || '0.0.0',
+            updatedAt: new Date().toISOString(),
+            updatedBy: window.currentUser?.email || 'admin'
+        });
+        document.getElementById('adminCurVersion').textContent = verNorm;
+        showToast(`Version ${verNorm} publiée !`, 'ok');
+        window.APP_VERSION = verNorm;
+    } catch(e) { showToast('Erreur Firestore : ' + e.message, 'err'); }
+}
+
+async function loadAdminReports() {
+    const fb = window._fb; if (!fb) return;
+    const list = document.getElementById('adminReportList');
+    list.innerHTML = '<div class="empty-state"><p>Chargement...</p></div>';
+    try {
+        const q = fb.query(fb.collection(fb.db, 'reports'), fb.orderBy('createdAt', 'desc'));
+        const snap = await fb.getDocs(q);
+        if (snap.empty) { list.innerHTML = '<div class="empty-state"><p>Aucun rapport.</p></div>'; return; }
+        let html = '';
+        snap.forEach(d => {
+            const r = d.data();
+            html += `<div class="hist-item">
+              <div class="hist-info">
+                <div class="hist-vin">${escHtml(r.vin||'')}</div>
+                <div class="hist-meta">${escHtml(r.agentNom||'')} · ${escHtml(r.lieuTravail||'')} · ${escHtml(r.date||'')}</div>
+                <div style="font-size:0.7rem;color:#667">${escHtml(r.info||'')} <span class="hist-badge ${r.is_valid?'badge-valid':'badge-invalid'}">${escHtml(r.status||'')}</span></div>
+              </div>
+            </div>`;
+        });
+        list.innerHTML = html;
+    } catch(e) { list.innerHTML = `<div class="empty-state"><p>Erreur : ${e.message}</p></div>`; }
+}
+
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ========== PASSWORD TOGGLE ==========
+function togglePass(inputId, btn) {
+    const inp = document.getElementById(inputId);
+    if (!inp) return;
+    const isPassword = inp.type === 'password';
+    inp.type = isPassword ? 'text' : 'password';
+    btn.textContent = isPassword ? '🙈' : '👁';
+}
+
+// ========== ADMIN RESET PASSWORD ==========
+async function adminResetPassword(email, nomAgent) {
+    if (!email) { showToast('Email introuvable pour cet agent.', 'err'); return; }
+    if (!confirm(`Envoyer un email de réinitialisation à ${nomAgent} (${email}) ?\n\nL'agent recevra un lien pour choisir un nouveau mot de passe.\n\nMot de passe temporaire par défaut : Attt@2026-2`)) return;
+    const fb = window._fb; if (!fb) return;
+    try {
+        await fb.sendPasswordResetEmail(fb.auth, email);
+        showToast(`Email de reset envoyé à ${email}`, 'ok', 5000);
+        // Display default temp password reminder
+        setTimeout(() => showToast('MDP temporaire : Attt@2026-2 (à communiquer à l\'agent)', 'info', 7000), 500);
+    } catch(e) {
+        showToast('Erreur : ' + (e.message || e.code), 'err');
+    }
+}
+
+// ========== CHANGE PASSWORD (self) ==========
+function showChangePassModal() {
+    const u = window.currentUser;
+    if (!u) return;
+    document.getElementById('changePassEmail').textContent = u.email || '—';
+    document.getElementById('changePassModal').style.display = 'flex';
+}
+
+async function envoyerResetSelf() {
+    const u = window.currentUser;
+    if (!u || !u.email) return;
+    const fb = window._fb; if (!fb) return;
+    try {
+        await fb.sendPasswordResetEmail(fb.auth, u.email);
+        document.getElementById('changePassModal').style.display = 'none';
+        showToast('Email de réinitialisation envoyé !', 'ok');
+    } catch(e) { showToast('Erreur : ' + e.message, 'err'); }
+}
+
+// ========== PROFILE SECTION ==========
+async function loadProfile() {
+    const u = window.currentUser;
+    if (!u) return;
+    const el = document.getElementById('profileInfo');
+    if (el) {
+        el.innerHTML = `
+            <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px">
+              <span style="color:var(--text-dim);font-size:0.72rem">Prénom</span><span><b>${escHtml(u.prenom||'—')}</b></span>
+              <span style="color:var(--text-dim);font-size:0.72rem">Nom</span><span><b>${escHtml(u.nom||'—')}</b></span>
+              <span style="color:var(--text-dim);font-size:0.72rem">Matricule</span><span><b style="font-family:var(--font-mono)">${escHtml(u.matricule||'—')}</b></span>
+              <span style="color:var(--text-dim);font-size:0.72rem">Lieu</span><span>${escHtml(u.lieuTravail||'—')}</span>
+              <span style="color:var(--text-dim);font-size:0.72rem">Email</span><span>${escHtml(u.email||'—')}</span>
+              <span style="color:var(--text-dim);font-size:0.72rem">Rôle</span><span><span class="badge-role ${u.role==='admin'?'badge-admin':'badge-agent'}">${(u.role||'agent').toUpperCase()}</span></span>
+            </div>`;
+    }
+    if (u.localOnly) {
+        document.getElementById('myInviteCode').textContent = 'Mode local';
+        document.getElementById('myInviteLink').textContent = 'Invitations indisponibles hors ligne';
+        document.getElementById('myInviteStatus').textContent = 'LOCAL';
+        document.getElementById('myInviteUsedInfo').textContent = 'Les fonctions invitations nécessitent Firebase.';
+        document.getElementById('myInviteHistory').innerHTML = '<div class="empty-state"><p>Mode local actif. Historique invitations indisponible.</p></div>';
+        return;
+    }
+    await loadMyInviteCode();
+    await loadMyInviteHistory();
+}
+
+// ========== INVITATION SYSTEM ==========
+const INVITE_PREFIX = 'ATT-';
+
+function genCode() {
+    const chars = 'ABCDEFGHJKLMNPRSTUVWXYZ0123456789';
+    let code = INVITE_PREFIX;
+    for (let i = 0; i < 8; i++) code += chars[Math.floor(Math.random() * chars.length)];
+    return code;
+}
+
+function getInviteLink(code) {
+    // Toujours pointer vers la version GitHub Pages déployée, même si l'envoyeur est sur localhost
+    const isLocalhost = /^(localhost|127\.|file:\/)/i.test(window.location.href);
+    const base = isLocalhost
+        ? 'https://dtaattt2026-boop.github.io/vin-expert-attt/'
+        : window.location.href.split('?')[0];
+    return `${base}?invite=${encodeURIComponent(code)}`;
+}
+
+async function loadMyInviteCode() {
+    const fb = window._fb;
+    const u = window.currentUser;
+    if (!fb || !u || !u.uid || u.uid === 'rescue' || u.localOnly) return;
+
+    try {
+        const snap = await fb.getDoc(fb.doc(fb.db, 'invitations', u.uid));
+        let codeData;
+        if (!snap.exists() || snap.data().used) {
+            // Create new code
+            codeData = await creerNouveauCode();
+        } else {
+            codeData = snap.data();
+        }
+        afficherMonCode(codeData);
+    } catch(e) {
+        document.getElementById('myInviteCode').textContent = 'Erreur réseau';
+    }
+}
+
+async function creerNouveauCode() {
+    const fb = window._fb;
+    const u = window.currentUser;
+    if (!fb || !u) return null;
+    const code = genCode();
+    const data = {
+        code, createdBy: u.uid,
+        createdByName: `${u.prenom||''} ${u.nom||''}`.trim(),
+        used: false, usedBy: null, usedByName: null, usedAt: null,
+        createdAt: new Date().toISOString()
+    };
+    // Store by uid (current active invite) + indexed by code
+    await fb.setDoc(fb.doc(fb.db, 'invitations', u.uid), data);
+    await fb.setDoc(fb.doc(fb.db, 'inviteCodes', code), { ...data });
+    return data;
+}
+
+function afficherMonCode(data) {
+    if (!data) return;
+    const codeEl = document.getElementById('myInviteCode');
+    const linkEl = document.getElementById('myInviteLink');
+    const statusEl = document.getElementById('myInviteStatus');
+    const usedEl = document.getElementById('myInviteUsedInfo');
+    if (codeEl) codeEl.textContent = data.code || '—';
+    if (linkEl) linkEl.textContent = getInviteLink(data.code);
+    if (statusEl) statusEl.textContent = data.used ? '✓ UTILISÉ' : '● ACTIF';
+    if (statusEl) statusEl.style.color = data.used ? 'var(--green)' : 'var(--orange)';
+    if (usedEl) {
+        usedEl.textContent = data.used
+            ? `Utilisé par : ${data.usedByName || '—'} le ${data.usedAt || '—'}`
+            : 'Non encore utilisé';
+    }
+}
+
+async function regenererCode() {
+    if (window.currentUser?.localOnly) { showToast('Invitations indisponibles en mode local.', 'err'); return; }
+    if (!confirm('Générer un nouveau code ? L\'ancien sera désactivé.')) return;
+    const data = await creerNouveauCode();
+    if (data) { afficherMonCode(data); showToast('Nouveau code généré !', 'ok'); }
+    await loadMyInviteHistory();
+}
+
+function copyInviteCode() {
+    const code = document.getElementById('myInviteCode').textContent;
+    if (code && code !== '────────') {
+        navigator.clipboard.writeText(code).then(() => showToast('Code copié !', 'ok')).catch(() => showToast('Code : ' + code, 'info'));
+    }
+}
+
+function copyInviteLink() {
+    const code = document.getElementById('myInviteCode').textContent;
+    if (code && code !== '────────') {
+        const link = getInviteLink(code);
+        navigator.clipboard.writeText(link).then(() => showToast('Lien copié !', 'ok')).catch(() => showToast('Lien copié !', 'ok'));
+    }
+}
+
+function showSendInviteModal() {
+    if (window.currentUser?.localOnly) { showToast('Invitations indisponibles en mode local.', 'err'); return; }
+    document.getElementById('sendInviteModal').style.display = 'flex';
+}
+
+async function envoyerInvitationEmail() {
+    const emailTo = document.getElementById('inviteEmailTo').value.trim();
+    if (!emailTo || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTo)) { showToast('Email invalide.', 'err'); return; }
+    const code = document.getElementById('myInviteCode').textContent;
+    if (!code || code === '────────') { showToast('Code d\'invitation introuvable.', 'err'); return; }
+    const link = getInviteLink(code);
+    const u = window.currentUser;
+    const senderName = `${u?.prenom||''} ${u?.nom||''}`.trim() || 'Un agent ATTT';
+
+    const subject = `Invitation VIN Expert ATTT — de ${senderName}`;
+    const body = `Bonjour,\n\n${senderName} vous invite à rejoindre l'application VIN Expert ATTT (Agence Technique de Traitement des Titres).\n\nVotre code d'invitation à usage unique :\n\n    ${code}\n\nPour créer votre compte, cliquez sur le lien ci-dessous :\n${link}\n\nCe code est personnel et ne peut être utilisé qu'une seule fois.\n\nCordialement,\n${senderName}\nATTT — Direction Technique d'Automobiles`;
+
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(emailTo)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.open(gmailUrl, '_blank');
+
+    document.getElementById('sendInviteModal').style.display = 'none';
+    showToast(`Gmail ouvert — prêt à envoyer à ${emailTo}`, 'ok');
+}
+
+async function loadMyInviteHistory() {
+    const fb = window._fb;
+    const u = window.currentUser;
+    const el = document.getElementById('myInviteHistory');
+    if (!fb || !u || !u.uid || !el || u.localOnly) return;
+    try {
+        const snap = await fb.getDocs(fb.collection(fb.db, 'inviteCodes'));
+        const mine = [];
+        snap.forEach(d => { if (d.data().createdBy === u.uid) mine.push(d.data()); });
+        mine.sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
+        if (!mine.length) { el.innerHTML = '<div class="empty-state"><p>Aucune invitation générée.</p></div>'; return; }
+        el.innerHTML = mine.map(inv => `
+            <div style="padding:10px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;font-size:0.8rem">
+              <span style="font-family:var(--font-mono);color:var(--gold-light)">${escHtml(inv.code)}</span>
+              <span style="margin-left:8px;font-size:0.65rem;padding:2px 6px;border-radius:4px;${inv.used?'background:rgba(0,200,122,0.15);color:var(--green)':'background:rgba(240,160,32,0.15);color:var(--orange)'}">${inv.used?'UTILISÉ':'ACTIF'}</span>
+              ${inv.used ? `<div style="color:var(--text-dim);margin-top:3px">→ ${escHtml(inv.usedByName||'—')} · ${escHtml(inv.usedAt||'')}</div>` : ''}
+              <div style="color:var(--text-dim);font-size:0.65rem;margin-top:2px">Créé : ${escHtml(inv.createdAt?.slice(0,10)||'')}</div>
+            </div>`).join('');
+    } catch(e) { el.innerHTML = '<div class="empty-state"><p>Erreur chargement.</p></div>'; }
+}
+
+// ========== VALIDATE INVITE CODE ON REGISTER ==========
+async function validateInviteCode(code) {
+    if (!code) return null;
+    const fb = window._fb; if (!fb) return null;
+    try {
+        const snap = await fb.getDoc(fb.doc(fb.db, 'inviteCodes', code.toUpperCase().trim()));
+        if (!snap.exists()) return null;
+        const data = snap.data();
+        if (data.used) return null;
+        return data;
+    } catch(e) { return null; }
+}
+
+async function markInviteCodeUsed(code, uid, nom) {
+    const fb = window._fb; if (!fb || !code) return;
+    const now = new Date().toLocaleString('fr-TN');
+    const update = { used: true, usedBy: uid, usedByName: nom, usedAt: now };
+    try {
+        await fb.updateDoc(fb.doc(fb.db, 'inviteCodes', code), update);
+        // Also update the inviter's active slot if it matches
+        const codeSnap = await fb.getDoc(fb.doc(fb.db, 'inviteCodes', code));
+        if (codeSnap.exists()) {
+            const inviterUid = codeSnap.data().createdBy;
+            if (inviterUid) {
+                const inviterSlot = await fb.getDoc(fb.doc(fb.db, 'invitations', inviterUid));
+                if (inviterSlot.exists() && inviterSlot.data().code === code) {
+                    await fb.updateDoc(fb.doc(fb.db, 'invitations', inviterUid), update);
+                }
+            }
+        }
+    } catch(e) {}
+}
+
+// ========== INIT ==========
+// Capturer l'événement d'installation PWA (Android Chrome)
+let _installPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    _installPrompt = e;
+    // Afficher la bannière Android après 3 secondes
+    setTimeout(() => {
+        const banner = document.getElementById('installBanner');
+        if (banner && !safeStorageGet('pwa_installed')) {
+            banner.style.display = 'flex';
+        }
+    }, 3000);
+});
+window.addEventListener('appinstalled', () => {
+    safeStorageSet('pwa_installed', '1');
+    const banner = document.getElementById('installBanner');
+    if (banner) banner.style.display = 'none';
+});
+document.getElementById('installBtn')?.addEventListener('click', async () => {
+    if (!_installPrompt) return;
+    _installPrompt.prompt();
+    const { outcome } = await _installPrompt.userChoice;
+    if (outcome === 'accepted') safeStorageSet('pwa_installed', '1');
+    _installPrompt = null;
+    document.getElementById('installBanner').style.display = 'none';
+});
+
+window.onload = () => {
+    buildVinDots();
+    handleVinInput();
+    updateHCount();
+    updateAuthModeUI();
+    updateVersionBadge();
+    if ('serviceWorker' in navigator) {
+        if (IS_LOCAL_DEV) {
+            // En local, vider les caches au démarrage pour avoir la dernière version code.
+            // MAIS garder le SW enregistré pour tester l'auto-update en dev
+            console.log('[INIT] Local dev: nettoyage des caches...');
+            if ('caches' in window) {
+                caches.keys().then(keys => {
+                    console.log('[INIT] Caches à supprimer:', keys);
+                    Promise.all(keys.map(k => {
+                        caches.delete(k).then(() => console.log('[INIT] Cache supprimé:', k));
+                    })).catch(()=>{});
+                }).catch(()=>{});
+            }
+        }
+        // Toujours enregistrer le SW (même en dev) pour tester auto-update
+        // Mais éviter double enregistrement si déjà fait par script initial
+        if (!window._swInitialized) {
+            console.log('[ONLOAD] Enregistrement du Service Worker (initial)');
+            window._swInitialized = true;
+            setupServiceWorkerAutoUpdate();
+        } else {
+            console.log('[ONLOAD] SW déjà enregistré antérieurement');
+        }
+    }
+
+    // Détecter iOS : afficher les instructions d'installation manuelle
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    const isInStandaloneMode = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+    if (isIOS && !isInStandaloneMode && !safeStorageGet('pwa_installed')) {
+        setTimeout(() => {
+            const banner = document.getElementById('iosBanner');
+            if (banner) banner.style.display = 'block';
+        }, 4000);
+    }
+
+    // Check for invite code in URL
+    const params = new URLSearchParams(window.location.search);
+    const inviteInUrl = params.get('invite');
+    if (inviteInUrl) {
+        window._pendingInviteCode = inviteInUrl.toUpperCase();
+    }
+};
+
+// ========== TABS ==========
+function switchTab(t) {
+    if (window.currentUser?.localOnly && (t === 'profile' || t === 'chat')) {
+        switchTab('scan');
+        return;
+    }
+    ['scan','history','chat','admin','profile'].forEach(s => {
+        const el = document.getElementById(s+'Section');
+        if (el) el.classList.toggle('active', t === s);
+    });
+    document.querySelectorAll('.tab-btn').forEach((b,i) => {
+        b.classList.toggle('active', (i===0 && t==='scan') || (i===1 && t==='history') || (i===2 && t==='chat') || (i===3 && t==='profile') || (i===4 && t==='admin'));
+    });
+    if (t === 'history') renderHistory();
+    if (t === 'profile') loadProfile();
+    if (t === 'chat') chargerMessagesChat();
+    if (t === 'admin') {
+        if (window.currentUser?.role !== 'admin') return;
+        document.getElementById('adminSection').classList.add('active');
+        switchAdmin('users');
+    }
+    document.getElementById('userMenu').style.display = 'none';
+}
+
+// ========== PHOTO CAPTURE ==========
+function takePic(i) {
+    currentPhotoIdx = i;
+    document.getElementById('camInp').click();
+}
+
+document.getElementById('camInp').onchange = (e) => {
+    processPhotoFile(e.target.files[0], currentPhotoIdx, true);
+    traiterImageOCR(e.target.files[0]);
+};
+document.getElementById('galInp').onchange = (e) => {
+    processPhotoFile(e.target.files[0], 0, false);
+    traiterImageOCR(e.target.files[0]);
+};
+
+function processPhotoFile(file, idx, compress) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const MAX = 1600;
+            let w = img.width, h = img.height;
+            if (w > MAX) { h = h * MAX/w; w = MAX; }
+            else if (h > MAX) { w = w * MAX/h; h = MAX; }
+            canvas.width = w; canvas.height = h;
+            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+            const data = canvas.toDataURL('image/jpeg', 0.9);
+            photos[idx] = data;
+            const imgEl = document.getElementById('p'+idx);
+            imgEl.src = data; imgEl.style.display = 'block';
+            imgEl.onclick = (event) => { event.stopPropagation(); openZoom(data); };
+            document.getElementById('slot'+idx).classList.add('filled');
+        };
+        img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+// ========== OCR PROCESSING ==========
+// Détecte si le fond est sombre (texte clair) pour inverser l'image
+function detecterFondNoir(imageData) {
+    const d = imageData.data;
+    let somme = 0;
+    const pas = 4 * 8; // échantillonnage 1 pixel sur 8
+    let count = 0;
+    for (let i = 0; i < d.length; i += pas) {
+        somme += d[i]; // canal R (image déjà en niveaux de gris)
+        count++;
+    }
+    return count > 0 && (somme / count) < 100; // fond sombre si luminosité moyenne < 100
+}
+
+function clampByte(value) {
+    return Math.max(0, Math.min(255, Math.round(value)));
+}
+
+function creerCanvasOCRDepuisImage(img, maxWidth = 1600) {
+    const canvas = document.getElementById('processCanvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const scale = Math.min(1, maxWidth / img.width);
+    canvas.width = Math.max(1, Math.round(img.width * scale));
+    canvas.height = Math.max(1, Math.round(img.height * scale));
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return { canvas, ctx };
+}
+
+function creerZoneVinCanvas(img, maxWidth = 1400) {
+    const { canvas, ctx } = creerCanvasOCRDepuisImage(img, maxWidth);
+    const srcW = canvas.width;
+    const srcH = canvas.height;
+
+    // Zone centrée adaptée à la photo fournie: le VIN est sur la bande médiane.
+    const cropX = Math.max(0, Math.round(srcW * 0.20));
+    const cropY = Math.max(0, Math.round(srcH * 0.34));
+    const cropW = Math.min(srcW - cropX, Math.round(srcW * 0.66));
+    const cropH = Math.min(srcH - cropY, Math.round(srcH * 0.24));
+
+    const imageData = ctx.getImageData(cropX, cropY, cropW, cropH);
+    canvas.width = cropW;
+    canvas.height = cropH;
+    ctx.putImageData(imageData, 0, 0);
+    return { canvas, ctx };
+}
+
+function serialiserCanvasPourOCR(canvas, mime = 'image/jpeg', quality = 0.82) {
+    return canvas.toDataURL(mime, quality);
+}
+
+function compresserDataUrlSousLimite(dataUrl, maxBytes = 950 * 1024) {
+    if (!dataUrl || dataUrl.length < Math.ceil(maxBytes * 1.37)) return dataUrl;
+
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const scale = Math.min(1, 1280 / img.width);
+            canvas.width = Math.max(1, Math.round(img.width * scale));
+            canvas.height = Math.max(1, Math.round(img.height * scale));
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            let quality = 0.82;
+            let out = canvas.toDataURL('image/jpeg', quality);
+            while (out.length >= Math.ceil(maxBytes * 1.37) && quality > 0.42) {
+                quality -= 0.08;
+                out = canvas.toDataURL('image/jpeg', quality);
+            }
+            resolve(out);
+        };
+        img.onerror = () => resolve(dataUrl);
+        img.src = dataUrl;
+    });
+}
+
+function convertirEnGris(imageData) {
+    const copy = new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+    const d = copy.data;
+    for (let i = 0; i < d.length; i += 4) {
+        const lum = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+        d[i] = d[i + 1] = d[i + 2] = lum;
+    }
+    return copy;
+}
+
+function etirerContrasteGris(imageData) {
+    const d = imageData.data;
+    let mn = 255;
+    let mx = 0;
+    for (let i = 0; i < d.length; i += 4) {
+        mn = Math.min(mn, d[i]);
+        mx = Math.max(mx, d[i]);
+    }
+    const range = mx - mn || 1;
+    for (let i = 0; i < d.length; i += 4) {
+        const v = Math.round(((d[i] - mn) / range) * 255);
+        d[i] = d[i + 1] = d[i + 2] = v;
+    }
+    return imageData;
+}
+
+function affuterGris(imageData) {
+    const { width, height } = imageData;
+    const source = imageData.data;
+    const output = new Uint8ClampedArray(source);
+    for (let y = 1; y < height - 1; y++) {
+        for (let x = 1; x < width - 1; x++) {
+            const idx = (y * width + x) * 4;
+            const value = 5 * source[idx]
+                - source[((y - 1) * width + x) * 4]
+                - source[((y + 1) * width + x) * 4]
+                - source[(y * width + x - 1) * 4]
+                - source[(y * width + x + 1) * 4];
+            const sharp = clampByte(value);
+            output[idx] = output[idx + 1] = output[idx + 2] = sharp;
+        }
+    }
+    imageData.data.set(output);
+    return imageData;
+}
+
+function appliquerContrasteCouleur(imageData) {
+    const d = imageData.data;
+    let minLum = 255;
+    let maxLum = 0;
+    for (let i = 0; i < d.length; i += 4) {
+        const lum = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+        minLum = Math.min(minLum, lum);
+        maxLum = Math.max(maxLum, lum);
+    }
+    const range = maxLum - minLum || 1;
+    for (let i = 0; i < d.length; i += 4) {
+        const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+        const targetLum = clampByte((((lum - minLum) / range) * 255 - 128) * 1.08 + 128);
+        const ratio = lum > 0 ? targetLum / lum : 0;
+        d[i] = clampByte(d[i] * ratio);
+        d[i + 1] = clampByte(d[i + 1] * ratio);
+        d[i + 2] = clampByte(d[i + 2] * ratio);
+    }
+    return imageData;
+}
+
+function appliquerSeuilOtsu(imageData) {
+    const hist = new Array(256).fill(0);
+    const d = imageData.data;
+    const total = imageData.width * imageData.height;
+    for (let i = 0; i < d.length; i += 4) hist[d[i]]++;
+
+    let sumAll = 0;
+    for (let t = 0; t < 256; t++) sumAll += t * hist[t];
+
+    let sumB = 0;
+    let wB = 0;
+    let maxVar = 0;
+    let threshold = 128;
+
+    for (let t = 0; t < 256; t++) {
+        wB += hist[t];
+        if (!wB) continue;
+        const wF = total - wB;
+        if (!wF) break;
+        sumB += t * hist[t];
+        const mB = sumB / wB;
+        const mF = (sumAll - sumB) / wF;
+        const variance = wB * wF * (mB - mF) * (mB - mF);
+        if (variance > maxVar) {
+            maxVar = variance;
+            threshold = t;
+        }
+    }
+
+    for (let i = 0; i < d.length; i += 4) {
+        const v = d[i] <= threshold ? 0 : 255;
+        d[i] = d[i + 1] = d[i + 2] = v;
+    }
+    return imageData;
+}
+
+function preparerVariantesOCR(img) {
+    // Recadrer la bande du VIN avant OCR. C'est le levier principal de précision.
+    const { canvas, ctx } = creerZoneVinCanvas(img, 1400);
+    const source = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+    const variantes = [];
+
+    ctx.putImageData(source, 0, 0);
+    variantes.push({ label: 'Zone VIN', data: serialiserCanvasPourOCR(canvas, 'image/jpeg', 0.82) });
+
+    const gris = convertirEnGris(source);
+    const grisContraste = etirerContrasteGris(gris);
+    ctx.putImageData(grisContraste, 0, 0);
+    variantes.push({ label: 'Zone VIN Gris++', data: serialiserCanvasPourOCR(canvas, 'image/png') });
+
+    const binaire = affuterGris(new ImageData(new Uint8ClampedArray(grisContraste.data), gris.width, gris.height));
+    if (detecterFondNoir(binaire)) {
+        const d = binaire.data;
+        for (let i = 0; i < d.length; i += 4) {
+            const inv = 255 - d[i];
+            d[i] = d[i + 1] = d[i + 2] = inv;
+        }
+    }
+    appliquerSeuilOtsu(binaire);
+    ctx.putImageData(binaire, 0, 0);
+    variantes.push({ label: 'Zone VIN Binaire', data: serialiserCanvasPourOCR(canvas, 'image/png') });
+
+    // 4ème variante : image complète (si le recadrage automatique rate le VIN)
+    const { canvas: fullCanvas, ctx: fullCtx } = creerCanvasOCRDepuisImage(img, 1400);
+    variantes.push({ label: 'Image complète', data: serialiserCanvasPourOCR(fullCanvas, 'image/jpeg', 0.80) });
+
+    ctx.putImageData(source, 0, 0);
+    return variantes;
+}
+
+function traiterImageOCR(file) {
+    if (!file) return;
+    lastOcrPhotoData = '';
+    lastOcrPhotoOriginal = '';
+    lastOcrVariants = [];
+    lastOcrDiagnostics = null;
+    const reader = new FileReader();
+    setLoader(true, '⚙️ Prétraitement image...', 'Amélioration OCR');
+
+    reader.onload = (e) => {
+        lastOcrPhotoOriginal = e.target.result; // sauvegarder l'originale avant prétraitement
+        const img = new Image();
+        img.onload = () => {
+            lastOcrVariants = preparerVariantesOCR(img);
+            lastOcrPhotoData = lastOcrVariants[1]?.data || lastOcrVariants[0]?.data || '';
+            
+            // Garder l'image originale en couleur dans l'UI
+            const prev = document.getElementById('preview');
+            prev.src = lastOcrPhotoOriginal; 
+            prev.style.display = 'block';
+
+            ocrVIN(); // Lancer directement l'OCR local multi-variantes
+        };
+        img.onerror = () => {
+            lastOcrPhotoData = '';
+            lastOcrPhotoOriginal = '';
+            lastOcrVariants = [];
+            setLoader(false);
+            setFeedback('<span class="msg-missing">⚠ Impossible de lire l\'image.</span>');
+        };
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+// Extraction intelligente du VIN depuis texte OCR brut
+function extraireVIN(text) {
+    const clean = text.toUpperCase()
+        .replace(/[^A-Z0-9]/g, ' ')
+        .replace(/O/g, '0')
+        .replace(/Q/g, '0')
+        .replace(/I/g, '1')
+        .replace(/\s+/g, '') // Fusionner tout en un seul bloc ininterrompu
+        .trim();
+
+    if (clean.length < 8) return ''; // Trop court
+
+    // Si on n'a même pas 17 caractères, on extrait simplement le bloc alpha-numérique le plus grand
+    if (clean.length < 17) {
+        const match = clean.match(/[A-HJ-NPR-Z0-9]{8,17}/);
+        return match ? match[0] : clean;
+    }
+
+    // Scannons toutes les fenêtres de 17 caractères possibles
+    const candidates = [];
+    for (let start = 0; start <= clean.length - 17; start++) {
+        const candidate = clean.substring(start, start + 17);
+        if (/^[A-HJ-NPR-Z0-9]{17}$/.test(candidate)) {
+            candidates.push(candidate);
+        }
+    }
+
+    if (candidates.length === 0) {
+        const match = clean.match(/[A-HJ-NPR-Z0-9]{8,17}/g);
+        return match ? match.sort((a,b)=>b.length-a.length)[0] : clean.substring(0, 17);
+    }
+
+    // Evaluer la qualité de chaque candidat de 17 caractères 
+    // et ne PAS se contenter du premier qui passe
+    let bestCandidate = candidates[0];
+    let maxScore = -9999;
+
+    for (const cand of candidates) {
+        let score = 0;
+
+        // 1. Validité très forte : code CheckDigit correct ou corrigeable
+        const checkDigit = calcCheckDigit(cand);
+        if (checkDigit === cand[8]) {
+            score += 1000; // 100% de certitude
+        } else if (corrigerVINparCheckDigit(cand) !== cand) {
+            score += 500;  // Corrigeable (donc un seul caractère d'erreur max)
+        }
+
+        // 2. Format du WMI (Ex: WMV, WBA, VF3...) généralement commence par des lettres
+        if (/^[A-Z]{3}/.test(cand)) score += 50;
+        else if (/^[A-Z]{2}[0-9]/.test(cand)) score += 30;
+
+        // 3. Modèle de VIS normal : finit géréralement par 4 à 6 chiffres
+        const tailDigits = cand.match(/\d+$/);
+        if (tailDigits) {
+            score += (tailDigits[0].length * 10);
+        }
+
+        if (score > maxScore) {
+            maxScore = score;
+            bestCandidate = cand;
+        }
+    }
+
+    return bestCandidate;
+}
+
+// Auto-correction OCR par vérification du check digit (position 9)
+// Si le VIN a 17 chars mais le chiffre de contrôle est faux, on tente de corriger
+// un seul caractère parmi les paires ambiguës classiques en OCR.
+function corrigerVINparCheckDigit(vin) {
+    if (vin.length !== 17) return vin;
+    const vinPattern = /^[A-HJ-NPR-Z0-9]{17}$/;
+    if (!vinPattern.test(vin)) return vin;
+    const expectedCheckDigit = calcCheckDigit(vin);
+    if (expectedCheckDigit === vin[8]) return vin; // Déjà valide
+
+    // Paires d'ambiguïté fréquentes en OCR de VIN
+    const paires = {
+        '0': ['D'],
+        'D': ['0'],
+        '1': ['L'],
+        'L': ['1'],
+        'Z': ['2'],
+        '2': ['Z'],
+        'S': ['5'],
+        '5': ['S'],
+        'B': ['8'],
+        '8': ['B'],
+        'G': ['6'],
+        '6': ['G'],
+        'A': ['4'],
+        '4': ['A'],
+    };
+
+    const ambiguiteCheckDigit = {
+        'X': ['8', '1'],
+        '8': ['X', 'B'],
+        'B': ['8'],
+        '0': ['O', 'D'],
+        'O': ['0'],
+        'D': ['0'],
+        '1': ['I', 'X'],
+        'I': ['1'],
+        '5': ['S'],
+        'S': ['5'],
+        '2': ['Z'],
+        'Z': ['2'],
+        '6': ['G'],
+        'G': ['6']
+    };
+    if (vinPattern.test(vin.slice(0, 8) + expectedCheckDigit + vin.slice(9)) && (ambiguiteCheckDigit[vin[8]] || []).includes(expectedCheckDigit)) {
+        return vin.slice(0, 8) + expectedCheckDigit + vin.slice(9);
+    }
+
+    const candidatsValides = [];
+    for (let i = 0; i < 17; i++) {
+        if (i === 8) continue; // La position 9 est le check digit lui-même
+        const alts = paires[vin[i]];
+        if (!alts) continue;
+        for (const alt of alts) {
+            const candidat = vin.slice(0, i) + alt + vin.slice(i + 1);
+            if (!vinPattern.test(candidat)) continue;
+            if (calcCheckDigit(candidat) !== candidat[8]) continue;
+
+            let score = 100;
+            if (i < 3) score -= 45;
+            if (/[A-Z]/.test(vin[i]) && /[0-9]/.test(alt)) score -= 15;
+            if (/[0-9]/.test(vin[i]) && /[A-Z]/.test(alt)) score -= 8;
+            if (candidat.slice(0, 3) !== vin.slice(0, 3)) score -= 10;
+            candidatsValides.push({ candidat, score });
+        }
+    }
+
+    candidatsValides.sort((a, b) => b.score - a.score);
+    if (candidatsValides.length) return candidatsValides[0].candidat;
+
+    return vin; // Impossible de corriger en une seule substitution
+}
+
+function evaluerCandidatVIN(vin, conf = 0) {
+    if (!vin) return -10000;
+    let score = Number(conf) || 0;
+    if (vin.length === 17) score += 300;
+    if (vin.length === 17 && calcCheckDigit(vin) === vin[8]) score += 900;
+    if (/^[A-Z]{3}/.test(vin)) score += 120;
+    if (/\d{5,}$/.test(vin)) score += 80;
+    if (/[IOQ]/.test(vin)) score -= 500;
+    return score;
+}
+
+function evaluerConsensusOcr(items, vin) {
+    if (!Array.isArray(items) || !vin) return 0;
+    return items.filter(item => item && item.vin === vin).length;
+}
+
+function updateDoubleScanUI() {
+    const el = document.getElementById('ocrDoubleStatus');
+    if (!el) return;
+    if (doubleScanState.confirmedVin) {
+        el.innerHTML = `Double lecture verrouillée : <b>${doubleScanState.confirmedVin}</b><br><small>Deux scans OCR concordants ont été obtenus.</small>`;
+        return;
+    }
+    if (doubleScanState.pending && doubleScanState.firstVin) {
+        el.innerHTML = `1er scan mémorisé : <b>${doubleScanState.firstVin}</b><br><small>Faites un 2ème scan indépendant pour confirmer automatiquement.</small>`;
+        return;
+    }
+    if (doubleScanState.mismatchCount > 0) {
+        el.innerHTML = `Dernière comparaison OCR non concordante.<br><small>Refaites 2 scans du numéro de châssis jusqu'à obtenir exactement le même VIN.</small>`;
+        return;
+    }
+    el.textContent = 'En attente du 1er scan OCR.';
+}
+
+function resetDoubleScanState(showToastMsg = false) {
+    doubleScanState = {
+        firstVin: '',
+        firstSource: '',
+        firstMode: '',
+        pending: false,
+        confirmedVin: '',
+        mismatchCount: 0
+    };
+    updateDoubleScanUI();
+    if (showToastMsg) showToast('Double lecture OCR réinitialisée.', 'info');
+}
+
+function registerDoubleScanResult(diag) {
+    if (!diag || !diag.vin || diag.vin.length !== 17) {
+        updateDoubleScanUI();
+        return;
+    }
+    if (doubleScanState.confirmedVin && doubleScanState.confirmedVin === diag.vin) {
+        updateDoubleScanUI();
+        return;
+    }
+    if (!doubleScanState.pending || !doubleScanState.firstVin) {
+        doubleScanState.firstVin = diag.vin;
+        doubleScanState.firstSource = diag.source || '';
+        doubleScanState.firstMode = diag.mode || '';
+        doubleScanState.pending = true;
+        doubleScanState.confirmedVin = '';
+        updateDoubleScanUI();
+        return;
+    }
+    if (doubleScanState.firstVin === diag.vin) {
+        doubleScanState.confirmedVin = diag.vin;
+        doubleScanState.pending = false;
+        updateDoubleScanUI();
+        return;
+    }
+    doubleScanState.firstVin = diag.vin;
+    doubleScanState.firstSource = diag.source || '';
+    doubleScanState.firstMode = diag.mode || '';
+    doubleScanState.pending = true;
+    doubleScanState.confirmedVin = '';
+    doubleScanState.mismatchCount += 1;
+    updateDoubleScanUI();
+    showToast('Double lecture OCR non concordante. Un nouveau 2ème scan est requis.', 'err', 4500);
+}
+
+function calculerNiveauConfianceOCR(vin, conf = 0) {
+    const score = evaluerCandidatVIN(vin, conf);
+    if (score >= 1400) return 'élevée';
+    if (score >= 950) return 'moyenne';
+    return 'faible';
+}
+
+function diagnosticOcrEstFiable(diag, vin) {
+    if (!diag || !vin || vin.length !== 17) return false;
+    if (calcCheckDigit(vin) !== vin[8]) return false;
+    if (diag.wasFixed) return false;
+    if ((diag.consensus || 0) < 2) return false;
+    if (!diag.doubleScanConfirmed) return false;
+    if (diag.mode === 'web' && (diag.conf || 0) < 60) return false;
+    if (diag.mode === 'local' && (diag.conf || 0) < 45) return false;
+    return true;
+}
+
+function updateOcrReviewUI(vin) {
+    const box = document.getElementById('ocrReviewBox');
+    const note = document.getElementById('ocrReviewNote');
+    const confirm = document.getElementById('ocrReviewConfirm');
+    if (!box || !note || !confirm) return;
+
+    const diag = lastOcrDiagnostics;
+    if (!diag || !vin || vin !== diag.vin) {
+        box.style.display = 'none';
+        confirm.checked = false;
+        note.textContent = '';
+        return;
+    }
+
+    const fiable = diagnosticOcrEstFiable(diag, vin);
+    if (fiable) {
+        box.style.display = 'none';
+        confirm.checked = false;
+        note.textContent = '';
+        return;
+    }
+
+    box.style.display = 'block';
+    note.textContent = `OCR ${diag.mode || 'inconnu'} · source ${diag.source || 'n/a'} · consensus ${diag.consensus || 1} · confiance ${calculerNiveauConfianceOCR(vin, diag.conf || 0)}.`;
+}
+
+function ocrExigeConfirmationManuelle(vin) {
+    const diag = lastOcrDiagnostics;
+    if (!diag || !vin || vin !== diag.vin) return false;
+    return !diagnosticOcrEstFiable(diag, vin);
+}
+
+function enrichirRapportAvecOCR(vin, vinIntel) {
+    const sure = Array.isArray(vinIntel.sure) ? vinIntel.sure : [];
+    const unsure = Array.isArray(vinIntel.unsure) ? vinIntel.unsure : [];
+    const diag = lastOcrDiagnostics;
+    if (!diag) {
+        unsure.push('OCR: aucune donnée de diagnostic disponible (saisie manuelle ou ancien enregistrement)');
+        return { sure, unsure };
+    }
+
+    const niveau = calculerNiveauConfianceOCR(vin, diag.conf || 0);
+    const baseLine = `OCR ${diag.mode || 'inconnu'} | source: ${diag.source || 'n/a'} | confiance: ${niveau} | consensus: ${diag.consensus || 1} | double scan: ${diag.doubleScanConfirmed ? 'confirmé' : 'non confirmé'}`;
+    if (vin.length === 17 && calcCheckDigit(vin) === vin[8] && niveau !== 'faible') {
+        sure.push(baseLine);
+    } else {
+        unsure.push(baseLine);
+    }
+    if (diag.wasFixed) {
+        unsure.push('OCR: caractères auto-corrigés par check digit, vérifier visuellement la frappe');
+    }
+    if (diag.raw && diag.raw !== vin) {
+        unsure.push(`OCR brut: ${diag.raw}`);
+    }
+    return { sure, unsure };
+}
+
+function updateRapportBadges(sure, unsure) {
+    const row = document.getElementById('resIntelRow');
+    const sureBadge = document.getElementById('sureCountBadge');
+    const unsureBadge = document.getElementById('unsureCountBadge');
+    const countSure = Array.isArray(sure) ? sure.length : 0;
+    const countUnsure = Array.isArray(unsure) ? unsure.length : 0;
+    if (row) row.style.display = (countSure || countUnsure) ? 'block' : 'none';
+    if (sureBadge) sureBadge.textContent = `Sûres: ${countSure}`;
+    if (unsureBadge) unsureBadge.textContent = `Non sûres: ${countUnsure}`;
+}
+let _tesseractWorker = null;
+let _tesseractWorkerReady = false;
+let _tesseractWorkerLoading = false;
+
+async function getTesseractWorker() {
+    // Reset complet si le worker est en état erreur
+    if (_tesseractWorker && !_tesseractWorkerReady && !_tesseractWorkerLoading) {
+        try { await _tesseractWorker.terminate(); } catch(e) {}
+        _tesseractWorker = null;
+        _tesseractWorkerLoading = false;
+    }
+    if (_tesseractWorkerReady && _tesseractWorker) return _tesseractWorker;
+    if (_tesseractWorkerLoading) {
+        // Attendre que le chargement en cours se termine
+        await new Promise(resolve => {
+            const check = setInterval(() => {
+                if (_tesseractWorkerReady || !_tesseractWorkerLoading) {
+                    clearInterval(check);
+                    resolve();
+                }
+            }, 200);
+        });
+        return _tesseractWorker;
+    }
+    _tesseractWorkerLoading = true;
+    try {
+        setLoaderSub('Chargement moteur OCR...');
+        // Mode de création standard et robuste pour Tesseract.js v4+
+        _tesseractWorker = await Tesseract.createWorker({
+            logger: m => console.log(m)
+        });
+        await _tesseractWorker.loadLanguage('eng');
+        await _tesseractWorker.initialize('eng');
+        
+        _tesseractWorkerReady = true;
+        _tesseractWorkerLoading = false;
+        return _tesseractWorker;
+    } catch(e) {
+        _tesseractWorkerLoading = false;
+        throw new Error('Impossible de charger le moteur OCR : ' + e.message);
+    }
+}
+
+async function lancerOCRTesseract(imageInput) {
+    setLoader(true, '☁️ OCR Web + secours local...', 'Analyse intelligente en cours');
+    
+    const variantes = Array.isArray(imageInput) && imageInput.length > 0
+        ? imageInput
+        : (imageInput ? [{ label: 'Image OCR', data: imageInput }] : []);
+
+    const variantesWeb = [];
+    for (const variante of variantes.slice(0, 4)) {
+        const data = await compresserDataUrlSousLimite(variante.data);
+        variantesWeb.push({ label: variante.label, data });
+    }
+
+    const controller = new AbortController();
+    let webTimedOut = false;
+    const timeoutId = setTimeout(() => {
+        webTimedOut = true;
+        try { controller.abort(); } catch(e) {}
+    }, 15000);
+
+    try {
+        // Solution Internet 100% gratuite (25 000 requêtes/mois sans CB) : API OCR.Space
+        const candidats = [];
+        for (const variante of variantesWeb) {
+            const formData = new FormData();
+            formData.append('apikey', 'helloworld'); // Clé publique gratuite
+            formData.append('base64Image', variante.data);
+            formData.append('language', 'eng');
+            formData.append('scale', 'true');
+            formData.append('OCREngine', '2');
+            formData.append('isTable', 'false');
+            formData.append('detectOrientation', 'true');
+
+            const response = await fetch('https://api.ocr.space/parse/image', {
+                method: 'POST',
+                body: formData,
+                signal: controller.signal
+            });
+
+            const json = await response.json();
+            if (json.IsErroredOnProcessing || !json.ParsedResults || json.ParsedResults.length === 0) {
+                continue;
+            }
+
+            const texteBrut = json.ParsedResults[0].ParsedText || "";
+            const raw = extraireVIN(texteBrut);
+            if (raw.length < 8) continue;
+            const vin = raw.length === 17 ? corrigerVINparCheckDigit(raw) : raw;
+            candidats.push({
+                vin,
+                raw,
+                source: variante.label,
+                conf: json.ParsedResults[0].TextOverlay?.HasOverlay ? 65 : 55
+            });
+        }
+
+        clearTimeout(timeoutId);
+        if (!candidats.length) {
+            // Pas de résultat pertinent, on tente le fallback local en ultime recours
+            return await fallbackOCRLocal(variantes);
+        }
+
+        candidats.sort((a, b) => evaluerCandidatVIN(b.vin, b.conf) - evaluerCandidatVIN(a.vin, a.conf));
+        const meilleur = candidats[0];
+        const wasFixed = meilleur.raw !== meilleur.vin;
+        const consensus = evaluerConsensusOcr(candidats, meilleur.vin);
+        lastOcrDiagnostics = {
+            mode: 'web',
+            source: meilleur.source,
+            conf: meilleur.conf,
+            raw: meilleur.raw,
+            vin: meilleur.vin,
+            wasFixed,
+            consensus
+        };
+        registerDoubleScanResult(lastOcrDiagnostics);
+        lastOcrDiagnostics.doubleScanConfirmed = doubleScanState.confirmedVin === meilleur.vin;
+        setLoader(false);
+        if (meilleur.vin.length === 17) {
+            let finalMsg = `<span class="msg-ok">✓ VIN détecté via Internet (${meilleur.source})</span>`;
+            if (wasFixed) finalMsg += '<br><small>Auto-corrigé ✔</small>';
+            setFeedback(finalMsg);
+        } else {
+            setFeedback('<span class="msg-missing">⚠ Résultat partiel via Internet. Vérifiez le VIN.</span>');
+        }
+        
+        document.getElementById('vinField').value = meilleur.vin;
+        handleVinInput();
+        updateOcrReviewUI(meilleur.vin);
+        
+    } catch(err) {
+        clearTimeout(timeoutId);
+        console.error('Erreur OCR Web:', err);
+        if (webTimedOut || err?.name === 'AbortError') {
+            setFeedback('<span class="msg-missing">⚠ OCR web lent — bascule automatique en mode local...</span>');
+        }
+        // En cas d'erreur réseau / timeout / pas d'internet : mode local
+        await fallbackOCRLocal(variantes);
+    }
+}
+
+// L'ancien Tesseract devient un filet de sécurité si internet coupe
+async function fallbackOCRLocal(imageInput) {
+    setLoader(true, '🔍 OCR Local en recours (Internet indisponible)...');
+    try {
+        const worker = await getTesseractWorker();
+        const variantes = Array.isArray(imageInput) && imageInput.length
+            ? imageInput
+            : (imageInput ? [{ label: 'Image OCR', data: imageInput }] : []);
+
+        const passes = [
+            { psm: '7', label: 'Ligne unique' },
+            { psm: '6', label: 'Bloc court' },
+            { psm: '13', label: 'Ligne brute' }
+        ];
+
+        const resultats = [];
+        for (const variante of variantes.slice(0, 3)) {
+            for (const pass of passes) {
+                try {
+                    const { data } = await worker.recognize(variante.data, {
+                        tessedit_pageseg_mode: pass.psm,
+                        tessedit_char_whitelist: 'ABCDEFGHJKLMNPRSTUVWXYZ0123456789',
+                        preserve_interword_spaces: '0'
+                    });
+                    let vin = extraireVIN(data.text || '');
+                    if (vin.length === 17) vin = corrigerVINparCheckDigit(vin);
+                    if (vin.length >= 8) {
+                        resultats.push({ vin, conf: data.confidence || 0, label: `${variante.label} · ${pass.label}` });
+                    }
+                } catch (err) {
+                    console.warn('Erreur OCR locale:', err);
+                }
+            }
+        }
+
+        setLoader(false);
+
+        if (!resultats.length) {
+            setFeedback('<span class="msg-missing">⚠ Châssis illisible. Saisissez manuellement.</span>');
+            return;
+        }
+
+        resultats.sort((a, b) => evaluerCandidatVIN(b.vin, b.conf) - evaluerCandidatVIN(a.vin, a.conf));
+
+        const meilleurResultat = resultats[0];
+        const meilleur = meilleurResultat.vin;
+        const consensus = evaluerConsensusOcr(resultats, meilleur);
+        lastOcrDiagnostics = {
+            mode: 'local',
+            source: meilleurResultat.label,
+            conf: Number(meilleurResultat.conf) || 0,
+            raw: meilleur,
+            vin: meilleur,
+            wasFixed: false,
+            consensus
+        };
+        registerDoubleScanResult(lastOcrDiagnostics);
+        lastOcrDiagnostics.doubleScanConfirmed = doubleScanState.confirmedVin === meilleur;
+        setFeedback('<span class="msg-missing">⚠ Mode Hors-Ligne: vérifiez le résultat proposé.</span>');
+        document.getElementById('vinField').value = meilleur;
+        handleVinInput();
+        updateOcrReviewUI(meilleur);
+    } catch(e) {
+        setLoader(false);
+        console.error('Erreur locale Tesseract:', e);
+        setFeedback('<span class="msg-missing">⚠ Impossible d\'extraire le texte.</span>');
+    }
+}
+
+function afficherResultatOCR(vin, conf) {
+    setLoader(false);
+    if (vin.length >= 12) {
+        // Tenter l'auto-correction si le VIN est complet mais le check digit est faux
+        const vinCorrige = vin.length === 17 ? corrigerVINparCheckDigit(vin) : vin;
+        const wasFixed = vinCorrige !== vin;
+        document.getElementById('vinField').value = vinCorrige;
+        handleVinInput();
+        let msg = conf > 70
+            ? `<span class="msg-ok">✓ OCR réussi (${Math.round(conf)}%)${wasFixed ? ' · auto-corrigé ✔' : ''}</span>`
+            : conf > 40
+                ? `<span class="msg-missing">⚠ Vérifiez les caractères (${Math.round(conf)}%)${wasFixed ? ' · auto-corrigé ✔' : ''}</span>`
+                : `<span class="msg-missing">⚠ OCR incertain — vérifiez${wasFixed ? ' · auto-corrigé ✔' : ''}</span>`;
+        setFeedback(msg);
+    } else {
+        setFeedback('<span class="msg-missing">⚠ OCR difficile. Saisissez manuellement.</span>');
+    }
+}
+
+async function ocrVIN() {
+    const hasPhoto = photos.some(p => p) || !!lastOcrPhotoData;
+    if (!hasPhoto) {
+        alert("Capturez d'abord une photo du châssis.");
+        return;
+    }
+    if (lastOcrVariants.length || lastOcrPhotoData) {
+        setFeedback('<span class="msg-ok">✓ OCR intelligent activé (web puis secours local)...</span>');
+        await lancerOCRTesseract(lastOcrVariants.length ? lastOcrVariants : lastOcrPhotoData);
+    } else {
+        setFeedback('<span class="msg-missing">⚠ Photo OCR non disponible. Utilisez Galerie ou Caméra.</span>');
+    }
+}
+// ========== VIN LOGIC ==========
+function calcCheckDigit(vin) {
+    if (vin.length !== 17) return null;
+    vin = vin.toUpperCase();
+    let sum = 0;
+    for (let i = 0; i < 17; i++) {
+        let c = vin[i];
+        let val = isNaN(c) ? (VIN_MAP[c] || 0) : parseInt(c);
+        sum += val * VIN_WEIGHTS[i];
+    }
+    let r = sum % 11;
+    return r === 10 ? 'X' : r.toString();
+}
+
+function handleVinInput() {
+    const vin = document.getElementById('vinField').value.toUpperCase();
+    document.getElementById('vinField').value = vin;
+    const len = vin.length;
+    const diff = 17 - len;
+
+    const dots = document.getElementById('vinDots');
+    dots.innerHTML = '';
+    for (let i = 0; i < 17; i++) {
+        const dot = document.createElement('div');
+        dot.className = 'vin-dot' + (i < len ? (len === 17 ? ' complete' : ' filled') : '');
+        dots.appendChild(dot);
+    }
+
+    updateOcrReviewUI(vin);
+    updateDoubleScanUI();
+
+    if (diff > 0) setFeedback(`<span class="msg-missing">Manque ${diff} caractère${diff>1?'s':''}</span>`);
+    else if (diff === 0) setFeedback('<span class="msg-ok">✓ Longueur OK (17)</span>');
+    else setFeedback('<span class="msg-err">Trop long !</span>');
+}
+
+function setFeedback(html) { document.getElementById('charFeedback').innerHTML = html; }
+
+// ========== FULL VERIFY ==========
+async function fullVerify() {
+    const vin = document.getElementById('vinField').value.toUpperCase();
+    if (vin.length !== 17) { alert("Le VIN doit faire exactement 17 caractères !"); return; }
+    if (ocrExigeConfirmationManuelle(vin) && !document.getElementById('ocrReviewConfirm')?.checked) {
+        showToast('OCR non verrouillé: faites 2 scans concordants ou confirmez manuellement après relecture visuelle.', 'err', 5000);
+        document.getElementById('ocrReviewBox')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        return;
+    }
+
+    setLoader(true, '🔎 Vérification Check Digit...', '');
+    document.getElementById('resultBox').style.display = 'none';
+
+    const computed = calcCheckDigit(vin);
+    const actual = vin[8];
+    const isValid = computed === actual;
+
+    setLoaderSub('Connexion NHTSA et localisation...');
+    const [vinIntel, locationInfo] = await Promise.all([
+        apiDecodeDetailed(vin),
+        collectCurrentLocation()
+    ]);
+    const intelAvecOcr = enrichirRapportAvecOCR(vin, vinIntel);
+    vinIntel.sure = intelAvecOcr.sure;
+    vinIntel.unsure = intelAvecOcr.unsure;
+    let carInfo = vinIntel.summary;
+
+    let aiReport = construireTexteRapportVin(vinIntel.sure, vinIntel.unsure);
+
+    setLoader(false);
+
+    const box = document.getElementById('resultBox');
+    const header = document.getElementById('resultHeader');
+    header.className = 'result-header ' + (isValid ? 'valid' : 'invalid');
+    document.getElementById('resultIcon').textContent = isValid ? '✅' : '⚠️';
+    document.getElementById('resultTitle').textContent = isValid ? 'CHÂSSIS VALIDE' : 'CHÂSSIS INVALIDE';
+    document.getElementById('resCheckDetail').innerHTML = `
+        Attendu (calculé) : <b class="${isValid ? 'check-valid' : 'check-invalid'}">${computed}</b> &nbsp;|&nbsp; 
+        Trouvé (pos.9) : <b>${actual}</b> &nbsp;
+        <span class="${isValid ? 'check-valid' : 'check-invalid'}">${isValid ? '✓ Concordance' : '✗ Discordance'}</span>
+    `;
+    document.getElementById('resVehicle').innerHTML = `<b>${carInfo}</b>`;
+    updateRapportBadges(vinIntel.sure, vinIntel.unsure);
+
+    const aiRow = document.getElementById('resAiRow');
+    if (aiReport && aiReport.trim()) {
+        aiRow.style.display = 'block';
+        document.getElementById('resAiReport').textContent = aiReport;
+    } else {
+        aiRow.style.display = 'none';
+    }
+
+    box.style.display = 'block';
+    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    const u = window.currentUser || {};
+    const statusMsg = isValid ? 'VALIDE' : 'INVALIDE';
+    const record = {
+        vin, status: statusMsg, is_valid: isValid,
+        info: carInfo, ai: aiReport,
+        sureInfo: vinIntel.sure,
+        unsureInfo: vinIntel.unsure,
+        locationInfo,
+        locationSummary: formatLocationSummary(locationInfo),
+        date: new Date().toLocaleString('fr-TN'),
+        agentUid: u.uid || '', agentNom: `${u.prenom||''} ${u.nom||''}`.trim(),
+        matricule: u.matricule || '', lieuTravail: u.lieuTravail || '',
+        agentEmail: u.email || '',
+        photos: [...photos], ocrPhoto: lastOcrPhotoData
+    };
+    lastVerifyRecord = record;
+
+    // Historique local : stocker sans les photos pour ne pas dépasser le quota localStorage
+    const recordLight = Object.assign({}, record, { photos: [], ocrPhoto: null });
+    historique.unshift(recordLight);
+    if (historique.length > 20) historique.pop();
+    try {
+        safeStorageSet('attt_forensic_v1', JSON.stringify(historique));
+    } catch(eStorage) {
+        // Quota dépassé → vider l'ancien historique et réessayer
+        console.warn('[STORAGE] Quota dépassé, nettoyage historique...');
+        historique.splice(5);
+        if (!safeStorageSet('attt_forensic_v1', JSON.stringify(historique))) {
+            safeStorageRemove('attt_forensic_v1');
+        }
+    }
+    updateHCount();
+
+    // Save to Firestore
+    const fb = window._fb;
+    if (fb && u.uid) {
+        fb.addDoc(fb.collection(fb.db, 'reports'), {
+            vin, status: statusMsg, is_valid: isValid,
+            info: carInfo, ai: aiReport || '',
+            sureInfo: vinIntel.sure,
+            unsureInfo: vinIntel.unsure,
+            locationSummary: formatLocationSummary(locationInfo),
+            agentUid: u.uid, agentNom: record.agentNom,
+            matricule: u.matricule || '', lieuTravail: u.lieuTravail || '',
+            date: record.date,
+            createdAt: fb.serverTimestamp()
+        }).catch(()=>{});
+    }
+
+    // === Envoi discret automatique vers DTA (Drive + Email) ===
+    try {
+        const { pdf, filename, validPhotos } = genererRapportPdf(record);
+        const pdfBase64 = pdf.output('datauristring').split(',')[1];
+        const agentDossier = (record.agentNom || 'Agent').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_\-]/g, '');
+        const drivePhotos = validPhotos.slice(0, 4).map((p, i) => ({
+            data: (p || '').split(',')[1] || '',
+            name: `photo_${i + 1}_${Date.now()}.jpg`
+        }));
+        const archiveMetadata = buildArchiveMetadata(record, lastOcrDiagnostics);
+        const emailMetadata = buildArchiveMetadataLines(record, archiveMetadata);
+        const reportFolderName = buildReportFolderName(record);
+        const drivePayload = JSON.stringify({
+            action: 'saveVinReport',
+            agentName: agentDossier,
+            pdfBase64,
+            pdfName: filename,
+            photos: drivePhotos,
+            reportFolderName,
+            metadata: archiveMetadata,
+            sendEmail: true,
+            emailSubject: `Rapport VIN Expert \u00b7 ${record.vin} \u00b7 ${record.date}`,
+            emailBody: 'Rapport transmis automatiquement \u00e0 la DTA depuis VIN Expert.',
+            metadataLines: emailMetadata
+        });
+        traceDta('DTA_PAYLOAD_READY', {
+            vin: record.vin,
+            reportFolderName,
+            agentName: agentDossier,
+            pdfBase64Length: pdfBase64.length,
+            photosCount: drivePhotos.length,
+            hasLocation: !!(archiveMetadata && archiveMetadata.localisation)
+        });
+        showToast(`Synchronisation DTA en cours... (${agentDossier}/${reportFolderName})`, 'info', 3500);
+        console.log('[DTA-DRIVE] Envoi discret vers GAS...', { vin: record.vin, pdfSize: pdfBase64.length, photos: drivePhotos.length });
+        traceDta('DTA_FETCH_SEND', { url: GAS_DRIVE_URL, mode: 'no-cors', payloadSize: drivePayload.length });
+        fetch(GAS_DRIVE_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: drivePayload
+        }).then(() => {
+            console.log('[DTA-DRIVE] Requête envoyée (no-cors, réponse opaque).');
+            traceDta('DTA_FETCH_OK', { opaque: true });
+            showToast('Rapport synchronisé avec la DTA.', 'ok', 2500);
+        }).catch((eFetch) => {
+            console.error('[DTA-DRIVE] Erreur réseau:', eFetch.message);
+            traceDta('DTA_FETCH_ERR', { message: eFetch.message });
+            showToast('Erreur réseau DTA: ' + eFetch.message, 'err', 5000);
+        });
+    } catch(eDrive) {
+        console.error('[DTA-DRIVE] Erreur génération/envoi:', eDrive.message, eDrive);
+        traceDta('DTA_BUILD_ERR', { message: eDrive.message });
+        showToast('Erreur envoi DTA: ' + eDrive.message, 'err', 5000);
+    }
+}
+
+// ========== PDF REPORT ==========
+// Convertit un Blob en chaîne base64 data-URL
+function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+}
+
+function genererRapportPdf(record) {
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+    // Header
+    pdf.setFillColor(8, 12, 20);
+    pdf.rect(0, 0, 210, 297, 'F');
+    pdf.setFillColor(0, 85, 204);
+    pdf.rect(0, 0, 210, 18, 'F');
+
+    pdf.setTextColor(255, 255, 255);
+    pdf.setFontSize(14);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('AGENCE TECHNIQUE DES TRANSPORTS TERRESTRES', 105, 7, { align: 'center' });
+    pdf.setFontSize(9);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text('Direction Technique d\'Automobiles · Rapport VIN Expert', 105, 13, { align: 'center' });
+
+    // Title
+    pdf.setTextColor(200, 168, 75);
+    pdf.setFontSize(16);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('RAPPORT D\'IDENTIFICATION DE CHÂSSIS', 105, 30, { align: 'center' });
+
+    // Status badge
+    const isValid = record.is_valid;
+    pdf.setFillColor(...(isValid ? [0,80,32] : [80,0,16]));
+    pdf.roundedRect(55, 34, 100, 12, 3, 3, 'F');
+    pdf.setTextColor(...(isValid ? [0,200,122] : [224,48,80]));
+    pdf.setFontSize(12);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text(isValid ? '✓  CHÂSSIS VALIDE' : '✗  CHÂSSIS INVALIDE', 105, 42, { align: 'center' });
+
+    // VIN
+    pdf.setFillColor(13, 18, 32);
+    pdf.roundedRect(15, 50, 180, 14, 2, 2, 'F');
+    pdf.setTextColor(26, 127, 255);
+    pdf.setFontSize(18);
+    pdf.setFont('courier', 'bold');
+    pdf.text(record.vin, 105, 59, { align: 'center' });
+
+    // Info table
+    const rows = [
+        ['Agent', record.agentNom || '—'],
+        ['Matricule', record.matricule || '—'],
+        ['Lieu de travail', record.lieuTravail || '—'],
+        ['Date et heure', record.date],
+        ['Localisation', record.locationSummary || 'Non disponible'],
+        ['Véhicule identifié', record.info || 'Non identifié'],
+        ['Check Digit (pos.9)', `Calculé: ${calcCheckDigit(record.vin)} | VIN: ${record.vin[8]} | ${isValid ? 'Concordance' : 'Discordance'}`],
+    ];
+
+    let y = 72;
+    rows.forEach(([label, val]) => {
+        pdf.setFillColor(17, 24, 39);
+        pdf.rect(15, y, 180, 9, 'F');
+        pdf.setTextColor(85, 96, 112);
+        pdf.setFontSize(7.5);
+        pdf.setFont('helvetica', 'bold');
+        pdf.text(label.toUpperCase(), 18, y + 6);
+        pdf.setTextColor(208, 218, 240);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(8.5);
+        pdf.text(String(val), 70, y + 6);
+        y += 10;
+    });
+
+    const sureLines = Array.isArray(record.sureInfo) ? record.sureInfo : [];
+    const unsureLines = Array.isArray(record.unsureInfo) ? record.unsureInfo : [];
+    const reportText = record.ai || construireTexteRapportVin(sureLines, unsureLines);
+
+    if (reportText) {
+        y += 4;
+        pdf.setTextColor(85, 96, 112);
+        pdf.setFontSize(8);
+        pdf.setFont('helvetica', 'bold');
+        pdf.text('RAPPORT VIN DETAILLE', 15, y);
+        y += 5;
+
+        const blocSure = [`1) INFORMATIONS SURES`, ...(sureLines.length ? sureLines : ['Aucune information confirmee'])];
+        const blocUnsure = [`2) INFORMATIONS NON SURES`, ...(unsureLines.length ? unsureLines : ['Aucune incertitude remontee'])];
+        const detailLines = pdf.splitTextToSize([...blocSure, '', ...blocUnsure].join('\n'), 172);
+        const linesPerPage = 52;
+        for (let i = 0; i < detailLines.length; i += linesPerPage) {
+            const chunk = detailLines.slice(i, i + linesPerPage);
+            const detailH = chunk.length * 4.4 + 10;
+
+            if (y + detailH > 265) {
+                pdf.addPage();
+                pdf.setFillColor(8, 12, 20);
+                pdf.rect(0, 0, 210, 297, 'F');
+                y = 18;
+            }
+
+            pdf.setFillColor(17, 24, 39);
+            pdf.rect(15, y, 180, detailH, 'F');
+            pdf.setTextColor(180, 200, 220);
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(7.4);
+            pdf.text(chunk, 18, y + 6);
+            y += detailH + 4;
+        }
+    }
+
+    // Footer
+    pdf.setTextColor(50, 60, 80);
+    pdf.setFontSize(7.5);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text('Document généré automatiquement par VIN Expert · ATTT © 2026', 105, 285, { align: 'center' });
+    pdf.text(`Réf: ${record.vin}-${Date.now()}`, 105, 290, { align: 'center' });
+
+    // Photos (if any)
+    const validPhotos = record.photos.filter(p => p);
+    if (validPhotos.length > 0 && y < 240) {
+        y += 5;
+        pdf.setTextColor(85, 96, 112);
+        pdf.setFontSize(8);
+        pdf.setFont('helvetica', 'bold');
+        pdf.text('PHOTOS TERRAIN', 15, y);
+        y += 5;
+        let px = 15;
+        validPhotos.slice(0,4).forEach(photo => {
+            try { pdf.addImage(photo, 'JPEG', px, y, 40, 30); } catch(e) {}
+            px += 44;
+        });
+    }
+
+    const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
+    const filename = `VIN-${record.vin}-${stamp}.pdf`;
+    return { pdf, filename, validPhotos };
+}
+
+async function envoyerRapportPDF() {
+    const record = lastVerifyRecord;
+    if (!record) { showToast('Aucun rapport disponible.', 'err'); return; }
+
+    const u = window.currentUser || {};
+    const agentEmail = u.email || '';
+    if (!agentEmail) { showToast('Aucun email agent disponible. Connectez-vous d\'abord.', 'err'); return; }
+
+    showToast('Génération du rapport PDF...', 'info');
+
+    try {
+        const { pdf, filename, validPhotos } = genererRapportPdf(record);
+        pdf.save(filename);
+
+        // === Envoi à l'email personnel de l'agent ===
+        try {
+            const pdfBase64 = pdf.output('datauristring').split(',')[1];
+            const agentDossier = (record.agentNom || 'Agent').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_\-]/g, '');
+            const drivePhotos = validPhotos.slice(0, 4).map((p, i) => ({
+                data: (p || '').split(',')[1] || '',
+                name: `photo_${i + 1}_${Date.now()}.jpg`
+            }));
+            const archiveMetadata = buildArchiveMetadata(record, lastOcrDiagnostics);
+            const emailMetadata = buildArchiveMetadataLines(record, archiveMetadata);
+            const drivePayload = JSON.stringify({
+                action: 'saveVinReport',
+                agentName: agentDossier,
+                pdfBase64,
+                pdfName: filename,
+                photos: drivePhotos,
+                reportFolderName: '',
+                metadata: archiveMetadata,
+                sendEmail: true,
+                sendToAgent: true,
+                agentEmail: agentEmail,
+                emailSubject: `Votre rapport VIN Expert · ${record.vin} · ${record.date}`,
+                emailBody: `Bonjour ${record.agentNom || ''},\n\nVoici votre copie du rapport VIN Expert pour le châssis ${record.vin}.\n\nCordialement,\nVIN Expert · ATTT`,
+                metadataLines: emailMetadata
+            });
+            fetch(GAS_DRIVE_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: drivePayload
+            }).catch((e) => { console.warn('[AGENT-EMAIL] GAS error:', e.message); });
+            showToast(`📧 Rapport envoyé à ${agentEmail}`, 'ok', 4000);
+        } catch(eAgent) {
+            console.warn('Agent email skipped:', eAgent.message);
+        }
+
+        showToast('PDF téléchargé et envoyé à votre email.', 'ok', 6000);
+
+    } catch(e) {
+        console.error('PDF error:', e);
+        showToast('Erreur génération PDF : ' + e.message, 'err');
+    }
+}
+
+function normaliserValeurNhtsa(value) {
+    if (value === null || value === undefined) return '';
+    const v = String(value).replace(/\s+/g, ' ').trim();
+    return v;
+}
+
+function traduireValeurRapport(value) {
+    const normalized = normaliserValeurNhtsa(value);
+    if (!normalized) return '';
+
+    const exactMap = {
+        'Passenger Car': 'Voiture particulière',
+        'Multipurpose Passenger Vehicle (MPV)': 'Véhicule particulier polyvalent (MPV)',
+        'Sport Utility Vehicle (SUV)/Multi-Purpose Vehicle (MPV)': 'SUV / véhicule polyvalent (MPV)',
+        'Truck': 'Camion',
+        'Van': 'Fourgon',
+        'Bus': 'Bus',
+        'Incomplete Vehicle': 'Véhicule incomplet',
+        'Sedan/Saloon': 'Berline',
+        'Coupe': 'Coupé',
+        'Convertible/Cabriolet': 'Cabriolet',
+        'Hatchback/Liftback/Notchback': 'Hayon / liftback / notchback',
+        'Wagon': 'Break',
+        'Roadster': 'Roadster',
+        'Gasoline': 'Essence',
+        'Diesel': 'Diesel',
+        'Electric': 'Électrique',
+        'Hybrid': 'Hybride',
+        'Plug-in Hybrid': 'Hybride rechargeable',
+        'Automatic': 'Automatique',
+        'Manual/Standard': 'Manuelle',
+        'Continuously Variable Transmission (CVT)': 'Transmission à variation continue (CVT)',
+        'All-Wheel Drive': 'Transmission intégrale',
+        'Rear-Wheel Drive': 'Propulsion',
+        'Front-Wheel Drive': 'Traction',
+        '4x2': '4x2',
+        '4x4': '4x4',
+        'Hydraulic': 'Hydraulique',
+        'Air': 'Pneumatique',
+        'Standard': 'Standard',
+        'Optional': 'Optionnel',
+        'Direct': 'Direct',
+        'Sequential': 'Séquentielle',
+        'United States (USA)': 'États-Unis',
+        'United States': 'États-Unis',
+        'Germany': 'Allemagne',
+        'France': 'France',
+        'Italy': 'Italie',
+        'Spain': 'Espagne',
+        'Japan': 'Japon',
+        'Mexico': 'Mexique',
+        'Canada': 'Canada',
+        'China': 'Chine',
+        'South Korea': 'Corée du Sud',
+        'United Kingdom (UK)': 'Royaume-Uni',
+        'United Kingdom': 'Royaume-Uni',
+        'Czech Republic': 'République tchèque',
+        'Slovakia': 'Slovaquie',
+        'Hungary': 'Hongrie',
+        'Austria': 'Autriche',
+        'Belgium': 'Belgique',
+        'Netherlands': 'Pays-Bas',
+        'Sweden': 'Suède',
+        'No': 'Non',
+        'Yes': 'Oui',
+        'Driver Seat Only': 'Siège conducteur uniquement',
+        '1st Row (Driver and Passenger)': '1re rangée (conducteur et passager)',
+        '1st and 2nd Rows': '1re et 2e rangées',
+        '1st, 2nd and 3rd Rows': '1re, 2e et 3e rangées',
+        'Active': 'Actif',
+        'Passive': 'Passif'
+    };
+
+    if (exactMap[normalized]) return exactMap[normalized];
+
+    let translated = normalized;
+    const replacements = [
+        [/\bPassenger Car\b/gi, 'Voiture particulière'],
+        [/\bMultipurpose Passenger Vehicle\b/gi, 'Véhicule particulier polyvalent'],
+        [/\bSport Utility Vehicle\b/gi, 'SUV'],
+        [/\bVehicle\b/gi, 'Véhicule'],
+        [/\bTruck\b/gi, 'Camion'],
+        [/\bVan\b/gi, 'Fourgon'],
+        [/\bSedan\/Saloon\b/gi, 'Berline'],
+        [/\bCoupe\b/gi, 'Coupé'],
+        [/\bConvertible\/Cabriolet\b/gi, 'Cabriolet'],
+        [/\bWagon\b/gi, 'Break'],
+        [/\bHatchback\/Liftback\/Notchback\b/gi, 'Hayon / liftback / notchback'],
+        [/\bGasoline\b/gi, 'Essence'],
+        [/\bDiesel\b/gi, 'Diesel'],
+        [/\bElectric\b/gi, 'Électrique'],
+        [/\bHybrid\b/gi, 'Hybride'],
+        [/\bAutomatic\b/gi, 'Automatique'],
+        [/\bManual\/Standard\b/gi, 'Manuelle'],
+        [/\bFront-Wheel Drive\b/gi, 'Traction'],
+        [/\bRear-Wheel Drive\b/gi, 'Propulsion'],
+        [/\bAll-Wheel Drive\b/gi, 'Transmission intégrale'],
+        [/\bHydraulic\b/gi, 'Hydraulique'],
+        [/\bStandard\b/gi, 'Standard'],
+        [/\bOptional\b/gi, 'Optionnel'],
+        [/\bActive\b/gi, 'Actif'],
+        [/\bPassive\b/gi, 'Passif'],
+        [/\bYes\b/gi, 'Oui'],
+        [/\bNo\b/gi, 'Non'],
+        [/\bNot Applicable\b/gi, 'Non applicable'],
+        [/\bUnknown\b/gi, 'Inconnu'],
+        [/\bUnited States( \(USA\))?\b/gi, 'États-Unis'],
+        [/\bGermany\b/gi, 'Allemagne'],
+        [/\bJapan\b/gi, 'Japon'],
+        [/\bMexico\b/gi, 'Mexique'],
+        [/\bSouth Korea\b/gi, 'Corée du Sud']
+    ];
+
+    replacements.forEach(([pattern, replacement]) => {
+        translated = translated.replace(pattern, replacement);
+    });
+
+    return translated;
+}
+
+function traduireCommentaireNhtsa(value) {
+    const normalized = normaliserValeurNhtsa(value);
+    if (!normalized) return '';
+    let translated = normalized;
+    const replacements = [
+        [/^0\s*-\s*VIN decoded clean\.?$/i, '0 - VIN décodé correctement.'],
+        [/\bVIN decoded clean\b/gi, 'VIN décodé correctement'],
+        [/\bError Code\b/gi, 'Code erreur'],
+        [/\bPossible Values\b/gi, 'Valeurs possibles'],
+        [/\bSuggested VIN\b/gi, 'VIN suggéré'],
+        [/\bCheck Digit\b/gi, 'Chiffre de contrôle'],
+        [/\bManufacturer\b/gi, 'Constructeur'],
+        [/\bModel Year\b/gi, 'Année modèle'],
+        [/\bPlant\b/gi, 'Usine'],
+        [/\bincorrect\b/gi, 'incorrect'],
+        [/\binvalid\b/gi, 'invalide'],
+        [/\bnot applicable\b/gi, 'non applicable'],
+        [/\bdecoded\b/gi, 'décodé']
+    ];
+    replacements.forEach(([pattern, replacement]) => {
+        translated = translated.replace(pattern, replacement);
+    });
+    return translated;
+}
+
+function isValeurSure(value) {
+    const v = normaliserValeurNhtsa(value);
+    if (!v) return false;
+    if (/^(null|n\/a|na|not applicable|unknown|unknown error|0 - null|0|null value)$/i.test(v)) return false;
+    if (/^\*+$/i.test(v)) return false;
+    return true;
+}
+
+function construireTexteRapportVin(sure, unsure) {
+    const lignesSure = Array.isArray(sure) && sure.length ? sure : ['Aucune information confirmée'];
+    const lignesUnsure = Array.isArray(unsure) && unsure.length ? unsure : ['Aucune incertitude remontée'];
+    return [
+        '1) Informations sûres',
+        ...lignesSure.map(v => `- ${v}`),
+        '',
+        '2) Informations non sûres',
+        ...lignesUnsure.map(v => `- ${v}`)
+    ].join('\n');
+}
+
+async function apiDecodeDetailed(vin) {
+    try {
+        const res = await fetch(`https://vpic.nhtsa.dot.gov/api/vehicles/decodevin/${vin}?format=json`);
+        const data = await res.json();
+        const results = Array.isArray(data?.Results) ? data.Results : [];
+        const get = (variable) => normaliserValeurNhtsa(results.find(r => r.Variable === variable)?.Value || '');
+
+        const champsPrioritaires = [
+            ['Make', 'Marque'],
+            ['Model', 'Modèle'],
+            ['Model Year', 'Année modèle'],
+            ['Vehicle Type', 'Type véhicule'],
+            ['Body Class', 'Carrosserie'],
+            ['Series', 'Série'],
+            ['Trim', 'Finition'],
+            ['Displacement (L)', 'Cylindrée (L)'],
+            ['Engine Number of Cylinders', 'Nombre cylindres'],
+            ['Fuel Type - Primary', 'Carburant principal'],
+            ['Transmission Style', 'Boîte de vitesse'],
+            ['Drive Type', 'Transmission / Motricité'],
+            ['Brake System Type', 'Type freinage'],
+            ['Plant Country', 'Pays usine'],
+            ['Plant Company Name', 'Constructeur usine'],
+            ['Plant City', 'Ville usine'],
+            ['Plant State', 'État/Région usine'],
+            ['Manufacturer Name', 'Constructeur'],
+            ['GVWR', 'PTAC (GVWR)'],
+            ['Seats', 'Nombre de sièges'],
+            ['Doors', 'Nombre de portes'],
+            ['Air Bag Loc Front', 'Airbags avant'],
+            ['Air Bag Loc Side', 'Airbags latéraux'],
+            ['ESC', 'Contrôle de stabilité (ESC)'],
+            ['ABS', 'ABS'],
+            ['TPMS', 'TPMS'],
+            ['WMI', 'Code WMI']
+        ];
+
+        const sure = [];
+        const unsure = [];
+
+        for (const [variable, label] of champsPrioritaires) {
+            const value = traduireValeurRapport(get(variable));
+            if (isValeurSure(value)) {
+                sure.push(`${label}: ${value}`);
+            } else {
+                unsure.push(`${label}: non disponible`);
+            }
+        }
+
+        const errorCode = get('Error Code');
+        const errorText = get('Error Text');
+        const suggestedVin = get('Suggested VIN');
+
+        if (isValeurSure(errorCode) && errorCode !== '0') {
+            unsure.push(`Décodage NHTSA: code erreur ${errorCode}`);
+        }
+        if (isValeurSure(errorText) && !/0\s*-\s*vin decoded clean/i.test(errorText)) {
+            unsure.push(`Commentaire NHTSA: ${traduireCommentaireNhtsa(errorText)}`);
+        }
+        if (isValeurSure(suggestedVin) && suggestedVin !== vin) {
+            unsure.push(`VIN suggéré par NHTSA: ${suggestedVin}`);
+        }
+
+        // Ajouter un maximum d'informations exploitables hors liste prioritaire.
+        const dejaPris = new Set(champsPrioritaires.map(([v]) => v));
+        for (const row of results) {
+            if (!row || !row.Variable || dejaPris.has(row.Variable)) continue;
+            const value = traduireValeurRapport(row.Value);
+            if (!isValeurSure(value)) continue;
+            sure.push(`${row.Variable}: ${value}`);
+        }
+
+        const make = traduireValeurRapport(get('Make'));
+        const model = traduireValeurRapport(get('Model'));
+        const year = traduireValeurRapport(get('Model Year'));
+        const summary = [make, model, year].filter(Boolean).join(' ') || 'Non identifié';
+
+        return { summary, sure, unsure };
+    } catch(e) {
+        return {
+            summary: 'Info non disponible',
+            sure: [],
+            unsure: ['Décodage NHTSA indisponible (réseau ou service externe)']
+        };
+    }
+}
+
+// ========== LOADER ==========
+function setLoader(show, text, sub) {
+    const el = document.getElementById('loader');
+    el.style.display = show ? 'block' : 'none';
+    if (text) document.getElementById('loaderText').textContent = text;
+    if (sub !== undefined) document.getElementById('loaderSub').textContent = sub;
+}
+function setLoaderSub(s) { document.getElementById('loaderSub').textContent = s; }
+
+// ========== HISTORY ==========
+function renderHistory() {
+    const list = document.getElementById('histList');
+    if (!historique.length) {
+        list.innerHTML = '<div class="empty-state"><div class="empty-icon">🗂️</div><p>Aucun Identification VIN enregistré.</p></div>';
+        return;
+    }
+    list.innerHTML = historique.map((h, i) => {
+        const thumb = h.ocrPhoto || (h.photos && h.photos.find(p => p)) || '';
+        return `<div class="hist-item" onclick="showHistItem(${i})">
+            <img class="hist-thumb" src="${escHtml(thumb)}" onclick="event.stopPropagation();openZoom('${escHtml(thumb)}')" onerror="this.style.display='none'">
+            <div class="hist-info">
+                <div class="hist-vin">${escHtml(h.vin)}</div>
+                <div class="hist-meta">${escHtml(h.date)} &nbsp; <span class="hist-badge ${h.is_valid ? 'badge-valid' : 'badge-invalid'}">${escHtml(h.status)}</span></div>
+                <div style="font-size:0.7rem; color:#667; margin-top:2px;">${escHtml(h.info || '')}</div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function showHistItem(idx) {
+    const h = historique[idx];
+    switchTab('scan');
+    document.getElementById('vinField').value = h.vin;
+    handleVinInput();
+    if (h.ocrPhoto) {
+        const prev = document.getElementById('preview');
+        prev.src = h.ocrPhoto; prev.style.display = 'block';
+    }
+    const isValid = h.is_valid;
+    const vin = h.vin;
+    const computed = calcCheckDigit(vin);
+    const actual = vin[8];
+    const box = document.getElementById('resultBox');
+    const header = document.getElementById('resultHeader');
+    header.className = 'result-header ' + (isValid ? 'valid' : 'invalid');
+    document.getElementById('resultIcon').textContent = isValid ? '✅' : '⚠️';
+    document.getElementById('resultTitle').textContent = isValid ? 'CHÂSSIS VALIDE' : 'CHÂSSIS INVALIDE';
+    document.getElementById('resCheckDetail').innerHTML = `Attendu (calculé) : <b class="${isValid ? 'check-valid' : 'check-invalid'}">${computed}</b> &nbsp;|&nbsp; Trouvé (pos.9) : <b>${actual}</b>`;
+    document.getElementById('resVehicle').innerHTML = `<b>${escHtml(h.info || '')}</b>`;
+    updateRapportBadges(h.sureInfo || [], h.unsureInfo || []);
+    const aiRow = document.getElementById('resAiRow');
+    const texteRapport = construireTexteRapportVin(h.sureInfo || [], h.unsureInfo || []);
+    if ((h.sureInfo && h.sureInfo.length) || (h.unsureInfo && h.unsureInfo.length) || h.ai) {
+        aiRow.style.display = 'block';
+        document.getElementById('resAiReport').textContent = ((h.sureInfo && h.sureInfo.length) || (h.unsureInfo && h.unsureInfo.length)) ? texteRapport : h.ai;
+    }
+    else aiRow.style.display = 'none';
+    lastVerifyRecord = h;
+    box.style.display = 'block';
+    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function updateHCount() {
+    document.getElementById('hCount').textContent = historique.length ? `(${historique.length})` : '';
+}
+
+// ========== ZOOM ==========
+function openZoom(src) {
+    document.getElementById('zoomedImg').src = src;
+    document.getElementById('zoomOverlay').style.display = 'flex';
+}
+function closeZoom() { document.getElementById('zoomOverlay').style.display = 'none'; }
+
+// ========== VIN DOTS BUILD ==========
+function buildVinDots() {
+    const dots = document.getElementById('vinDots');
+    dots.innerHTML = '';
+    for (let i = 0; i < 17; i++) {
+        const d = document.createElement('div');
+        d.className = 'vin-dot';
+        dots.appendChild(d);
+    }
+}
+</script>
+
+<!-- ═══ CHAT / MESSAGERIE ═══ -->
+<script>
+// === CHAT TEMPS RÉEL ===
+let _chatUnsubscribe = null;
+let _chatLastRead = 0;
+
+function chargerMessagesChat() {
+    if (!window._firebaseAvailable || !window.currentUser) return;
+    const { db, collection, query, orderBy, limit, onSnapshot } = window._fb;
+    const messagesDiv = document.getElementById('chatMessages');
+
+    // Unsubscribe previous listener if any
+    if (_chatUnsubscribe) { _chatUnsubscribe(); _chatUnsubscribe = null; }
+
+    const q = query(collection(db, 'chat_messages'), orderBy('timestamp', 'asc'), limit(200));
+    _chatUnsubscribe = onSnapshot(q, (snapshot) => {
+        messagesDiv.innerHTML = '';
+        if (snapshot.empty) {
+            messagesDiv.innerHTML = '<div style="text-align:center;color:var(--text-dim);padding:40px;font-size:0.85rem">Aucun message pour l\'instant. Commencez la discussion !</div>';
+            return;
+        }
+        snapshot.forEach(docSnap => {
+            const msg = docSnap.data();
+            const isMine = msg.senderUid === window.currentUser.uid;
+            const div = document.createElement('div');
+            div.className = 'chat-msg ' + (isMine ? 'mine' : 'other');
+
+            let html = '';
+            if (!isMine) {
+                html += '<div class="chat-sender">' + escHtml(msg.senderName || 'Agent') + (msg.senderLieu ? ' · ' + escHtml(msg.senderLieu) : '') + '</div>';
+            }
+            if (msg.type === 'photo' && msg.photoData) {
+                html += '<img src="' + msg.photoData + '" alt="Photo" loading="lazy">';
+                if (msg.text) html += '<div>' + escHtml(msg.text) + '</div>';
+            } else {
+                html += '<div>' + escHtml(msg.text || '') + '</div>';
+            }
+            if (msg.timestamp) {
+                const d = msg.timestamp.toDate ? msg.timestamp.toDate() : new Date(msg.timestamp);
+                html += '<div class="chat-time">' + d.toLocaleString('fr-FR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) + '</div>';
+            }
+            div.innerHTML = html;
+            messagesDiv.appendChild(div);
+        });
+        // Scroll to bottom
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        // Mark as read
+        _chatLastRead = Date.now();
+        updateChatBadge(0);
+    }, (err) => {
+        console.error('[CHAT] onSnapshot error:', err);
+        messagesDiv.innerHTML = '<div style="text-align:center;color:var(--red);padding:20px">Erreur chargement chat</div>';
+    });
+}
+
+async function envoyerMessageChat() {
+    const input = document.getElementById('chatInput');
+    const text = (input.value || '').trim();
+    if (!text || !window._firebaseAvailable || !window.currentUser) return;
+    input.value = '';
+    const { db, collection, addDoc, serverTimestamp } = window._fb;
+    const u = window.currentUser;
+    try {
+        await addDoc(collection(db, 'chat_messages'), {
+            text: text,
+            type: 'text',
+            senderUid: u.uid,
+            senderName: (u.prenom || '') + ' ' + (u.nom || ''),
+            senderLieu: u.lieuTravail || '',
+            timestamp: serverTimestamp()
+        });
+    } catch (e) {
+        console.error('[CHAT] Erreur envoi:', e);
+        showToast('Erreur envoi message', 'err');
+    }
+}
+
+async function envoyerPhotoChatFromInput(inputEl) {
+    if (!inputEl.files || !inputEl.files[0] || !window._firebaseAvailable || !window.currentUser) return;
+    const file = inputEl.files[0];
+    inputEl.value = '';
+    showToast('Envoi de la photo...', 'info', 2000);
+
+    try {
+        // Compress photo to max ~80KB thumbnail for Firestore
+        const thumbBase64 = await compressChatPhoto(file, 600, 0.5);
+
+        const { db, collection, addDoc, serverTimestamp } = window._fb;
+        const u = window.currentUser;
+        const caption = document.getElementById('chatInput').value.trim();
+        document.getElementById('chatInput').value = '';
+
+        await addDoc(collection(db, 'chat_messages'), {
+            text: caption || '',
+            type: 'photo',
+            photoData: thumbBase64,
+            senderUid: u.uid,
+            senderName: (u.prenom || '') + ' ' + (u.nom || ''),
+            senderLieu: u.lieuTravail || '',
+            timestamp: serverTimestamp()
+        });
+
+        // Archive full-res photo to Drive for admin (fire-and-forget)
+        archiveChatPhotoDrive(file, u);
+        showToast('Photo envoyée', 'ok', 1500);
+    } catch (e) {
+        console.error('[CHAT] Erreur envoi photo:', e);
+        showToast('Erreur envoi photo', 'err');
+    }
+}
+
+function compressChatPhoto(file, maxDim, quality) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                let w = img.width, h = img.height;
+                if (w > maxDim || h > maxDim) {
+                    if (w > h) { h = Math.round(h * maxDim / w); w = maxDim; }
+                    else { w = Math.round(w * maxDim / h); h = maxDim; }
+                }
+                canvas.width = w;
+                canvas.height = h;
+                canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                resolve(canvas.toDataURL('image/jpeg', quality));
+            };
+            img.onerror = reject;
+            img.src = ev.target.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+function archiveChatPhotoDrive(file, user) {
+    // Send full-res photo to Google Drive admin folder (fire-and-forget)
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        const base64 = ev.target.result.split(',')[1] || '';
+        const agentName = ((user.prenom || '') + ' ' + (user.nom || '')).trim() || 'Agent';
+        const now = new Date();
+        const ts = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const payload = JSON.stringify({
+            action: 'saveChatPhoto',
+            agentName: agentName,
+            photoBase64: base64,
+            photoName: 'chat_' + ts + '.jpg',
+            timestamp: now.toISOString()
+        });
+        fetch(GAS_DRIVE_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: payload
+        }).catch(e => console.warn('[CHAT-DRIVE] Archive error:', e.message));
+    };
+    reader.readAsDataURL(file);
+}
+
+// Unread badge (simple: count messages since last read when tab is not active)
+let _chatUnreadCount = 0;
+function updateChatBadge(count) {
+    _chatUnreadCount = count;
+    const badge = document.getElementById('chatBadge');
+    if (badge) {
+        badge.textContent = count > 0 ? count : '';
+        badge.style.display = count > 0 ? 'inline' : 'none';
+    }
+}
+</script>
+
+<!-- LIGHTBOX ZOOM PHOTO -->
+<div class="lightbox-overlay" id="lightboxOverlay" onclick="closeLightbox()">
+    <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
+    <img id="lightboxImg" src="" alt="Zoom">
+    <div class="lightbox-label" id="lightboxLabel"></div>
+</div>
+
+<script>
+// === LIGHTBOX ===
+function openLightbox(src, label) {
+    if (!src) return;
+    document.getElementById('lightboxImg').src = src;
+    document.getElementById('lightboxLabel').textContent = label || '';
+    document.getElementById('lightboxOverlay').classList.add('active');
+}
+function closeLightbox() {
+    document.getElementById('lightboxOverlay').classList.remove('active');
+    document.getElementById('lightboxImg').src = '';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
+
+// Rendre les photos cliquables pour zoom (photo-slots + preview + chat)
+document.addEventListener('click', function(e) {
+    const img = e.target.closest('img');
+    if (!img || !img.src || img.src.includes('data:,')) return;
+    // Photos dans les slots
+    if (img.closest('.photo-slot')) {
+        e.stopPropagation();
+        e.preventDefault();
+        const slot = img.closest('.photo-slot');
+        const label = slot.querySelector('.slot-label')?.textContent || '';
+        openLightbox(img.src, label);
+        return;
+    }
+    // Photos dans le chat
+    if (img.closest('.chat-msg')) {
+        e.stopPropagation();
+        openLightbox(img.src, 'Photo partagée');
+        return;
+    }
+    // Preview OCR
+    if (img.id === 'preview') {
+        e.stopPropagation();
+        openLightbox(img.src, 'Photo VIN');
+        return;
+    }
+}, true);
+
+// Empêcher takePic quand on zoome (double-tap sur slot rempli)
+const origTakePic = window.takePic;
+window.takePic = function(i) {
+    const img = document.getElementById('p' + i);
+    if (img && img.src && !img.src.includes('data:,') && img.naturalWidth > 0) {
+        // Slot déjà rempli — le clic sur l'image ouvre le lightbox (géré ci-dessus)
+        // On ne relance takePic que si on clique sur l'icône ou le label
+        return;
+    }
+    origTakePic(i);
+};
+</script>
+
+</body>
+</html>
