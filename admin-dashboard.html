@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VIN Expert — Admin Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js";
+import { getFirestore, doc, getDoc, collection, getDocs, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDna-johvghNyNdCpcyL5uI6BGbrrRDcX4",
+  authDomain: "vin-expert-attt.firebaseapp.com",
+  projectId: "vin-expert-attt",
+  storageBucket: "vin-expert-attt.firebasestorage.app",
+  messagingSenderId: "841987458694",
+  appId: "1:841987458694:web:72465a1c53b04b34dc7307"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+window._fb = { auth, db, signInWithEmailAndPassword, signOut, onAuthStateChanged, doc, getDoc, collection, getDocs, query, orderBy, limit };
+
+onAuthStateChanged(auth, async (user) => {
+  if (user) {
+    const snap = await doc(db, "users", user.uid);
+    if (!snap || !(await getDoc(snap)).exists()) {
+      await signOut(auth);
+      alert("Accès réservé aux administrateurs.");
+      return;
+    }
+    window._admin = (await getDoc(snap)).data();
+    showPanel();
+  } else {
+    showLogin();
+  }
+});
+</script>
+<style>
+:root {
+  --bg: #080c14; --panel: #0d1220; --panel2: #111827;
+  --blue: #0055cc; --blue2: #1a7fff; --gold: #c8a84b;
+  --green: #00c87a; --red: #e03050; --orange: #f0a020;
+  --text: #d0daf0; --dim: #556070; --border: rgba(0,85,204,0.3);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; min-height: 100vh; }
+
+#loginScreen { display: none; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+#loginScreen.active { display: flex; }
+.login-card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 40px; width: 100%; max-width: 380px; }
+.login-logo { text-align: center; font-size: 2.2rem; margin-bottom: 6px; }
+.login-title { text-align: center; font-size: 1.3rem; font-weight: 700; color: var(--blue2); margin-bottom: 4px; letter-spacing: 2px; }
+.field { margin-bottom: 16px; }
+.field label { display: block; font-size: 0.75rem; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+.field input { width: 100%; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 11px 14px; color: var(--text); font-size: 0.95rem; outline: none; }
+.field input:focus { border-color: var(--blue); }
+.btn-login { width: 100%; background: var(--blue); color: #fff; border: none; border-radius: 8px; padding: 13px; font-size: 0.95rem; font-weight: 700; cursor: pointer; margin-top: 8px; }
+.btn-login:hover { background: var(--blue2); }
+#loginErr { color: var(--red); font-size: 0.82rem; margin-top: 10px; text-align: center; }
+
+#panel { display: none; }
+#panel.active { display: block; }
+.topbar { background: var(--panel); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+.topbar-title { font-size: 1.1rem; font-weight: 700; color: var(--blue2); letter-spacing: 2px; }
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+.topbar-user { font-size: 0.8rem; color: var(--dim); }
+.btn-out { background: rgba(224,48,80,0.15); color: var(--red); border: 1px solid rgba(224,48,80,0.3); border-radius: 6px; padding: 6px 14px; font-size: 0.8rem; cursor: pointer; }
+.nav { display: flex; gap: 6px; padding: 16px 24px; flex-wrap: wrap; background: var(--panel); border-bottom: 1px solid var(--border); overflow-x: auto; }
+.nav-btn { background: transparent; color: var(--dim); border: 1px solid transparent; border-radius: 8px; padding: 9px 18px; font-size: 0.85rem; cursor: pointer; white-space: nowrap; }
+.nav-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+.nav-btn.active { color: var(--blue2); background: rgba(0,85,204,0.15); border-color: var(--border); }
+.content { padding: 20px 24px; max-width: 1200px; margin: 0 auto; }
+.section { display: none; }
+.section.active { display: block; }
+
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+.card-title { font-size: 0.85rem; font-weight: 700; color: var(--blue2); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 16px; }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.stat { background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 16px; text-align: center; }
+.stat-val { font-size: 2rem; font-weight: 700; color: var(--blue2); }
+.stat-label { font-size: 0.72rem; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+
+.test-btn { background: var(--blue); color: #fff; border: none; border-radius: 6px; padding: 10px 16px; font-size: 0.85rem; cursor: pointer; margin: 5px; }
+.test-btn:hover { background: var(--blue2); }
+.test-btn:disabled { background: var(--dim); cursor: not-allowed; }
+.test-log { background: #1e1e1e; color: #d4d4d4; padding: 15px; border-radius: 8px; font-family: monospace; font-size: 12px; max-height: 300px; overflow-y: auto; margin: 10px 0; line-height: 1.4; }
+.log-ok { color: #4ec9b0; }
+.log-err { color: #f48771; }
+.log-warn { color: #dcdcaa; }
+.log-info { color: #9cdcfe; }
+.status-badge { display: inline-block; padding: 6px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; }
+.status-ok { background: #d4edda; color: #155724; }
+.status-err { background: #f8d7da; color: #721c24; }
+.status-warn { background: #fff3cd; color: #856404; }
+
+.code-block { background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 11px; max-height: 250px; overflow: auto; margin: 10px 0; border: 1px solid var(--border); }
+button { transition: all 0.2s; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="loginScreen" class="active">
+  <div class="login-card">
+    <div class="login-logo">🛡️</div>
+    <div class="login-title">ADMIN</div>
+    <div class="field">
+      <label>Email</label>
+      <input type="email" id="loginEmail" placeholder="dta.attt.2026@gmail.com" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <div class="field">
+      <label>Mot de passe</label>
+      <input type="password" id="loginPass" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="btn-login" onclick="doLogin()">CONNEXION</button>
+    <div id="loginErr"></div>
+  </div>
+</div>
+
+<!-- PANEL -->
+<div id="panel">
+  <div class="topbar">
+    <div class="topbar-title">🛡️ VIN Expert Admin</div>
+    <div class="topbar-right">
+      <span class="topbar-user" id="topUser"></span>
+      <button class="btn-out" onclick="doLogout()">Déconnexion</button>
+    </div>
+  </div>
+  <div class="nav">
+    <button class="nav-btn active" onclick="goTab('home')">📊 Accueil</button>
+    <button class="nav-btn" onclick="goTab('tests')">🧪 Tests & GAS</button>
+    <button class="nav-btn" onclick="goTab('appstatus')">📱 Statut App</button>
+    <button class="nav-btn" onclick="goTab('guide')">📖 Guide QR</button>
+  </div>
+  <div class="content">
+
+    <!-- HOME -->
+    <div class="section active" id="sec-home">
+      <div class="card">
+        <div class="card-title">✅ État général</div>
+        <div class="stats-grid">
+          <div class="stat"><div class="stat-val" id="st-swstatus">—</div><div class="stat-label">Service Worker</div></div>
+          <div class="stat"><div class="stat-val" id="st-appver">—</div><div class="stat-label">Version App</div></div>
+          <div class="stat"><div class="stat-val" id="st-cachename">—</div><div class="stat-label">Cache SW</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">🔗 Accès Rapides</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+          <a href="https://script.google.com/" target="_blank" style="background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 16px; color: var(--blue2); text-decoration: none; font-size: 0.82rem;">Google Apps Script</a>
+          <a href="https://drive.google.com/drive/folders/root" target="_blank" style="background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 16px; color: var(--blue2); text-decoration: none; font-size: 0.82rem;">Google Drive</a>
+          <a href="https://console.firebase.google.com/project/vin-expert-attt" target="_blank" style="background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 16px; color: var(--blue2); text-decoration: none; font-size: 0.82rem;">Firebase</a>
+          <a href="http://127.0.0.1:9091" target="_blank" style="background: var(--green); border: none; border-radius: 8px; padding: 10px 16px; color: #000; text-decoration: none; font-size: 0.82rem;">App Local</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- TESTS & GAS -->
+    <div class="section" id="sec-tests">
+      <div class="card">
+        <div class="card-title">🧪 Tests Service Worker</div>
+        <button class="test-btn" onclick="testSW()">Tester SW</button>
+        <button class="test-btn" onclick="testCaches()">Tester Caches</button>
+        <button class="test-btn" onclick="testFetch()">Tester Fetch</button>
+        <div class="test-log" id="testLog"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">🚀 Redéploiement Google Apps Script</div>
+        <p style="font-size: 0.85rem; color: var(--dim); margin-bottom: 12px;">
+          Le code GAS doit être redéployé pour que l'envoi Drive/Email fonctionne.
+        </p>
+        <ol style="font-size: 0.85rem; margin-left: 20px; color: var(--text); line-height: 1.6;">
+          <li>Ouvrez <a href="https://script.google.com/" target="_blank" style="color: var(--blue2);">Google Apps Script</a></li>
+          <li>Ouvrez le projet "VIN Expert ATTT"</li>
+          <li>Effacez TOUT le code (Ctrl+A → Delete)</li>
+          <li>Collez le code ci-dessous (bouton COPIER)</li>
+          <li>Cliquez "Enregistrer"</li>
+          <li>Cliquez "Déployer" → "Nouveau déploiement" → Type: "Application Web"</li>
+          <li>Exécuter en tant que: dta.attt.2026@gmail.com</li>
+          <li>Qui a accès: Tout le monde (même anonyme)</li>
+          <li>Attendez 1-2 minutes après le déploiement</li>
+        </ol>
+        <button class="test-btn" onclick="copyGASCode()">📋 COPIER LE CODE GAS</button>
+        <div class="code-block" id="gasCodeBlock"></div>
+      </div>
+    </div>
+
+    <!-- APP STATUS -->
+    <div class="section" id="sec-appstatus">
+      <div class="card">
+        <div class="card-title">📱 État de l'Application</div>
+        <div style="display: grid; gap: 12px;">
+          <div style="padding: 12px; background: var(--panel2); border-radius: 8px; border: 1px solid var(--border);">
+            <div style="font-size: 0.8rem; color: var(--dim); text-transform: uppercase; letter-spacing: 1px;">Service Worker</div>
+            <div id="stat-sw-status" style="font-size: 1.2rem; margin-top: 4px;">—</div>
+          </div>
+          <div style="padding: 12px; background: var(--panel2); border-radius: 8px; border: 1px solid var(--border);">
+            <div style="font-size: 0.8rem; color: var(--dim); text-transform: uppercase; letter-spacing: 1px;">Auto-Update</div>
+            <div id="stat-autoupdate-status" style="font-size: 1.2rem; margin-top: 4px;">—</div>
+          </div>
+          <div style="padding: 12px; background: var(--panel2); border-radius: 8px; border: 1px solid var(--border);">
+            <div style="font-size: 0.8rem; color: var(--dim); text-transform: uppercase; letter-spacing: 1px;">Caches</div>
+            <div id="stat-caches-count" style="font-size: 1.2rem; margin-top: 4px;">—</div>
+          </div>
+        </div>
+        <button class="test-btn" onclick="refreshAppStatus()" style="margin-top: 12px;">🔄 Actualiser</button>
+      </div>
+    </div>
+
+    <!-- GUIDE QR -->
+    <div class="section" id="sec-guide">
+      <div class="card">
+        <div class="card-title">📖 Guide Installation & QR Code</div>
+        <p style="font-size: 0.85rem; color: var(--dim); margin-bottom: 16px;">
+          Consultez le fichier <strong>panneau.html</strong> pour accéder au guide complet des agents.
+        </p>
+        <p style="font-size: 0.85rem; color: var(--text);">
+          Cette version consolide tous les outils admin en un seul endroit. Les fichiers de test séparés ont été supprimés.
+        </p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const GAS_URL = "https://script.google.com/macros/s/AKfycbwNa14gHg3nElFo5k1Y_BIkosgOQujBEbTl52qFMG17p5BbND28MEIEIaJoUMmpt55PcA/exec";
+
+async function doLogin() {
+  const email = document.getElementById('loginEmail').value;
+  const pass = document.getElementById('loginPass').value;
+  try {
+    await window._fb.signInWithEmailAndPassword(window._fb.auth, email, pass);
+  } catch(e) {
+    document.getElementById('loginErr').textContent = e.message;
+  }
+}
+
+async function doLogout() {
+  await window._fb.signOut(window._fb.auth);
+}
+
+function showLogin() {
+  document.getElementById('panel').classList.remove('active');
+  document.getElementById('loginScreen').classList.add('active');
+}
+
+function showPanel() {
+  document.getElementById('loginScreen').classList.remove('active');
+  document.getElementById('panel').classList.add('active');
+  document.getElementById('topUser').textContent = window._admin?.nom || 'Admin';
+  refreshAppStatus();
+}
+
+function goTab(tab) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(`sec-${tab}`)?.classList.add('active');
+  event.target.classList.add('active');
+}
+
+function addLog(msg, type = 'info') {
+  const log = document.getElementById('testLog');
+  const line = document.createElement('div');
+  line.className = `log-${type}`;
+  line.textContent = msg;
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function testSW() {
+  document.getElementById('testLog').innerHTML = '';
+  addLog('Vérification Service Worker...', 'info');
+  
+  if (!('serviceWorker' in navigator)) {
+    addLog('✗ Service Worker non supporté', 'err');
+    return;
+  }
+  addLog('✓ Service Worker supporté', 'ok');
+  
+  try {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    if (regs.length === 0) {
+      addLog('✗ Aucun SW enregistré', 'err');
+    } else {
+      addLog(`✓ ${regs.length} SW trouvé(s)`, 'ok');
+      regs.forEach(r => addLog(`  Scope: ${r.scope}`, 'info'));
+    }
+  } catch(e) {
+    addLog(`✗ Erreur: ${e.message}`, 'err');
+  }
+}
+
+async function testCaches() {
+  document.getElementById('testLog').innerHTML = '';
+  addLog('Vérification Caches...', 'info');
+  
+  if (!('caches' in window)) {
+    addLog('✗ Cache API non supportée', 'err');
+    return;
+  }
+  
+  try {
+    const keys = await caches.keys();
+    addLog(`✓ ${keys.length} cache(s) trouvé(s)`, 'ok');
+    keys.forEach(k => addLog(`  - ${k}`, 'info'));
+  } catch(e) {
+    addLog(`✗ Erreur: ${e.message}`, 'err');
+  }
+}
+
+async function testFetch() {
+  document.getElementById('testLog').innerHTML = '';
+  addLog('Test Fetch GAS...', 'info');
+  
+  try {
+    // no-cors évite les faux négatifs CORS dans les tests navigateur.
+    const r = await fetch(GAS_URL + '?action=status', { method: 'GET', mode: 'no-cors' });
+    addLog(`✓ Requête envoyée (réponse opaque attendue: ${r.type})`, 'ok');
+  } catch(e) {
+    addLog(`✗ Erreur: ${e.message}`, 'err');
+  }
+}
+
+function copyGASCode() {
+  const code = document.getElementById('gasCodeBlock').textContent;
+  navigator.clipboard.writeText(code).then(() => {
+    alert('✓ Code GAS copié dans le presse-papiers!');
+  });
+}
+
+async function refreshAppStatus() {
+  // SW
+  if ('serviceWorker' in navigator) {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    document.getElementById('stat-sw-status').innerHTML = regs.length > 0 ? '<span class="status-badge status-ok">✓ Actif</span>' : '<span class="status-badge status-err">✗ Inactif</span>';
+  }
+  
+  // Caches
+  if ('caches' in window) {
+    const keys = await caches.keys();
+    document.getElementById('stat-caches-count').innerHTML = `<span class="status-badge status-ok">${keys.length} cache(s)</span>`;
+  }
+  
+  // Auto-update
+  document.getElementById('stat-autoupdate-status').innerHTML = '<span class="status-badge status-ok">✓ Configuré</span>';
+}
+
+// GAS Code
+document.addEventListener('DOMContentLoaded', async () => {
+  const codeBlock = document.getElementById('gasCodeBlock');
+  codeBlock.textContent = 'Chargement du code GAS complet depuis gas-drive.js...';
+  try {
+    const resp = await fetch('./gas-drive.js', { cache: 'no-store' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const fullGasCode = await resp.text();
+    codeBlock.textContent = fullGasCode;
+    addLog('✓ Code GAS complet chargé depuis gas-drive.js', 'ok');
+  } catch (e) {
+    codeBlock.textContent = 'Erreur chargement gas-drive.js: ' + e.message + '\n\nOuvrez directement le fichier gas-drive.js et copiez son contenu.';
+    addLog('✗ Impossible de charger gas-drive.js: ' + e.message, 'err');
+  }
+});
+
+// Init
+window.addEventListener('load', () => {
+  if (window._admin) showPanel();
+});
+</script>
+
+</body>
+</html>

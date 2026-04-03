@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.1.2";
+            window.APP_VERSION = "2.1.3";
 
             try {
                 const app = initializeApp(firebaseConfig);
@@ -1609,6 +1609,37 @@ function setupServiceWorkerAutoUpdate() {
         location.reload();
     });
 }
+
+// ══ Vérification version Firestore → force reload si obsolète ══
+async function checkVersionFromFirestore() {
+    try {
+        if (!window._fb || !window._firebaseAvailable) return;
+        const snap = await window._fb.getDoc(window._fb.doc(window._fb.db, 'config', 'appVersion'));
+        if (!snap.exists()) return;
+        const serverVer = snap.data().version || '0.0.0';
+        const localVer = window.APP_VERSION || '0.0.0';
+        if (compareVersions(localVer, serverVer) < 0) {
+            console.log('[VERSION] Obsolète:', localVer, '→', serverVer, '— purge auto...');
+            // Purger les caches et recharger
+            if ('caches' in window) {
+                const keys = await caches.keys();
+                await Promise.all(keys.map(k => caches.delete(k)));
+            }
+            if ('serviceWorker' in navigator) {
+                const regs = await navigator.serviceWorker.getRegistrations();
+                await Promise.all(regs.map(r => r.unregister()));
+            }
+            localStorage.setItem('_vin_cached_version', serverVer);
+            window.location.replace(window.location.origin + window.location.pathname);
+            return;
+        }
+    } catch(e) { console.warn('[VERSION] Check Firestore erreur:', e.message); }
+}
+// Lancer le check Firestore 5s après chargement + à chaque retour d'écran
+setTimeout(checkVersionFromFirestore, 5000);
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') setTimeout(checkVersionFromFirestore, 2000);
+});
 
 function nowTrace() {
     return new Date().toLocaleTimeString('fr-TN', { hour12: false }) + '.' + String(new Date().getMilliseconds()).padStart(3, '0');
@@ -4372,9 +4403,16 @@ let _chatUnsubscribe = null;
 let _chatLastRead = 0;
 
 function chargerMessagesChat() {
-    if (!window._firebaseAvailable || !window.currentUser) return;
-    const { db, collection, query, orderBy, limit, onSnapshot } = window._fb;
     const messagesDiv = document.getElementById('chatMessages');
+    if (!window._firebaseAvailable) {
+        messagesDiv.innerHTML = '<div style="text-align:center;padding:40px 20px"><div style="font-size:2.5rem;margin-bottom:12px">⚠️</div><div style="color:var(--text-dim);font-size:0.88rem;line-height:1.6">Connexion Firebase indisponible.<br>Redémarrez l\'application ou utilisez le lien force-update.</div></div>';
+        return;
+    }
+    if (!window.currentUser) {
+        messagesDiv.innerHTML = '<div style="text-align:center;padding:40px 20px"><div style="font-size:2.5rem;margin-bottom:12px">🔐</div><div style="color:var(--text-dim);font-size:0.88rem;line-height:1.6">Connectez-vous pour accéder au chat.</div></div>';
+        return;
+    }
+    const { db, collection, query, orderBy, limit, onSnapshot } = window._fb;
 
     // Unsubscribe previous listener if any
     if (_chatUnsubscribe) { _chatUnsubscribe(); _chatUnsubscribe = null; }
@@ -4423,7 +4461,10 @@ function chargerMessagesChat() {
 async function envoyerMessageChat() {
     const input = document.getElementById('chatInput');
     const text = (input.value || '').trim();
-    if (!text || !window._firebaseAvailable || !window.currentUser) return;
+    if (!text) return;
+    if (!window._firebaseAvailable) { showToast('Firebase indisponible. Rechargez l\'app.', 'err'); return; }
+    if (!window.currentUser) { showToast('Connectez-vous pour envoyer un message.', 'err'); return; }
+    if (window.currentUser.localOnly) { showToast('Chat indisponible en mode local. Connectez-vous.', 'err'); return; }
     input.value = '';
     const { db, collection, addDoc, serverTimestamp } = window._fb;
     const u = window.currentUser;
@@ -4443,7 +4484,10 @@ async function envoyerMessageChat() {
 }
 
 async function envoyerPhotoChatFromInput(inputEl) {
-    if (!inputEl.files || !inputEl.files[0] || !window._firebaseAvailable || !window.currentUser) return;
+    if (!inputEl.files || !inputEl.files[0]) return;
+    if (!window._firebaseAvailable) { showToast('Firebase indisponible. Rechargez l\'app.', 'err'); return; }
+    if (!window.currentUser) { showToast('Connectez-vous pour envoyer une photo.', 'err'); return; }
+    if (window.currentUser.localOnly) { showToast('Chat indisponible en mode local.', 'err'); return; }
     const file = inputEl.files[0];
     inputEl.value = '';
     showToast('Envoi de la photo...', 'info', 2000);
