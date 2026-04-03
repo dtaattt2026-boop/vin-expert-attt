@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.1.1";
+            window.APP_VERSION = "2.1.2";
 
             try {
                 const app = initializeApp(firebaseConfig);
@@ -1401,6 +1401,33 @@
           </div>
         </div>
 
+        <!-- LIENS UTILES / OUTILS ADMIN -->
+        <div class="card" style="margin-top:14px;padding:14px">
+          <div class="card-title">🔗 Outils admin</div>
+          <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
+            <a href="panneau.html" target="_blank" style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--panel2);border:1px solid var(--border);border-radius:10px;color:var(--text);text-decoration:none;font-size:0.85rem">
+              <span style="font-size:1.3rem">🖥️</span>
+              <div><b>Panneau de gestion complet</b><br><span style="font-size:0.75rem;color:var(--text-dim)">Configuration GitHub, déploiement, token, documentation</span></div>
+            </a>
+            <a href="https://console.firebase.google.com/project/vin-expert-attt/firestore" target="_blank" style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--panel2);border:1px solid var(--border);border-radius:10px;color:var(--text);text-decoration:none;font-size:0.85rem">
+              <span style="font-size:1.3rem">🔥</span>
+              <div><b>Console Firebase</b><br><span style="font-size:0.75rem;color:var(--text-dim)">Base de données, règles, utilisateurs</span></div>
+            </a>
+            <a href="https://github.com/dtaattt2026-boop/vin-expert-attt" target="_blank" style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--panel2);border:1px solid var(--border);border-radius:10px;color:var(--text);text-decoration:none;font-size:0.85rem">
+              <span style="font-size:1.3rem">📦</span>
+              <div><b>GitHub Repository</b><br><span style="font-size:0.75rem;color:var(--text-dim)">Code source, historique des versions</span></div>
+            </a>
+            <a href="https://script.google.com/" target="_blank" style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--panel2);border:1px solid var(--border);border-radius:10px;color:var(--text);text-decoration:none;font-size:0.85rem">
+              <span style="font-size:1.3rem">📄</span>
+              <div><b>Google Apps Script</b><br><span style="font-size:0.75rem;color:var(--text-dim)">Backend Drive, archivage, emails</span></div>
+            </a>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+              <button class="btn-auth" style="flex:1;padding:10px;font-size:0.8rem;border-radius:8px;margin-top:0;background:var(--blue)" onclick="notifierAgentsMaj()">📧 Notifier les agents</button>
+              <button class="btn-auth" style="flex:1;padding:10px;font-size:0.8rem;border-radius:8px;margin-top:0;background:var(--panel2);color:var(--text);border:1px solid var(--border)" onclick="copierLienForceUpdate()">🔗 Copier lien force-update</button>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -2167,20 +2194,77 @@ async function publierMiseAJour() {
     const force = document.getElementById('forceUpdate').checked;
     const minV  = document.getElementById('minVersionInput').value.trim();
     if (!ver) { showToast('Saisissez un numéro de version.', 'err'); return; }
-    // Accepte X.Y ou X.Y.Z — normalise en X.Y.Z
     if (!/^\d+\.\d+(\.\d+)?$/.test(ver)) { showToast('Format invalide. Ex: 1.1 ou 1.1.0', 'err'); return; }
     const verNorm = ver.includes('.', ver.indexOf('.')+1) ? ver : ver + '.0';
+
+    const btn = document.querySelector('[onclick="publierMiseAJour()"]');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Publication...'; }
+
     try {
+        // 1. Firestore
+        showToast('Mise à jour Firestore...', 'info', 2000);
         await fb.setDoc(fb.doc(fb.db, 'config', 'appVersion'), {
             version: verNorm, notes, forceUpdate: force,
             minVersion: minV || '0.0.0',
             updatedAt: new Date().toISOString(),
             updatedBy: window.currentUser?.email || 'admin'
         });
+
+        // 2. GitHub — lire le token depuis Firestore
+        let ghToken = '', ghOwner = 'dtaattt2026-boop', ghRepo = 'vin-expert-attt';
+        try {
+            const ghSnap = await fb.getDoc(fb.doc(fb.db, 'config', 'github'));
+            if (ghSnap.exists()) {
+                const g = ghSnap.data();
+                ghToken = g.token || '';
+                ghOwner = g.owner || ghOwner;
+                ghRepo  = g.repo  || ghRepo;
+            }
+        } catch(e) {}
+
+        if (ghToken) {
+            showToast('Synchronisation GitHub...', 'info', 3000);
+
+            // Fichiers à mettre à jour la version
+            const filesToUpdate = [
+                { path: 'index.html', regex: /window\.APP_VERSION\s*=\s*["'][^"']*["']/, replace: `window.APP_VERSION = "${verNorm}"` },
+                { path: 'sw.js', regex: /const CACHE_NAME\s*=\s*['"][^'"]*['"]/, replace: `const CACHE_NAME = 'vin-expert-v${verNorm}'` }
+            ];
+
+            for (const file of filesToUpdate) {
+                try {
+                    // Lire le fichier actuel depuis GitHub
+                    const getRes = await fetch(`https://api.github.com/repos/${ghOwner}/${ghRepo}/contents/${file.path}`, {
+                        headers: { 'Authorization': `token ${ghToken}`, 'Accept': 'application/vnd.github.v3+json' }
+                    });
+                    if (!getRes.ok) { console.warn(`[PUB] ${file.path} non trouvé sur GitHub`); continue; }
+                    const ghData = await getRes.json();
+                    let content = atob(ghData.content.replace(/\n/g, ''));
+                    content = content.replace(file.regex, file.replace);
+
+                    // Encoder et pousser
+                    const encoded = btoa(unescape(encodeURIComponent(content)));
+                    const putRes = await fetch(`https://api.github.com/repos/${ghOwner}/${ghRepo}/contents/${file.path}`, {
+                        method: 'PUT',
+                        headers: { 'Authorization': `token ${ghToken}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message: `v${verNorm} — ${file.path}`, content: encoded, sha: ghData.sha })
+                    });
+                    if (putRes.ok) console.log(`[PUB] ${file.path} → v${verNorm} OK`);
+                    else console.warn(`[PUB] ${file.path} erreur:`, await putRes.text());
+                } catch(e) { console.warn(`[PUB] ${file.path} erreur:`, e.message); }
+            }
+            showToast(`v${verNorm} publiée (Firestore + GitHub) !`, 'ok', 4000);
+        } else {
+            showToast(`v${verNorm} publiée (Firestore uniquement — token GitHub manquant)`, 'ok', 4000);
+        }
+
         document.getElementById('adminCurVersion').textContent = verNorm;
-        showToast(`Version ${verNorm} publiée !`, 'ok');
         window.APP_VERSION = verNorm;
-    } catch(e) { showToast('Erreur Firestore : ' + e.message, 'err'); }
+    } catch(e) {
+        showToast('Erreur : ' + e.message, 'err');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '🚀 PUBLIER LA MISE À JOUR'; }
+    }
 }
 
 async function loadAdminReports() {
@@ -2323,6 +2407,33 @@ async function supprimerMessagesSelectionnes() {
 }
 
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ========== NOTIFICATION AGENTS ==========
+async function notifierAgentsMaj() {
+    const ver = window.APP_VERSION || document.getElementById('adminCurVersion')?.textContent || '?';
+    const url = 'https://dtaattt2026-boop.github.io/vin-expert-attt/index.html?force-update=1';
+    const fb = window._fb;
+    let emails = [];
+    if (fb) {
+        try {
+            const snap = await fb.getDocs(fb.collection(fb.db, 'users'));
+            snap.forEach(d => { const u = d.data(); if (u.email && !u.disabled) emails.push(u.email); });
+        } catch(e) {}
+    }
+    const bcc = emails.join(',');
+    const subject = encodeURIComponent(`Mise à jour VIN Expert v${ver}`);
+    const body = encodeURIComponent(`Une nouvelle version de VIN Expert ATTT (v${ver}) est disponible.\n\nCliquez sur ce lien pour mettre à jour :\n${url}\n\nCordialement,\nDirection Technique d'Automobiles`);
+    window.open(`mailto:?bcc=${bcc}&subject=${subject}&body=${body}`);
+}
+
+function copierLienForceUpdate() {
+    const url = 'https://dtaattt2026-boop.github.io/vin-expert-attt/index.html?force-update=1';
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(url).then(() => showToast('Lien copié !', 'ok', 2000));
+    } else {
+        prompt('Copiez ce lien :', url);
+    }
+}
 
 // ========== PASSWORD TOGGLE ==========
 function togglePass(inputId, btn) {
