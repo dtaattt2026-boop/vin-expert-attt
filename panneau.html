@@ -1172,13 +1172,24 @@ function readFileAsBase64(file) {
 async function publier() {
   const fb = window._fb; if (!fb) return;
 
-  const ver   = document.getElementById('pubVer').value.trim();
+  let ver   = document.getElementById('pubVer').value.trim();
   const notes = document.getElementById('pubNotes').value.trim();
   const force = document.getElementById('pubForce').checked;
   const minVer= document.getElementById('pubMinVer').value.trim() || '0.0.0';
   const doGh  = true; // Toujours synchroniser avec GitHub
 
-  if (!ver) { toast('Saisissez un numéro de version.', 'err'); return; }
+  // Si le champ est vide, utiliser automatiquement la version GitHub
+  if (!ver) {
+    const ghVer = document.getElementById('pubCurAppVer').textContent.trim();
+    if (ghVer && ghVer !== '?' && ghVer !== '(token requis)') {
+      ver = ghVer;
+      document.getElementById('pubVer').value = ver;
+      log(`Version pré-remplie depuis GitHub : ${ver}`, 'ok');
+    } else {
+      toast('Saisissez un numéro de version.', 'err');
+      return;
+    }
+  }
   if (!/^\d+\.\d+(\.\d+)?$/.test(ver)) { toast('Format de version invalide. Ex: 1.2.0', 'err'); return; }
 
   // Normaliser X.Y → X.Y.0
