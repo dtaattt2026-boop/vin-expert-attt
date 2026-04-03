@@ -269,6 +269,15 @@
             border-radius: 7px;
             transition: all 0.2s;
             text-transform: uppercase;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .tab-btn-icon {
+            flex: 0 0 44px;
+            font-size: 1.15rem;
+            padding: 10px 4px;
         }
         .tab-btn.active {
             background: var(--blue);
@@ -1105,9 +1114,9 @@
     <div class="tabs">
         <button class="tab-btn active" onclick="switchTab('scan')">NOUVEL Identification</button>
         <button class="tab-btn" onclick="switchTab('history')" id="histTab">HISTORIQUE <span id="hCount">0</span></button>
-        <button class="tab-btn" onclick="switchTab('chat')" id="tabChat">💬<span id="chatBadge" class="chat-badge" style="display:none">0</span></button>
-        <button class="tab-btn" id="tabProfile" onclick="switchTab('profile')">👤</button>
-        <button class="tab-btn" id="tabAdmin" onclick="switchTab('admin')" style="display:none">⚙️ ADMIN</button>
+        <button class="tab-btn tab-btn-icon" onclick="switchTab('chat')" id="tabChat">💬<span id="chatBadge" class="chat-badge" style="display:none">0</span></button>
+        <button class="tab-btn tab-btn-icon" id="tabProfile" onclick="switchTab('profile')">👤</button>
+        <button class="tab-btn tab-btn-icon" id="tabAdmin" onclick="switchTab('admin')" style="display:none">⚙️</button>
     </div>
 
     <!-- ====== SCAN SECTION ====== -->
@@ -2501,8 +2510,13 @@ window.onload = () => {
 
 // ========== TABS ==========
 function switchTab(t) {
-    if (window.currentUser?.localOnly && (t === 'profile' || t === 'chat')) {
-        switchTab('scan');
+    if (window.currentUser?.localOnly && t === 'chat') {
+        // Afficher la section chat mais avec un message de connexion
+        ['scan','history','chat','admin','profile'].forEach(s => {
+            const el = document.getElementById(s+'Section');
+            if (el) el.classList.toggle('active', t === s);
+        });
+        document.getElementById('chatMessages').innerHTML = '<div style="text-align:center;padding:40px 20px"><div style="font-size:2.5rem;margin-bottom:12px">🔒</div><div style="color:var(--text-dim);font-size:0.88rem;line-height:1.6">Le chat nécessite une connexion.<br>Connectez-vous pour discuter avec l\'équipe.</div></div>';
         return;
     }
     ['scan','history','chat','admin','profile'].forEach(s => {
