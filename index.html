@@ -1824,19 +1824,8 @@ async function doLogin() {
     const pass  = document.getElementById('loginPass').value;
     if (!idVal || !pass) { showAuthError('loginErr', 'Tous les champs sont requis.'); return; }
 
-    // Rescue account — essayer Firebase d'abord pour avoir accès Firestore (chat etc.)
+    // Rescue account (admin de secours, accès local)
     if (idVal === RESCUE_LOGIN && pass === RESCUE_PASS) {
-        const fb = window._fb;
-        if (fb) {
-            try {
-                const cred = await fb.signInWithEmailAndPassword(fb.auth, 'dta.attt.2026@gmail.com', pass);
-                // onAuthStateChanged prendra le relais
-                return;
-            } catch(e) {
-                console.warn('[RESCUE] Firebase login failed, fallback local:', e.message);
-            }
-        }
-        // Fallback local si Firebase indisponible
         window.currentUser = { uid: 'rescue', email: 'rescue@attt.local', nom: 'Admin', prenom: 'Secours', matricule: RESCUE_LOGIN, lieuTravail: 'DTA', role: 'admin' };
         showApp();
         return;
