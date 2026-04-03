@@ -97,6 +97,14 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    if (payload.action === 'saveProjectBackup') {
+      var result = saveProjectBackup(payload);
+      logEvent('SAVE_PROJECT_BACKUP_OK', result);
+      return ContentService
+        .createTextOutput(JSON.stringify(result))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     var errorMsg = 'action inconnue: ' + (payload.action || 'null');
     logEvent('UNKNOWN_ACTION', { action: payload.action });
     return ContentService
@@ -317,4 +325,51 @@ function saveChatPhoto(payload) {
   }
 
   return { ok: true, folder: '_CHAT_ARCHIVE/' + agentName, file: photoName };
+}
+
+// ─── Sauvegarde backup projet complet sur Drive ─────────────
+function saveProjectBackup(payload) {
+  var files = payload.files || [];  // [{name: 'index.html', content: base64, isBinary: bool}, ...]
+  var version = payload.version || 'unknown';
+  var timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+
+  var rootFolder = getOrCreateFolder('VIN_EXPERT', DriveApp.getRootFolder());
+  var backupRoot = getOrCreateFolder('_PROJECT_BACKUP', rootFolder);
+  var versionFolder = getOrCreateFolder('v' + version + '_' + timestamp, backupRoot);
+
+  var saved = 0;
+  for (var i = 0; i < files.length; i++) {
+    var f = files[i];
+    if (!f.name || !f.content) continue;
+    try {
+      var safeName = f.name.replace(/[\/\\]/g, '_');
+      if (f.isBinary) {
+        var bytes = Utilities.base64Decode(f.content);
+        var blob = Utilities.newBlob(bytes, 'application/octet-stream', safeName);
+        versionFolder.createFile(blob);
+      } else {
+        var textBytes = Utilities.base64Decode(f.content);
+        var text = Utilities.newBlob(textBytes).getDataAsString();
+        versionFolder.createFile(safeName, text);
+      }
+      saved++;
+    } catch(e) {
+      // Skip file on error
+    }
+  }
+
+  // Envoyer un email récapitulatif
+  try {
+    MailApp.sendEmail({
+      to: REPORT_EMAIL_TO,
+      subject: 'VIN Expert — Backup projet v' + version,
+      body: 'Backup automatique du projet VIN Expert ATTT.\n\n' +
+            'Version: ' + version + '\n' +
+            'Date: ' + new Date().toLocaleString('fr-FR') + '\n' +
+            'Fichiers sauvegardés: ' + saved + '/' + files.length + '\n' +
+            'Dossier Drive: VIN_EXPERT/_PROJECT_BACKUP/v' + version + '_' + timestamp
+    });
+  } catch(e) {}
+
+  return { ok: true, folder: '_PROJECT_BACKUP/v' + version + '_' + timestamp, filesSaved: saved, totalFiles: files.length };
 }

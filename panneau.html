@@ -26,6 +26,7 @@ const firebaseConfig = {
 const app  = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db   = getFirestore(app);
+const GAS_DRIVE_URL = "https://script.google.com/macros/s/AKfycbwJu4hNrvh3e9_sT9GcQ8Q2CMWo3kC64F2n7RVCmM1gjQtnHbud9k-FPV3piRfSgUxC/exec";
 
 window._fb = { auth, db, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail,
   doc, setDoc, getDoc, collection, getDocs, updateDoc, query, orderBy, limit, serverTimestamp };
@@ -326,6 +327,20 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',sans-serif;mi
             🔄 SYNCHRONISER TOUT VERS GITHUB
           </button>
           <div class="progress-log" id="syncLog" style="display:none"></div>
+        </div>
+
+        <!-- ═══ SAUVEGARDE DRIVE ═══ -->
+        <div class="card pub-form" style="border:2px solid var(--gold);border-radius:14px">
+          <div class="card-title">📦 Sauvegarder tout le projet sur Google Drive</div>
+          <div class="info-box">
+            Envoie <b>tous les fichiers</b> du projet vers Google Drive (dta.attt.2026@gmail.com).<br>
+            Dossier : <code>VIN_EXPERT/_PROJECT_BACKUP/vX.X.X_date</code><br>
+            Fonctionne depuis <b>PC ou smartphone</b>. Un email récapitulatif est envoyé.
+          </div>
+          <button class="btn-pub" id="btnDriveBackup" onclick="backupToDrive()" style="background:linear-gradient(135deg,#a07000,#d4a017);font-size:1rem;padding:14px 28px">
+            📦 SAUVEGARDER SUR DRIVE
+          </button>
+          <div class="progress-log" id="driveBackupLog" style="display:none"></div>
         </div>
 
         <div class="card pub-form">
@@ -1418,6 +1433,92 @@ function slog(msg, type='info') {
   el.style.display = 'block';
   el.innerHTML += `<div class="log-${type}">${type === 'ok' ? '✓' : type === 'err' ? '✗' : '→'} ${esc(msg)}</div>`;
   el.scrollTop = el.scrollHeight;
+}
+
+async function backupToDrive() {
+  const btn = document.getElementById('btnDriveBackup');
+  const logDiv = document.getElementById('driveBackupLog');
+  btn.disabled = true;
+  logDiv.innerHTML = '';
+  logDiv.style.display = 'block';
+
+  function log(msg, type) {
+    const color = type === 'ok' ? 'var(--green)' : type === 'err' ? 'var(--red)' : 'var(--dim)';
+    logDiv.innerHTML += `<div style="color:${color}">→ ${msg}</div>`;
+    logDiv.scrollTop = logDiv.scrollHeight;
+  }
+
+  try {
+    const gasUrl = GAS_DRIVE_URL;
+    if (!gasUrl) { log('URL GAS manquante.', 'err'); btn.disabled = false; return; }
+
+    const baseUrl = window.location.origin + window.location.pathname.replace(/panneau\.html.*$/, '');
+    const textFiles = ['index.html', 'sw.js', 'manifest.json', 'panneau.html', 'gas-drive.js', 'admin-dashboard.html'];
+    const binaryFiles = ['icons/icon-72.png', 'icons/icon-96.png', 'icons/icon-128.png', 'icons/icon-144.png', 'icons/icon-152.png', 'icons/icon-192.png', 'icons/icon-384.png', 'icons/icon-512.png', 'Logo.png'];
+
+    const allFiles = [];
+    let version = '?';
+
+    // Fichiers texte
+    for (const file of textFiles) {
+      try {
+        log(`Lecture ${file}...`);
+        const res = await fetch(`${baseUrl}${file}`, { cache: 'no-store' });
+        if (!res.ok) { log(`${file} — non trouvé, ignoré`, 'err'); continue; }
+        const text = await res.text();
+        if (file === 'index.html') {
+          const m = text.match(/APP_VERSION\s*=\s*["']([^"']+)["']/);
+          if (m) version = m[1];
+        }
+        const b64 = btoa(unescape(encodeURIComponent(text)));
+        allFiles.push({ name: file, content: b64, isBinary: false });
+        log(`${file} ✓ (${(text.length / 1024).toFixed(0)} KB)`, 'ok');
+      } catch(e) { log(`${file} — ${e.message}`, 'err'); }
+    }
+
+    // Fichiers binaires
+    for (const file of binaryFiles) {
+      try {
+        log(`Lecture ${file}...`);
+        const res = await fetch(`${baseUrl}${file}`, { cache: 'no-store' });
+        if (!res.ok) { log(`${file} — non trouvé, ignoré`, 'err'); continue; }
+        const buf = await res.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i += 8192) {
+          binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + 8192, bytes.length)));
+        }
+        const b64 = btoa(binary);
+        allFiles.push({ name: file.replace(/\//g, '_'), content: b64, isBinary: true });
+        log(`${file} ✓ (${(buf.byteLength / 1024).toFixed(0)} KB)`, 'ok');
+      } catch(e) { log(`${file} — ${e.message}`, 'err'); }
+    }
+
+    if (allFiles.length === 0) { log('Aucun fichier à sauvegarder !', 'err'); btn.disabled = false; return; }
+
+    log(`Envoi de ${allFiles.length} fichiers vers Google Drive...`);
+    const payload = JSON.stringify({
+      action: 'saveProjectBackup',
+      version: version,
+      files: allFiles
+    });
+
+    const resp = await fetch(gasUrl, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: payload
+    });
+
+    log(`═══ BACKUP v${version} ENVOYÉ À GOOGLE DRIVE ═══`, 'ok');
+    log(`Dossier : VIN_EXPERT/_PROJECT_BACKUP/`, 'ok');
+    log(`Email récapitulatif envoyé à dta.attt.2026@gmail.com`, 'ok');
+    toast('Backup Drive envoyé !', 'ok', 4000);
+  } catch(e) {
+    log('ERREUR : ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function syncAllToGithub() {
