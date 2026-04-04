@@ -1,4 +1,4 @@
-ï»¿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
@@ -9,8 +9,8 @@
     <meta name="apple-mobile-web-app-title" content="VIN Expert">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="application-name" content="VIN Expert ATTT">
-    <meta name="description" content="Identification VIN â ATTT Direction Technique d'Automobiles">
-    <title>ATTT Â· VIN Identification</title>
+    <meta name="description" content="Identification VIN — ATTT Direction Technique d'Automobiles">
+    <title>ATTT · VIN Identification</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.1.4";
+            window.APP_VERSION = "2.1.5";
 
             try {
                 const app = initializeApp(firebaseConfig);
@@ -51,7 +51,7 @@
 
                 // Auth state listener
                 onAuthStateChanged(auth, async (user) => {
-        // Pendant l'inscription (doRegister), on gÃ¨re le flux manuellement
+        // Pendant l'inscription (doRegister), on gère le flux manuellement
         if (window._registering) return;
 
         if (user) {
@@ -67,7 +67,7 @@
             const snap = await getDoc(doc(db, "users", user.uid));
             if (snap.exists()) {
               const data = snap.data();
-              if (data.disabled) { await signOut(auth); showAuthScreen('login'); showToast("Compte dÃ©sactivÃ©. Contactez l'administrateur.", "err"); return; }
+              if (data.disabled) { await signOut(auth); showAuthScreen('login'); showToast("Compte désactivé. Contactez l'administrateur.", "err"); return; }
               window.currentUser = { uid: user.uid, email: user.email, ...data };
               // Afficher version
               const vBadge = document.getElementById('appVerBadge');
@@ -87,7 +87,7 @@
           }
         } else {
           window.currentUser = null;
-          // Si lien d'invitation dans l'URL â aller directement sur l'Ã©cran d'inscription
+          // Si lien d'invitation dans l'URL → aller directement sur l'écran d'inscription
           const inviteParam = new URLSearchParams(window.location.search).get('invite');
           if (inviteParam) {
             window._pendingInviteCode = inviteParam.toUpperCase();
@@ -104,9 +104,9 @@
             }
     </script>
     
-    <!-- Enregistrer Service Worker dÃ¨s le chargement de la page (avant connexion) -->
+    <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
-        // ââ Auto-purge cache si version diffÃ©rente OU force-update ââ
+        // ══ Auto-purge cache si version différente OU force-update ══
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -115,12 +115,12 @@
                 const params = new URLSearchParams(window.location.search);
                 const forceUpdate = params.has('force-update');
 
-                // Si force-update OU version diffÃ©rente â purger
+                // Si force-update OU version différente → purger
                 if (!forceUpdate && cached && cached === CURRENT) {
-                    return; // mÃªme version, pas de force-update, rien Ã  faire
+                    return; // même version, pas de force-update, rien à faire
                 }
 
-                console.log('[PURGE] ' + (forceUpdate ? 'Force-update demandÃ©' : 'Version changÃ©e: ' + (cached||'aucune') + ' â ' + CURRENT));
+                console.log('[PURGE] ' + (forceUpdate ? 'Force-update demandé' : 'Version changée: ' + (cached||'aucune') + ' → ' + CURRENT));
 
                 // 1. Supprimer tous les caches
                 if ('caches' in window) {
@@ -128,16 +128,16 @@
                     await Promise.all(keys.map(k => { console.log('[PURGE] Suppression cache:', k); return caches.delete(k); }));
                 }
 
-                // 2. DÃ©senregistrer TOUS les anciens SW pour repartir propre
+                // 2. Désenregistrer TOUS les anciens SW pour repartir propre
                 if ('serviceWorker' in navigator) {
                     const regs = await navigator.serviceWorker.getRegistrations();
-                    await Promise.all(regs.map(r => { console.log('[PURGE] DÃ©senregistrement SW:', r.scope); return r.unregister(); }));
+                    await Promise.all(regs.map(r => { console.log('[PURGE] Désenregistrement SW:', r.scope); return r.unregister(); }));
                 }
 
                 // 3. Sauvegarder la nouvelle version
                 localStorage.setItem(STORAGE_KEY, CURRENT);
 
-                // 4. Recharger sans le paramÃ¨tre force-update (URL propre)
+                // 4. Recharger sans le paramètre force-update (URL propre)
                 if (forceUpdate || cached) {
                     // Nettoyer l'URL en retirant ?force-update
                     const cleanUrl = window.location.origin + window.location.pathname;
@@ -145,13 +145,13 @@
                     window.location.replace(cleanUrl);
                     return;
                 }
-                console.log('[PURGE] Premier lancement, version ' + CURRENT + ' enregistrÃ©e');
+                console.log('[PURGE] Premier lancement, version ' + CURRENT + ' enregistrée');
             } catch(e) {
                 console.warn('[PURGE] Erreur:', e.message);
             }
         })();
 
-        // ââ Enregistrement SW aprÃ¨s purge ââ
+        // ══ Enregistrement SW après purge ══
         window._swInitialized = false;
         
         function initServiceWorkerEarly() {
@@ -835,6 +835,9 @@
         .btn-update { background: linear-gradient(135deg, #a07000, #d4a017); color: #fff; border: none; border-radius: 10px; padding: 12px 24px; font-family: var(--font-display); font-weight: 700; font-size: 0.9rem; cursor: pointer; width: 100%; transition: opacity 0.2s; }
         .btn-update:disabled { opacity: 0.65; cursor: not-allowed; }
         .btn-skip-update { background: transparent; border: 1px solid var(--border); color: var(--text-dim); border-radius: 10px; padding: 10px 24px; font-family: var(--font-display); font-size: 0.85rem; cursor: pointer; width: 100%; margin-top: 8px; }
+        .update-progress { width: 100%; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; margin: 16px 0 10px; overflow: hidden; }
+        .update-progress-bar { height: 100%; background: linear-gradient(90deg, var(--gold), #f0c040); border-radius: 3px; width: 0%; transition: width 0.6s ease; }
+        .update-step { font-size: 0.75rem; color: var(--text-dim); margin-bottom: 12px; min-height: 1.2em; }
 
         /* ===== ADMIN PANEL ===== */
         #adminSection { display: none; }
@@ -920,27 +923,27 @@
 <body>
 <canvas id="processCanvas"></canvas>
 
-<!-- ===== BANNIÃRE INSTALLATION PWA ===== -->
-<!-- Android : affichÃ© via beforeinstallprompt -->
+<!-- ===== BANNIÈRE INSTALLATION PWA ===== -->
+<!-- Android : affiché via beforeinstallprompt -->
 <div id="installBanner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:99999;background:linear-gradient(135deg,#0d1220,#0d2040);border-top:2px solid #0055cc;padding:14px 16px;display:none;align-items:center;gap:12px;box-shadow:0 -4px 20px rgba(0,85,204,0.4)">
   <img src="Logo.png" alt="ATTT" width="36" height="36" style="flex-shrink:0;border-radius:8px;object-fit:contain">
   <div style="flex:1;min-width:0">
     <div style="font-size:0.88rem;font-weight:700;color:#d0daf0">Installer VIN Expert ATTT</div>
-    <div style="font-size:0.72rem;color:#556070">AccÃ¨s rapide depuis votre Ã©cran d'accueil</div>
+    <div style="font-size:0.72rem;color:#556070">Accès rapide depuis votre écran d'accueil</div>
   </div>
   <button id="installBtn" style="background:#0055cc;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-weight:700;font-size:0.82rem;cursor:pointer;white-space:nowrap">INSTALLER</button>
-  <button onclick="document.getElementById('installBanner').style.display='none'" style="background:transparent;border:none;color:#556070;font-size:1.2rem;cursor:pointer;padding:4px">â</button>
+  <button onclick="document.getElementById('installBanner').style.display='none'" style="background:transparent;border:none;color:#556070;font-size:1.2rem;cursor:pointer;padding:4px">✕</button>
 </div>
 
 <!-- iOS : instructions manuelles -->
 <div id="iosBanner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:99999;background:linear-gradient(135deg,#0d1220,#0d2040);border-top:2px solid #c8a84b;padding:14px 16px;box-shadow:0 -4px 20px rgba(200,168,75,0.3)">
   <div style="display:flex;justify-content:space-between;align-items:flex-start">
-    <div style="font-size:0.88rem;font-weight:700;color:#c8a84b;margin-bottom:6px">ð± Installer sur iPhone / iPad</div>
-    <button onclick="document.getElementById('iosBanner').style.display='none'" style="background:transparent;border:none;color:#556070;font-size:1.2rem;cursor:pointer">â</button>
+    <div style="font-size:0.88rem;font-weight:700;color:#c8a84b;margin-bottom:6px">📱 Installer sur iPhone / iPad</div>
+    <button onclick="document.getElementById('iosBanner').style.display='none'" style="background:transparent;border:none;color:#556070;font-size:1.2rem;cursor:pointer">✕</button>
   </div>
   <div style="font-size:0.78rem;color:#d0daf0;line-height:1.8">
-    1. Appuyez sur <b style="color:#0af">partager</b> <span style="font-size:1rem">â¬</span> (bouton en bas de Safari)<br>
-    2. Faites dÃ©filer et choisissez <b style="color:#0af">Â« Sur l'Ã©cran d'accueil Â»</b> <span style="font-size:1rem">â</span><br>
+    1. Appuyez sur <b style="color:#0af">partager</b> <span style="font-size:1rem">⬆</span> (bouton en bas de Safari)<br>
+    2. Faites défiler et choisissez <b style="color:#0af">« Sur l'écran d'accueil »</b> <span style="font-size:1rem">➕</span><br>
     3. Confirmez en appuyant sur <b style="color:#0af">Ajouter</b>
   </div>
 </div>
@@ -956,7 +959,7 @@
         <div class="trace-actions">
             <button class="trace-btn" onclick="clearTraceLog()">Vider</button>
             <button class="trace-btn" onclick="copyTraceLog()">Copier</button>
-            <button class="trace-btn" onclick="toggleTraceMode()" id="traceModeBtn">DÃ©sactiver</button>
+            <button class="trace-btn" onclick="toggleTraceMode()" id="traceModeBtn">Désactiver</button>
         </div>
     </div>
     <div id="traceBody"></div>
@@ -965,10 +968,12 @@
 <!-- UPDATE OVERLAY -->
 <div id="updateOverlay">
   <div class="update-card">
-    <div class="update-icon">ð</div>
-    <h2>Mise Ã  jour disponible</h2>
-    <p id="updateMsg">Une nouvelle version de VIN Expert est disponible.<br>Veuillez mettre Ã  jour pour continuer.</p>
-    <button class="btn-update" onclick="doUpdate()">Mettre Ã  jour maintenant</button>
+    <div class="update-icon">🔄</div>
+    <h2>Mise à jour disponible</h2>
+    <p id="updateMsg">Une nouvelle version de VIN Expert est disponible.<br>Veuillez mettre à jour pour continuer.</p>
+    <div class="update-progress"><div class="update-progress-bar" id="updateProgressBar"></div></div>
+    <div class="update-step" id="updateStep"></div>
+    <button class="btn-update" onclick="doUpdate()">Mettre à jour maintenant</button>
     <button class="btn-skip-update" id="btnSkipUpdate" onclick="closeUpdateOverlay()" style="display:none">Ignorer (optionnel)</button>
   </div>
 </div>
@@ -977,13 +982,13 @@
 <div id="authScreen">
   <div class="auth-logo">
     <img src="Logo.png" alt="ATTT" width="80" height="80" style="border-radius:14px;margin-bottom:4px;object-fit:contain">
-    <h1>ATTT Â· VIN Expert</h1>
+    <h1>ATTT · VIN Expert</h1>
     <p>Direction Technique d'Automobiles</p>
   </div>
 
   <!-- LOGIN FORM -->
   <div class="auth-card" id="loginCard">
-    <h2>ð Connexion</h2>
+    <h2>🔐 Connexion</h2>
     <div class="auth-err" id="loginErr"></div>
         <div id="authModeHint" style="font-size:0.75rem;color:var(--text-dim);margin-bottom:10px">Si Firebase est indisponible, utilisez le mode local pour l'OCR, l'historique local et les PDF.</div>
     <div class="form-group">
@@ -993,23 +998,23 @@
     <div class="form-group">
       <label>Mot de passe</label>
       <div class="pass-wrap">
-        <input type="password" id="loginPass" placeholder="â¢â¢â¢â¢â¢â¢â¢â¢" autocomplete="current-password">
-        <button type="button" class="pass-toggle" onclick="togglePass('loginPass',this)" title="Voir/Cacher">ð</button>
+        <input type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password">
+        <button type="button" class="pass-toggle" onclick="togglePass('loginPass',this)" title="Voir/Cacher">👁</button>
       </div>
     </div>
     <button class="btn-auth" onclick="doLogin()">SE CONNECTER</button>
-        <button class="btn-auth secondary" id="forgotBtn" onclick="showAuthScreen('forgot')">Mot de passe oubliÃ© ?</button>
+        <button class="btn-auth secondary" id="forgotBtn" onclick="showAuthScreen('forgot')">Mot de passe oublié ?</button>
         <button class="btn-auth secondary" id="localModeBtn" onclick="enterLocalMode()">UTILISER LE MODE LOCAL GRATUIT</button>
         <div class="auth-switch" id="registerSwitch">Pas encore de compte ? <a onclick="showAuthScreen('register')">S'inscrire</a></div>
   </div>
 
   <!-- REGISTER FORM -->
   <div class="auth-card" id="registerCard" style="display:none">
-    <h2>ð Inscription Agent</h2>
+    <h2>📝 Inscription Agent</h2>
     <div class="auth-err" id="registerErr"></div>
     <div class="form-group">
-      <label>PrÃ©nom</label>
-      <input type="text" id="regPrenom" placeholder="PrÃ©nom">
+      <label>Prénom</label>
+      <input type="text" id="regPrenom" placeholder="Prénom">
     </div>
     <div class="form-group">
       <label>Nom</label>
@@ -1030,47 +1035,47 @@
     <div class="form-group">
       <label>Mot de passe</label>
       <div class="pass-wrap">
-        <input type="password" id="regPass" placeholder="Min. 8 caractÃ¨res">
-        <button type="button" class="pass-toggle" onclick="togglePass('regPass',this)" title="Voir/Cacher">ð</button>
+        <input type="password" id="regPass" placeholder="Min. 8 caractères">
+        <button type="button" class="pass-toggle" onclick="togglePass('regPass',this)" title="Voir/Cacher">👁</button>
       </div>
     </div>
     <div class="form-group">
       <label>Confirmer mot de passe</label>
       <div class="pass-wrap">
         <input type="password" id="regPass2" placeholder="Retapez le mot de passe">
-        <button type="button" class="pass-toggle" onclick="togglePass('regPass2',this)" title="Voir/Cacher">ð</button>
+        <button type="button" class="pass-toggle" onclick="togglePass('regPass2',this)" title="Voir/Cacher">👁</button>
       </div>
     </div>
     <div class="form-group">
-      <label>Code d'invitation <span style="color:var(--text-dim);font-size:0.65rem;font-weight:400">(recommandÃ© â approbation immÃ©diate)</span></label>
+      <label>Code d'invitation <span style="color:var(--text-dim);font-size:0.65rem;font-weight:400">(recommandé — approbation immédiate)</span></label>
       <input type="text" id="regInviteCode" placeholder="ex: ATT-A1B2C3D4" autocomplete="off" style="text-transform:uppercase;letter-spacing:2px;font-family:var(--font-mono)">
     </div>
     <button class="btn-auth" onclick="doRegister()">ENVOYER LA DEMANDE</button>
-    <div class="auth-switch"><a onclick="showAuthScreen('login')">â Retour connexion</a></div>
+    <div class="auth-switch"><a onclick="showAuthScreen('login')">← Retour connexion</a></div>
   </div>
 
   <!-- FORGOT PASSWORD -->
   <div class="auth-card" id="forgotCard" style="display:none">
-    <h2>ð RÃ©initialisation</h2>
+    <h2>🔑 Réinitialisation</h2>
     <div class="auth-err" id="forgotErr"></div>
     <div class="form-group">
       <label>Email du compte</label>
       <input type="email" id="forgotEmail" placeholder="votre@email.com">
     </div>
     <button class="btn-auth" onclick="doForgot()">ENVOYER LE LIEN</button>
-    <div class="auth-switch"><a onclick="showAuthScreen('login')">â Retour connexion</a></div>
+    <div class="auth-switch"><a onclick="showAuthScreen('login')">← Retour connexion</a></div>
   </div>
 
   <!-- PENDING -->
   <div class="auth-card" id="pendingCard" style="display:none">
-    <h2>â³ Compte en attente</h2>
+    <h2>⏳ Compte en attente</h2>
     <div class="pending-badge">
-      Votre demande d'inscription a Ã©tÃ© soumise.<br>
+      Votre demande d'inscription a été soumise.<br>
       Un administrateur doit valider votre compte.<br><br>
-      <b>Vous avez un code d'invitation ? Retournez vous inscrire avec le code pour une approbation immÃ©diate.</b>
+      <b>Vous avez un code d'invitation ? Retournez vous inscrire avec le code pour une approbation immédiate.</b>
     </div>
-    <button class="btn-auth secondary" style="margin-top:10px" onclick="showAuthScreen('register')">Retourner Ã  l'inscription</button>
-    <button class="btn-auth secondary" style="margin-top:8px" onclick="doLogout()">Se dÃ©connecter</button>
+    <button class="btn-auth secondary" style="margin-top:10px" onclick="showAuthScreen('register')">Retourner à l'inscription</button>
+    <button class="btn-auth secondary" style="margin-top:8px" onclick="doLogout()">Se déconnecter</button>
   </div>
 </div>
 
@@ -1087,10 +1092,10 @@
         </div>
         <div class="user-badge" onclick="toggleUserMenu()">
             <div>
-                <div class="user-name" id="hdrName">â</div>
+                <div class="user-name" id="hdrName">—</div>
                 <div class="user-role" id="hdrRole">AGENT</div>
             </div>
-            <span>â</span>
+            <span>⚙</span>
         </div>
     </div>
 
@@ -1098,26 +1103,26 @@
     <div id="userMenu" style="display:none; margin-bottom:10px;">
       <div class="card" style="padding:12px">
         <div style="display:flex; flex-wrap:wrap; gap:8px;">
-          <button class="btn-sm btn-enable" onclick="switchTab('profile')">ð¤ Mon profil & Invitations</button>
-          <button class="btn-sm btn-make-admin" id="btnAdminPanel" onclick="switchTab('admin')" style="display:none">âï¸ Admin</button>
-          <button class="btn-sm" id="btnPanneau" onclick="window.open('panneau.html','_blank')" style="display:none;background:rgba(200,168,75,0.15);color:var(--gold);border:1px solid rgba(200,168,75,0.3)">ð¡ï¸ Panneau</button>
-          <button class="btn-sm btn-disable" onclick="doLogout()">ðª DÃ©connexion</button>
+          <button class="btn-sm btn-enable" onclick="switchTab('profile')">👤 Mon profil & Invitations</button>
+          <button class="btn-sm btn-make-admin" id="btnAdminPanel" onclick="switchTab('admin')" style="display:none">⚙️ Admin</button>
+          <button class="btn-sm" id="btnPanneau" onclick="window.open('panneau.html','_blank')" style="display:none;background:rgba(200,168,75,0.15);color:var(--gold);border:1px solid rgba(200,168,75,0.3)">🛡️ Panneau</button>
+          <button class="btn-sm btn-disable" onclick="doLogout()">🚪 Déconnexion</button>
         </div>
       </div>
     </div>
 
         <div class="card" id="localModeBanner" style="display:none;padding:12px 14px;background:linear-gradient(135deg,rgba(0,85,204,0.18),rgba(0,200,122,0.12));border-color:rgba(0,127,255,0.35)">
             <div style="font-family:var(--font-display);font-size:0.85rem;font-weight:700;letter-spacing:1px;color:#fff">MODE LOCAL GRATUIT</div>
-            <div style="font-size:0.78rem;color:var(--text);margin-top:4px">OCR local, historique local et PDF disponibles. Connexion cloud, invitations et synchronisation sont dÃ©sactivÃ©es.</div>
+            <div style="font-size:0.78rem;color:var(--text);margin-top:4px">OCR local, historique local et PDF disponibles. Connexion cloud, invitations et synchronisation sont désactivées.</div>
         </div>
 
     <!-- TABS -->
     <div class="tabs">
         <button class="tab-btn active" onclick="switchTab('scan')">NOUVEL Identification</button>
         <button class="tab-btn" onclick="switchTab('history')" id="histTab">HISTORIQUE <span id="hCount">0</span></button>
-        <button class="tab-btn tab-btn-icon" onclick="switchTab('chat')" id="tabChat">ð¬<span id="chatBadge" class="chat-badge" style="display:none">0</span></button>
-        <button class="tab-btn tab-btn-icon" id="tabProfile" onclick="switchTab('profile')">ð¤</button>
-        <button class="tab-btn tab-btn-icon" id="tabAdmin" onclick="switchTab('admin')" style="display:none">âï¸</button>
+        <button class="tab-btn tab-btn-icon" onclick="switchTab('chat')" id="tabChat">💬<span id="chatBadge" class="chat-badge" style="display:none">0</span></button>
+        <button class="tab-btn tab-btn-icon" id="tabProfile" onclick="switchTab('profile')">👤</button>
+        <button class="tab-btn tab-btn-icon" id="tabAdmin" onclick="switchTab('admin')" style="display:none">⚙️</button>
     </div>
 
     <!-- ====== SCAN SECTION ====== -->
@@ -1125,26 +1130,26 @@
 
         <!-- PHOTOS -->
         <div class="card">
-            <div class="card-title">ð· Captures Terrain</div>
+            <div class="card-title">📷 Captures Terrain</div>
             <div class="photo-grid">
                 <div class="photo-slot" id="slot0" onclick="takePic(0)">
                     <img id="p0">
-                    <div class="slot-icon">ð¸</div>
-                    <div class="slot-label">NÂ° ChÃ¢ssis</div>
+                    <div class="slot-icon">📸</div>
+                    <div class="slot-label">N° Châssis</div>
                 </div>
                 <div class="photo-slot" id="slot1" onclick="takePic(1)">
                     <img id="p1">
-                    <div class="slot-icon">ð¸</div>
+                    <div class="slot-icon">📸</div>
                     <div class="slot-label">Plaque Constr.</div>
                 </div>
                 <div class="photo-slot" id="slot2" onclick="takePic(2)">
                     <img id="p2">
-                    <div class="slot-icon">ð¸</div>
+                    <div class="slot-icon">📸</div>
                     <div class="slot-label">Bloc Moteur</div>
                 </div>
                 <div class="photo-slot" id="slot3" onclick="takePic(3)">
                     <img id="p3">
-                    <div class="slot-icon">ð¸</div>
+                    <div class="slot-icon">📸</div>
                     <div class="slot-label">Documents</div>
                 </div>
             </div>
@@ -1154,11 +1159,11 @@
 
         <!-- VIN ENTRY -->
         <div class="card">
-            <div class="card-title">ð¢ NumÃ©ro de ChÃ¢ssis (VIN)</div>
+            <div class="card-title">🔢 Numéro de Châssis (VIN)</div>
 
             <div class="btn-row">
-                <button class="btn btn-cam" onclick="document.getElementById('camInp').click()">ð· CAMÃRA</button>
-                <button class="btn btn-gal" onclick="document.getElementById('galInp').click()">ð¼ï¸ GALERIE</button>
+                <button class="btn btn-cam" onclick="document.getElementById('camInp').click()">📷 CAMÉRA</button>
+                <button class="btn btn-gal" onclick="document.getElementById('galInp').click()">🖼️ GALERIE</button>
             </div>
 
             <img id="preview" onclick="openZoom(this.src)">
@@ -1167,11 +1172,11 @@
                 <div class="ocr-double-title">Double lecture OCR</div>
                 <div class="ocr-double-status" id="ocrDoubleStatus">En attente du 1er scan OCR.</div>
                 <div class="ocr-double-actions">
-                    <button class="btn-ocr-reset" onclick="resetDoubleScanState(true)">RÃ©initialiser la double lecture</button>
+                    <button class="btn-ocr-reset" onclick="resetDoubleScanState(true)">Réinitialiser la double lecture</button>
                 </div>
             </div>
 
-            <button class="btn btn-ocr" onclick="ocrVIN()" id="ocrBtn">ð OCR LOCAL GRATUIT</button>
+            <button class="btn btn-ocr" onclick="ocrVIN()" id="ocrBtn">🔍 OCR LOCAL GRATUIT</button>
 
             <div class="vin-wrapper">
                 <input type="text" id="vinField" class="vin-input" placeholder="_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _" maxlength="17" oninput="handleVinInput()">
@@ -1191,41 +1196,41 @@
             <!-- LOADER -->
             <div class="loader" id="loader">
                 <div class="loader-bar"></div>
-                <div class="loader-text" id="loaderText">âï¸ Analyse en cours...</div>
+                <div class="loader-text" id="loaderText">⚙️ Analyse en cours...</div>
                 <div class="loader-sub" id="loaderSub"></div>
             </div>
 
-            <button class="btn-verify" onclick="fullVerify()">ð VÃRIFIER & ENREGISTRER</button>
+            <button class="btn-verify" onclick="fullVerify()">🚀 VÉRIFIER & ENREGISTRER</button>
 
             <!-- RESULT -->
             <div class="result-box" id="resultBox">
                 <div id="resultHeader" class="result-header valid">
-                    <span id="resultIcon">â</span>
-                    <span id="resultTitle">CHÃSSIS VALIDE</span>
+                    <span id="resultIcon">✅</span>
+                    <span id="resultTitle">CHÂSSIS VALIDE</span>
                 </div>
                 <div class="result-body">
                     <div class="result-row">
-                        <div class="result-label">Check Digit Â· Position 9</div>
+                        <div class="result-label">Check Digit · Position 9</div>
                         <div class="result-value" id="resCheckDetail"></div>
                     </div>
                     <div class="result-row">
-                        <div class="result-label">Identification VÃ©hicule (NHTSA)</div>
+                        <div class="result-label">Identification Véhicule (NHTSA)</div>
                         <div class="result-value" id="resVehicle"></div>
                     </div>
                     <div class="result-row" id="resIntelRow" style="display:none">
-                        <div class="result-label">SynthÃ¨se rapport VIN</div>
+                        <div class="result-label">Synthèse rapport VIN</div>
                         <div class="intel-badges">
-                            <span class="intel-badge sure" id="sureCountBadge">SÃ»res: 0</span>
-                            <span class="intel-badge unsure" id="unsureCountBadge">Non sÃ»res: 0</span>
+                            <span class="intel-badge sure" id="sureCountBadge">Sûres: 0</span>
+                            <span class="intel-badge unsure" id="unsureCountBadge">Non sûres: 0</span>
                         </div>
                     </div>
                     <div class="result-row" id="resAiRow" style="display:none">
-                        <div class="result-label">Rapport complÃ©mentaire</div>
+                        <div class="result-label">Rapport complémentaire</div>
                         <div class="ai-report" id="resAiReport"></div>
                     </div>
                     <div class="result-row" style="margin-top:12px">
                         <button class="btn-verify" style="background:linear-gradient(135deg,#004020,#007040);font-size:0.85rem" onclick="envoyerRapportPDF()">
-                            ð§ Envoyer rapport PDF par email
+                            📧 Envoyer rapport PDF par email
                         </button>
                     </div>
                 </div>
@@ -1236,7 +1241,7 @@
     <!-- ====== HISTORY SECTION ====== -->
     <div class="section" id="historySection">
         <div class="card">
-            <div class="card-title">ð Identifications EnregistrÃ©s</div>
+            <div class="card-title">📋 Identifications Enregistrés</div>
             <div id="histList"></div>
         </div>
     </div>
@@ -1246,48 +1251,48 @@
 
       <!-- Profil info -->
       <div class="card">
-        <div class="card-title">ð¤ Mon Profil</div>
+        <div class="card-title">👤 Mon Profil</div>
         <div id="profileInfo" style="font-size:0.85rem;line-height:2;color:var(--text)"></div>
-        <button class="btn-auth secondary" style="margin-top:12px;padding:10px" onclick="showChangePassModal()">ð Changer mon mot de passe</button>
+        <button class="btn-auth secondary" style="margin-top:12px;padding:10px" onclick="showChangePassModal()">🔑 Changer mon mot de passe</button>
       </div>
 
       <!-- Mon code d'invitation -->
       <div class="card">
-        <div class="card-title">ðï¸ Mon Code d'Invitation</div>
+        <div class="card-title">🎟️ Mon Code d'Invitation</div>
         <p style="font-size:0.8rem;color:var(--text-dim);margin-bottom:10px;line-height:1.5">
-          Partagez ce code avec un collÃ¨gue pour qu'il s'inscrive directement sans attente de validation.
-          Chaque code ne peut Ãªtre utilisÃ© qu'<b style="color:var(--gold)">une seule fois</b>.
+          Partagez ce code avec un collègue pour qu'il s'inscrive directement sans attente de validation.
+          Chaque code ne peut être utilisé qu'<b style="color:var(--gold)">une seule fois</b>.
         </p>
         <div class="invite-box">
           <div style="font-size:0.68rem;color:var(--text-dim);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px">Votre code actuel</div>
           <div class="invite-code-display">
-            <span class="invite-code-val" id="myInviteCode">ââââââââ</span>
+            <span class="invite-code-val" id="myInviteCode">────────</span>
             <span id="myInviteStatus" style="font-size:0.65rem;color:var(--orange)"></span>
           </div>
           <div class="invite-link-small" id="myInviteLink"></div>
           <div class="invite-actions">
-            <button class="btn-invite btn-copy" onclick="copyInviteCode()">ð Copier code</button>
-            <button class="btn-invite btn-copy" onclick="copyInviteLink()">ð Copier lien</button>
-            <button class="btn-invite btn-share-email" onclick="showSendInviteModal()">ð§ Envoyer par email</button>
+            <button class="btn-invite btn-copy" onclick="copyInviteCode()">📋 Copier code</button>
+            <button class="btn-invite btn-copy" onclick="copyInviteLink()">🔗 Copier lien</button>
+            <button class="btn-invite btn-share-email" onclick="showSendInviteModal()">📧 Envoyer par email</button>
           </div>
           <div style="margin-top:10px;text-align:center">
-            <button class="btn-invite btn-regen" style="width:100%" onclick="regenererCode()">ð GÃ©nÃ©rer un nouveau code</button>
+            <button class="btn-invite btn-regen" style="width:100%" onclick="regenererCode()">🔄 Générer un nouveau code</button>
           </div>
           <div class="invite-used-badge" id="myInviteUsedInfo"></div>
         </div>
       </div>
 
-      <!-- Mes invitations envoyÃ©es -->
+      <!-- Mes invitations envoyées -->
       <div class="card">
-        <div class="card-title">ð¨ Historique invitations</div>
-        <div id="myInviteHistory"><div class="empty-state"><div class="empty-icon">ð¨</div><p>Chargement...</p></div></div>
+        <div class="card-title">📨 Historique invitations</div>
+        <div id="myInviteHistory"><div class="empty-state"><div class="empty-icon">📨</div><p>Chargement...</p></div></div>
       </div>
     </div>
 
     <!-- MODAL: Envoyer invitation par email -->
     <div id="sendInviteModal" style="display:none;position:fixed;inset:0;z-index:7000;background:rgba(0,0,0,0.85);justify-content:center;align-items:center;padding:20px">
       <div class="auth-card" style="max-width:400px">
-        <h2>ð§ Envoyer l'invitation</h2>
+        <h2>📧 Envoyer l'invitation</h2>
         <div class="form-group">
           <label>Email du destinataire</label>
           <input type="email" id="inviteEmailTo" placeholder="collegue@attt.gov.tn">
@@ -1300,21 +1305,21 @@
     <!-- MODAL: Changer mot de passe -->
     <div id="changePassModal" style="display:none;position:fixed;inset:0;z-index:7000;background:rgba(0,0,0,0.85);justify-content:center;align-items:center;padding:20px">
       <div class="auth-card" style="max-width:400px">
-        <h2>ð Changer mon mot de passe</h2>
-        <p style="font-size:0.8rem;color:var(--text-dim);margin-bottom:14px">Un email de rÃ©initialisation sera envoyÃ© Ã  votre adresse.</p>
+        <h2>🔑 Changer mon mot de passe</h2>
+        <p style="font-size:0.8rem;color:var(--text-dim);margin-bottom:14px">Un email de réinitialisation sera envoyé à votre adresse.</p>
         <div style="background:rgba(0,85,204,0.1);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:0.82rem;color:var(--blue-light);margin-bottom:14px" id="changePassEmail"></div>
-        <button class="btn-auth" onclick="envoyerResetSelf()">âï¸ ENVOYER L'EMAIL DE RÃINITIALISATION</button>
+        <button class="btn-auth" onclick="envoyerResetSelf()">✉️ ENVOYER L'EMAIL DE RÉINITIALISATION</button>
         <button class="btn-auth secondary" onclick="document.getElementById('changePassModal').style.display='none'">Annuler</button>
       </div>
     </div>
 
 
-    <!-- âââ CHAT SECTION âââ -->
+    <!-- ═══ CHAT SECTION ═══ -->
     <div class="section" id="chatSection">
       <div class="card" style="padding:0;overflow:hidden;display:flex;flex-direction:column;height:calc(100vh - 160px)">
         <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
-          <span style="font-size:1.1rem">ð¬</span>
-          <span style="font-weight:700;font-size:0.95rem">Discussion Ã©quipe</span>
+          <span style="font-size:1.1rem">💬</span>
+          <span style="font-weight:700;font-size:0.95rem">Discussion équipe</span>
           <span style="flex:1"></span>
           <span id="chatOnlineCount" style="font-size:0.75rem;color:var(--green)"></span>
         </div>
@@ -1324,107 +1329,107 @@
         <div class="chat-input-bar">
           <label style="cursor:pointer;display:flex;align-items:center">
             <input type="file" id="chatPhotoInput" accept="image/*" style="display:none" onchange="envoyerPhotoChatFromInput(this)">
-            <span style="font-size:1.3rem;padding:4px">ð·</span>
+            <span style="font-size:1.3rem;padding:4px">📷</span>
           </label>
-          <input type="text" id="chatInput" placeholder="Ãcrire un message..." onkeydown="if(event.key==='Enter')envoyerMessageChat()">
-          <button onclick="envoyerMessageChat()">â¤</button>
+          <input type="text" id="chatInput" placeholder="Écrire un message..." onkeydown="if(event.key==='Enter')envoyerMessageChat()">
+          <button onclick="envoyerMessageChat()">➤</button>
         </div>
       </div>
     </div>
 
     <div class="section" id="adminSection">      <div class="card">
-        <div class="card-title">âï¸ Panneau d'administration</div>
+        <div class="card-title">⚙️ Panneau d'administration</div>
         <div class="admin-nav">
-          <button class="active" onclick="switchAdmin('users')">ð¥ Agents</button>
-          <button onclick="switchAdmin('update')">ð Mise Ã  jour</button>
-          <button onclick="switchAdmin('reports')">ð Rapports</button>
-          <button onclick="switchAdmin('chat')">ð¬ Chat</button>
+          <button class="active" onclick="switchAdmin('users')">👥 Agents</button>
+          <button onclick="switchAdmin('update')">🔄 Mise à jour</button>
+          <button onclick="switchAdmin('reports')">📊 Rapports</button>
+          <button onclick="switchAdmin('chat')">💬 Chat</button>
         </div>
 
         <!-- AGENTS SUB -->
         <div class="admin-sub active" id="adminUsers">
           <div style="display:flex; gap:8px; margin-bottom:12px;">
-            <button class="btn-auth" style="padding:10px;font-size:0.78rem;border-radius:8px; margin-top:0" onclick="loadAdminUsers()">ð Actualiser</button>
+            <button class="btn-auth" style="padding:10px;font-size:0.78rem;border-radius:8px; margin-top:0" onclick="loadAdminUsers()">🔄 Actualiser</button>
           </div>
-          <div id="adminUserList"><div class="empty-state"><div class="empty-icon">ð¥</div><p>Chargement...</p></div></div>
+          <div id="adminUserList"><div class="empty-state"><div class="empty-icon">👥</div><p>Chargement...</p></div></div>
         </div>
 
         <!-- UPDATE SUB -->
         <div class="admin-sub" id="adminUpdate">
           <div class="version-card">
             <div class="card-title" style="margin-bottom:8px">Version actuelle de l'app</div>
-            <div class="version-current" id="adminCurVersion">â</div>
-            <div style="font-size:0.72rem;color:var(--text-dim);text-align:center;margin-bottom:16px">DÃ©ployÃ©e sur les appareils des agents</div>
+            <div class="version-current" id="adminCurVersion">—</div>
+            <div style="font-size:0.72rem;color:var(--text-dim);text-align:center;margin-bottom:16px">Déployée sur les appareils des agents</div>
 
             <div class="form-group">
               <label>Nouvelle version</label>
               <input type="text" id="newVersionInput" placeholder="ex: 1.1.0">
             </div>
             <div class="form-group">
-              <label>Notes de mise Ã  jour</label>
+              <label>Notes de mise à jour</label>
               <input type="text" id="newVersionNotes" placeholder="ex: Correction bugs OCR...">
             </div>
             <div class="toggle-wrap">
               <input type="checkbox" id="forceUpdate">
-              <label for="forceUpdate">Mise Ã  jour <b>obligatoire</b> (bloque l'app)</label>
+              <label for="forceUpdate">Mise à jour <b>obligatoire</b> (bloque l'app)</label>
             </div>
             <div class="form-group" id="minVerGroup" style="margin-top:12px">
-              <label>Obligatoire Ã  partir de la version</label>
+              <label>Obligatoire à partir de la version</label>
               <input type="text" id="minVersionInput" placeholder="ex: 0.9.0 (laisser vide = toutes)">
             </div>
-            <button class="btn-auth" style="margin-top:16px" onclick="publierMiseAJour()">ð PUBLIER LA MISE Ã JOUR</button>
+            <button class="btn-auth" style="margin-top:16px" onclick="publierMiseAJour()">🚀 PUBLIER LA MISE À JOUR</button>
           </div>
         </div>
 
         <!-- REPORTS SUB -->
         <div class="admin-sub" id="adminReports">
-          <div id="adminReportList"><div class="empty-state"><div class="empty-icon">ð</div><p>Chargement des rapports...</p></div></div>
-          <button class="btn-auth" style="padding:10px;font-size:0.78rem;margin-top:8px;border-radius:8px" onclick="loadAdminReports()">ð Actualiser</button>
+          <div id="adminReportList"><div class="empty-state"><div class="empty-icon">📊</div><p>Chargement des rapports...</p></div></div>
+          <button class="btn-auth" style="padding:10px;font-size:0.78rem;margin-top:8px;border-radius:8px" onclick="loadAdminReports()">🔄 Actualiser</button>
         </div>
 
         <!-- CHAT MODERATION SUB -->
         <div class="admin-sub" id="adminChat">
           <div class="card" style="padding:12px">
             <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
-              <input type="text" id="chatFilterSender" placeholder="ð ExpÃ©diteur..." style="flex:1;min-width:120px;padding:8px 12px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.82rem;outline:none" oninput="filterAdminChat()">
-              <input type="text" id="chatFilterContent" placeholder="ð Contenu..." style="flex:1;min-width:120px;padding:8px 12px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.82rem;outline:none" oninput="filterAdminChat()">
+              <input type="text" id="chatFilterSender" placeholder="🔍 Expéditeur..." style="flex:1;min-width:120px;padding:8px 12px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.82rem;outline:none" oninput="filterAdminChat()">
+              <input type="text" id="chatFilterContent" placeholder="🔍 Contenu..." style="flex:1;min-width:120px;padding:8px 12px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.82rem;outline:none" oninput="filterAdminChat()">
               <input type="date" id="chatFilterDate" style="padding:8px 10px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.82rem;outline:none" onchange="filterAdminChat()">
-              <button class="btn-auth" style="padding:8px 14px;font-size:0.78rem;border-radius:8px;margin-top:0" onclick="loadAdminChat()">ð</button>
+              <button class="btn-auth" style="padding:8px 14px;font-size:0.78rem;border-radius:8px;margin-top:0" onclick="loadAdminChat()">🔄</button>
             </div>
             <div style="display:flex;gap:8px;margin-bottom:10px">
               <label style="font-size:0.78rem;color:var(--text-dim);display:flex;align-items:center;gap:4px;cursor:pointer">
-                <input type="checkbox" id="chatSelectAll" onchange="toggleSelectAllChat(this.checked)"> Tout sÃ©lectionner
+                <input type="checkbox" id="chatSelectAll" onchange="toggleSelectAllChat(this.checked)"> Tout sélectionner
               </label>
-              <button id="btnDeleteSelected" class="btn-auth" style="padding:6px 14px;font-size:0.75rem;border-radius:8px;margin-top:0;background:var(--red);display:none" onclick="supprimerMessagesSelectionnes()">ð Supprimer sÃ©lection</button>
+              <button id="btnDeleteSelected" class="btn-auth" style="padding:6px 14px;font-size:0.75rem;border-radius:8px;margin-top:0;background:var(--red);display:none" onclick="supprimerMessagesSelectionnes()">🗑 Supprimer sélection</button>
               <span id="chatSelectedCount" style="font-size:0.75rem;color:var(--text-dim);align-self:center"></span>
             </div>
-            <div id="adminChatList" style="max-height:calc(100vh - 350px);overflow-y:auto"><div class="empty-state"><div class="empty-icon">ð¬</div><p>Cliquez ð pour charger</p></div></div>
+            <div id="adminChatList" style="max-height:calc(100vh - 350px);overflow-y:auto"><div class="empty-state"><div class="empty-icon">💬</div><p>Cliquez 🔄 pour charger</p></div></div>
           </div>
         </div>
 
         <!-- LIENS UTILES / OUTILS ADMIN -->
         <div class="card" style="margin-top:14px;padding:14px">
-          <div class="card-title">ð Outils admin</div>
+          <div class="card-title">🔗 Outils admin</div>
           <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
             <a href="panneau.html" target="_blank" style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--panel2);border:1px solid var(--border);border-radius:10px;color:var(--text);text-decoration:none;font-size:0.85rem">
-              <span style="font-size:1.3rem">ð¥ï¸</span>
-              <div><b>Panneau de gestion complet</b><br><span style="font-size:0.75rem;color:var(--text-dim)">Configuration GitHub, dÃ©ploiement, token, documentation</span></div>
+              <span style="font-size:1.3rem">🖥️</span>
+              <div><b>Panneau de gestion complet</b><br><span style="font-size:0.75rem;color:var(--text-dim)">Configuration GitHub, déploiement, token, documentation</span></div>
             </a>
             <a href="https://console.firebase.google.com/project/vin-expert-attt/firestore" target="_blank" style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--panel2);border:1px solid var(--border);border-radius:10px;color:var(--text);text-decoration:none;font-size:0.85rem">
-              <span style="font-size:1.3rem">ð¥</span>
-              <div><b>Console Firebase</b><br><span style="font-size:0.75rem;color:var(--text-dim)">Base de donnÃ©es, rÃ¨gles, utilisateurs</span></div>
+              <span style="font-size:1.3rem">🔥</span>
+              <div><b>Console Firebase</b><br><span style="font-size:0.75rem;color:var(--text-dim)">Base de données, règles, utilisateurs</span></div>
             </a>
             <a href="https://github.com/dtaattt2026-boop/vin-expert-attt" target="_blank" style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--panel2);border:1px solid var(--border);border-radius:10px;color:var(--text);text-decoration:none;font-size:0.85rem">
-              <span style="font-size:1.3rem">ð¦</span>
+              <span style="font-size:1.3rem">📦</span>
               <div><b>GitHub Repository</b><br><span style="font-size:0.75rem;color:var(--text-dim)">Code source, historique des versions</span></div>
             </a>
             <a href="https://script.google.com/" target="_blank" style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--panel2);border:1px solid var(--border);border-radius:10px;color:var(--text);text-decoration:none;font-size:0.85rem">
-              <span style="font-size:1.3rem">ð</span>
+              <span style="font-size:1.3rem">📄</span>
               <div><b>Google Apps Script</b><br><span style="font-size:0.75rem;color:var(--text-dim)">Backend Drive, archivage, emails</span></div>
             </a>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
-              <button class="btn-auth" style="flex:1;padding:10px;font-size:0.8rem;border-radius:8px;margin-top:0;background:var(--blue)" onclick="notifierAgentsMaj()">ð§ Notifier les agents</button>
-              <button class="btn-auth" style="flex:1;padding:10px;font-size:0.8rem;border-radius:8px;margin-top:0;background:var(--panel2);color:var(--text);border:1px solid var(--border)" onclick="copierLienForceUpdate()">ð Copier lien force-update</button>
+              <button class="btn-auth" style="flex:1;padding:10px;font-size:0.8rem;border-radius:8px;margin-top:0;background:var(--blue)" onclick="notifierAgentsMaj()">📧 Notifier les agents</button>
+              <button class="btn-auth" style="flex:1;padding:10px;font-size:0.8rem;border-radius:8px;margin-top:0;background:var(--panel2);color:var(--text);border:1px solid var(--border)" onclick="copierLienForceUpdate()">🔗 Copier lien force-update</button>
             </div>
           </div>
         </div>
@@ -1472,7 +1477,7 @@ const IS_LOCAL_DEV = /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname
 let TRACE_TOTAL = safeStorageGet('trace_total', '0') === '1' || new URLSearchParams(window.location.search).get('trace') === '1';
 let traceLines = [];
 
-// Compte de secours (hash stockÃ© cÃ´tÃ© client â pour usage hors-ligne uniquement)
+// Compte de secours (hash stocké côté client — pour usage hors-ligne uniquement)
 const RESCUE_LOGIN = "347";
 const RESCUE_PASS  = "90134111";
 const RESCUE_ROLE  = "admin";
@@ -1499,7 +1504,7 @@ let lastVerifyRecord = null;
 
 try {
     historique = JSON.parse(safeStorageGet('attt_forensic_v1', '[]') || '[]');
-    // Nettoyage auto : supprimer les photos des anciens rapports pour libÃ©rer le quota
+    // Nettoyage auto : supprimer les photos des anciens rapports pour libérer le quota
     let cleaned = false;
     historique = historique.map(r => {
         if (r.photos && r.photos.some(p => p && p.length > 500)) { cleaned = true; return Object.assign({}, r, { photos: [], ocrPhoto: null }); }
@@ -1508,7 +1513,7 @@ try {
     });
     if (cleaned) {
         if (safeStorageSet('attt_forensic_v1', JSON.stringify(historique))) {
-            console.log('[STORAGE] Historique nettoyÃ© (photos supprimÃ©es).');
+            console.log('[STORAGE] Historique nettoyé (photos supprimées).');
         } else {
             safeStorageRemove('attt_forensic_v1');
             historique = [];
@@ -1531,7 +1536,7 @@ function updateVersionBadge(serverVersion) {
     if (!vBadge) return;
     const localVer = window.APP_VERSION || '1.0.0';
     if (serverVersion && compareVersions(localVer, serverVersion) < 0) {
-        vBadge.textContent = `v${localVer} â v${serverVersion}`;
+        vBadge.textContent = `v${localVer} → v${serverVersion}`;
         vBadge.style.color = 'var(--orange)';
         vBadge.style.opacity = '1';
     } else {
@@ -1543,74 +1548,79 @@ function updateVersionBadge(serverVersion) {
 
 function setupServiceWorkerAutoUpdate() {
     if (!('serviceWorker' in navigator)) {
-        console.warn('[SW] Service Worker non supportÃ©');
+        console.warn('[SW] Service Worker non supporté');
         return;
     }
 
-    // updateViaCache:'none' = TOUJOURS tÃ©lÃ©charger sw.js du serveur, ignorer le cache HTTP
+    // updateViaCache:'none' = TOUJOURS télécharger sw.js du serveur, ignorer le cache HTTP
     navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then((reg) => {
-        console.log('[SW] EnregistrÃ©, scope:', reg.scope);
+        console.log('[SW] Enregistré, scope:', reg.scope);
 
         const applyUpdate = (worker) => {
-            console.log('[SW] skipWaiting demandÃ©...');
+            console.log('[SW] skipWaiting demandé...');
             worker.postMessage({type: 'SKIP_WAITING'});
         };
 
-        // Si un SW est dÃ©jÃ  en attente au chargement â l'activer immÃ©diatement
+        // Si un SW est déjà en attente au chargement → l'activer immédiatement
         if (reg.waiting) {
-            console.log('[SW] SW en attente trouvÃ© au chargement, activation...');
+            console.log('[SW] SW en attente trouvé au chargement, activation...');
             applyUpdate(reg.waiting);
         }
 
         reg.addEventListener('updatefound', () => {
-            console.log('[SW] Nouvelle version trouvÃ©e');
+            console.log('[SW] Nouvelle version trouvée');
             const installing = reg.installing;
             if (!installing) return;
+            showUpdateProgress(20, 'Téléchargement de la mise à jour...', '🔄 Nouvelle version détectée<br>Mise à jour automatique en cours...');
             installing.addEventListener('statechange', () => {
                 console.log('[SW] State:', installing.state);
                 if (installing.state === 'installed') {
                     if (navigator.serviceWorker.controller) {
-                        // Mise Ã  jour d'un SW existant â activer immÃ©diatement
-                        console.log('[SW] Mise Ã  jour prÃªte, activation automatique...');
+                        // Mise à jour d'un SW existant → activer immédiatement
+                        console.log('[SW] Mise à jour prête, activation automatique...');
+                        showUpdateProgress(60, 'Installation de la mise à jour...', null);
                         applyUpdate(installing);
                     } else {
-                        // Premier install â rien Ã  faire, page se rechargera
-                        console.log('[SW] Premier install terminÃ©');
+                        // Premier install → rien à faire, page se rechargera
+                        console.log('[SW] Premier install terminé');
                     }
+                } else if (installing.state === 'activating') {
+                    showUpdateProgress(80, 'Activation...', null);
                 }
             });
         });
 
-        // VÃ©rifier toutes les 30s (assez frÃ©quent pour Ãªtre rÃ©actif, pas trop pour la batterie)
+        // Vérifier toutes les 30s (assez fréquent pour être réactif, pas trop pour la batterie)
         const checkUpdate = async () => {
-            try { await reg.update(); } catch(e) { /* rÃ©seau indisponible */ }
+            try { await reg.update(); } catch(e) { /* réseau indisponible */ }
         };
         setInterval(checkUpdate, 30 * 1000);
 
-        // Aussi vÃ©rifier quand l'app revient au premier plan
+        // Aussi vérifier quand l'app revient au premier plan
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') checkUpdate();
         });
 
-        // Et vÃ©rifier une fois immÃ©diatement 2s aprÃ¨s le chargement
+        // Et vérifier une fois immédiatement 2s après le chargement
         setTimeout(checkUpdate, 2000);
 
-        console.log('[SW] Auto-update configurÃ©');
+        console.log('[SW] Auto-update configuré');
     }).catch((err) => {
         console.error('[SW] Erreur enregistrement:', err);
     });
 
-    // Quand le nouveau SW prend le contrÃ´le â recharger la page automatiquement
+    // Quand le nouveau SW prend le contrôle → recharger la page automatiquement
     let reloaded = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (reloaded) return;
         reloaded = true;
         console.log('[SW] Nouveau SW actif, rechargement...');
-        location.reload();
+        showUpdateProgress(100, 'Redémarrage de l\'application...', '✅ Mise à jour installée !');
+        setTimeout(() => location.reload(), 600);
     });
 }
 
-// ââ VÃ©rification version Firestore â force reload si obsolÃ¨te ââ
+// ══ Vérification version Firestore → force reload si obsolète ══
 async function checkVersionFromFirestore() {
     try {
         if (!window._fb || !window._firebaseAvailable) return;
@@ -1619,23 +1629,30 @@ async function checkVersionFromFirestore() {
         const serverVer = snap.data().version || '0.0.0';
         const localVer = window.APP_VERSION || '0.0.0';
         if (compareVersions(localVer, serverVer) < 0) {
-            console.log('[VERSION] ObsolÃ¨te:', localVer, 'â', serverVer, 'â purge auto...');
+            console.log('[VERSION] Obsolète:', localVer, '→', serverVer, '— purge auto...');
+            showUpdateProgress(15, 'Version obsolète détectée (' + localVer + ' → ' + serverVer + ')', '🔄 Mise à jour requise<br>Ne fermez pas l\'application.');
             // Purger les caches et recharger
+            showUpdateProgress(40, 'Suppression de l\'ancien cache...', null);
             if ('caches' in window) {
                 const keys = await caches.keys();
                 await Promise.all(keys.map(k => caches.delete(k)));
             }
+            showUpdateProgress(65, 'Désinscription du service worker...', null);
             if ('serviceWorker' in navigator) {
                 const regs = await navigator.serviceWorker.getRegistrations();
                 await Promise.all(regs.map(r => r.unregister()));
             }
+            showUpdateProgress(90, 'Chargement de la nouvelle version...', null);
             localStorage.setItem('_vin_cached_version', serverVer);
+            await new Promise(r => setTimeout(r, 500));
+            showUpdateProgress(100, 'Redémarrage...', '✅ Mise à jour v' + serverVer + ' prête !');
+            await new Promise(r => setTimeout(r, 400));
             window.location.replace(window.location.origin + window.location.pathname);
             return;
         }
     } catch(e) { console.warn('[VERSION] Check Firestore erreur:', e.message); }
 }
-// Lancer le check Firestore 5s aprÃ¨s chargement + Ã  chaque retour d'Ã©cran
+// Lancer le check Firestore 5s après chargement + à chaque retour d'écran
 setTimeout(checkVersionFromFirestore, 5000);
 document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') setTimeout(checkVersionFromFirestore, 2000);
@@ -1660,7 +1677,7 @@ function traceDta(eventName, data) {
     let suffix = '';
     if (data !== undefined) {
         try { suffix = ' | ' + JSON.stringify(data); }
-        catch(e) { suffix = ' | [non sÃ©rialisable]'; }
+        catch(e) { suffix = ' | [non sérialisable]'; }
     }
     const line = `[${nowTrace()}] ${eventName}${suffix}`;
     pushTraceLine(line);
@@ -1676,7 +1693,7 @@ function refreshTraceUI() {
         toggle.textContent = TRACE_TOTAL ? 'TRACE DTA: ON' : 'TRACE DTA: OFF';
     }
     if (panel) panel.classList.toggle('active', TRACE_TOTAL);
-    if (btn) btn.textContent = TRACE_TOTAL ? 'DÃ©sactiver' : 'Activer';
+    if (btn) btn.textContent = TRACE_TOTAL ? 'Désactiver' : 'Activer';
 }
 
 function toggleTraceMode() {
@@ -1700,9 +1717,9 @@ function clearTraceLog() {
 
 function copyTraceLog() {
     const txt = traceLines.join('\n');
-    if (!txt) { showToast('Aucune trace Ã  copier.', 'info'); return; }
+    if (!txt) { showToast('Aucune trace à copier.', 'info'); return; }
     navigator.clipboard.writeText(txt)
-        .then(() => showToast('Trace copiÃ©e.', 'ok'))
+        .then(() => showToast('Trace copiée.', 'ok'))
         .catch(() => showToast('Copie impossible.', 'err'));
 }
 
@@ -1717,7 +1734,7 @@ function collectCurrentLocation() {
         if (!navigator.geolocation) {
             resolve({
                 status: 'unsupported',
-                summary: 'Non disponible (gÃ©olocalisation indisponible sur cet appareil)'
+                summary: 'Non disponible (géolocalisation indisponible sur cet appareil)'
             });
             return;
         }
@@ -1733,14 +1750,14 @@ function collectCurrentLocation() {
                     longitude,
                     accuracy,
                     capturedAt: new Date().toLocaleString('fr-TN'),
-                    summary: `Lat ${latitude.toFixed(6)}, Lng ${longitude.toFixed(6)}${accuracy ? `, prÃ©cision Â±${Math.round(accuracy)} m` : ''}`
+                    summary: `Lat ${latitude.toFixed(6)}, Lng ${longitude.toFixed(6)}${accuracy ? `, précision ±${Math.round(accuracy)} m` : ''}`
                 });
             },
             (error) => {
                 const reason = {
-                    1: 'refusÃ©e par lâutilisateur',
+                    1: 'refusée par l’utilisateur',
                     2: 'position indisponible',
-                    3: 'dÃ©lai dÃ©passÃ©'
+                    3: 'délai dépassé'
                 }[error.code] || 'non disponible';
                 resolve({
                     status: 'error',
@@ -1779,7 +1796,7 @@ function buildArchiveMetadata(record, diagnostics) {
         matricule: record?.matricule || '',
         lieuTravail: record?.lieuTravail || '',
         date: record?.date || '',
-        statut: record?.is_valid ? 'CHÃSSIS VALIDE' : 'CHÃSSIS INVALIDE',
+        statut: record?.is_valid ? 'CHÂSSIS VALIDE' : 'CHÂSSIS INVALIDE',
         vehicule: record?.info || '',
         localisation: record?.locationSummary || 'Non disponible',
         localisationStatus: record?.locationInfo?.status || 'unknown',
@@ -1796,14 +1813,14 @@ function buildArchiveMetadata(record, diagnostics) {
 
 function buildArchiveMetadataLines(record, metadata) {
     const lines = [
-        `Agent: ${record?.agentNom || 'â'}`,
-        `Matricule: ${record?.matricule || 'â'}`,
-        `Lieu de travail: ${record?.lieuTravail || 'â'}`,
-        `Date: ${record?.date || 'â'}`,
+        `Agent: ${record?.agentNom || '—'}`,
+        `Matricule: ${record?.matricule || '—'}`,
+        `Lieu de travail: ${record?.lieuTravail || '—'}`,
+        `Date: ${record?.date || '—'}`,
         `Localisation: ${record?.locationSummary || 'Non disponible'}`,
-        `VIN: ${record?.vin || 'â'}`,
-        `VÃ©hicule: ${record?.info || 'Non identifiÃ©'}`,
-        `Statut: ${record?.is_valid ? 'CHÃSSIS VALIDE' : 'CHÃSSIS INVALIDE'}`
+        `VIN: ${record?.vin || '—'}`,
+        `Véhicule: ${record?.info || 'Non identifié'}`,
+        `Statut: ${record?.is_valid ? 'CHÂSSIS VALIDE' : 'CHÂSSIS INVALIDE'}`
     ];
     if (metadata?.lienCarte) lines.push(`Lien carte: ${metadata.lienCarte}`);
     return lines;
@@ -1847,7 +1864,7 @@ function updateAuthModeUI() {
 
     if (authModeHint) {
         authModeHint.textContent = isFirebaseAvailable
-            ? "Connexion cloud disponible. En cas de blocage rÃ©seau, vous pouvez quand mÃªme utiliser le mode local gratuit."
+            ? "Connexion cloud disponible. En cas de blocage réseau, vous pouvez quand même utiliser le mode local gratuit."
             : "Firebase est indisponible sur cet environnement. Utilisez le mode local gratuit pour l'OCR, l'historique local et les PDF.";
     }
     if (forgotBtn) forgotBtn.style.display = isFirebaseAvailable ? '' : 'none';
@@ -1866,7 +1883,7 @@ function enterLocalMode() {
         role: 'agent',
         localOnly: true
     };
-    showToast('Mode local activÃ©. Les fonctions cloud sont dÃ©sactivÃ©es.', 'info', 4500);
+    showToast('Mode local activé. Les fonctions cloud sont désactivées.', 'info', 4500);
     showApp();
 }
 
@@ -1894,7 +1911,7 @@ function showApp() {
     buildVinDots();
     handleVinInput();
     updateHCount();
-    // PrÃ©-charger le worker Tesseract en arriÃ¨re-plan dÃ¨s la connexion
+    // Pré-charger le worker Tesseract en arrière-plan dès la connexion
     setTimeout(() => getTesseractWorker().catch(() => {}), 2000);
 }
 
@@ -1904,7 +1921,7 @@ async function doLogin() {
     const pass  = document.getElementById('loginPass').value;
     if (!idVal || !pass) { showAuthError('loginErr', 'Tous les champs sont requis.'); return; }
 
-    // Rescue account (admin de secours, accÃ¨s local)
+    // Rescue account (admin de secours, accès local)
     if (idVal === RESCUE_LOGIN && pass === RESCUE_PASS) {
         window.currentUser = { uid: 'rescue', email: 'rescue@attt.local', nom: 'Admin', prenom: 'Secours', matricule: RESCUE_LOGIN, lieuTravail: 'DTA', role: 'admin' };
         showApp();
@@ -1928,7 +1945,7 @@ async function doLogin() {
             snap.forEach(d => { if (d.data().matricule === idVal) found = d.data().email; });
             if (!found) { showAuthError('loginErr', 'Identifiant introuvable.'); return; }
             email = found;
-        } catch(e) { showAuthError('loginErr', 'Erreur rÃ©seau. VÃ©rifiez votre connexion.'); return; }
+        } catch(e) { showAuthError('loginErr', 'Erreur réseau. Vérifiez votre connexion.'); return; }
     }
 
     try {
@@ -1938,13 +1955,13 @@ async function doLogin() {
         const msgs = {
             'auth/wrong-password': 'Mot de passe incorrect.',
             'auth/user-not-found': 'Compte introuvable.',
-            'auth/too-many-requests': 'Trop de tentatives. RÃ©essayez plus tard.',
+            'auth/too-many-requests': 'Trop de tentatives. Réessayez plus tard.',
             'auth/invalid-credential': 'Identifiant ou mot de passe incorrect.',
         };
         const firebaseUnavailable = /identity-toolkit|api-has-not-been-used|service firebase|forbidden|403/i.test(String(e.message || ''));
         if (firebaseUnavailable) {
-            showAuthError('loginErr', 'Service d\'authentification temporairement indisponible. RÃ©essayez dans quelques secondes.');
-            showToast('Erreur serveur Firebase. RÃ©essayez.', 'err', 5000);
+            showAuthError('loginErr', 'Service d\'authentification temporairement indisponible. Réessayez dans quelques secondes.');
+            showToast('Erreur serveur Firebase. Réessayez.', 'err', 5000);
             return;
         }
         showAuthError('loginErr', msgs[e.code] || `Erreur : ${e.message}`);
@@ -1965,7 +1982,7 @@ async function doRegister() {
 
     if (!prenom||!nom||!mat||!lieu||!email||!pass) { showAuthError('registerErr','Tous les champs sont obligatoires.'); return; }
     if (pass !== pass2) { showAuthError('registerErr','Les mots de passe ne correspondent pas.'); return; }
-    if (pass.length < 8) { showAuthError('registerErr','Le mot de passe doit contenir au moins 8 caractÃ¨res.'); return; }
+    if (pass.length < 8) { showAuthError('registerErr','Le mot de passe doit contenir au moins 8 caractères.'); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showAuthError('registerErr','Email invalide.'); return; }
 
     const fb = window._fb;
@@ -1977,14 +1994,14 @@ async function doRegister() {
     if (invCode) {
         inviteData = await validateInviteCode(invCode);
         if (!inviteData) {
-            showAuthError('registerErr', 'Code d\'invitation invalide ou dÃ©jÃ  utilisÃ©.');
+            showAuthError('registerErr', 'Code d\'invitation invalide ou déjà utilisé.');
             return;
         }
         roleInitial = 'agent'; // Auto-approved with valid code
     }
 
     try {
-        // Bloquer onAuthStateChanged pendant l'inscription pour contrÃ´ler le flux
+        // Bloquer onAuthStateChanged pendant l'inscription pour contrôler le flux
         window._registering = true;
         const cred = await fb.createUserWithEmailAndPassword(fb.auth, email, pass);
         const uid = cred.user.uid;
@@ -2000,21 +2017,21 @@ async function doRegister() {
 
         if (inviteData) {
             await markInviteCodeUsed(invCode, uid, `${prenom} ${nom}`);
-            // Profil complet disponible â charger et afficher l'app directement
+            // Profil complet disponible → charger et afficher l'app directement
             window.currentUser = { uid, email, ...profileData };
             window._pendingInviteCode = null;
-            showToast('Bienvenue ! Inscription approuvÃ©e.', 'ok');
+            showToast('Bienvenue ! Inscription approuvée.', 'ok');
             showApp();
         } else {
             showAuthScreen('pending');
-            showToast('Demande d\'inscription envoyÃ©e. En attente de validation.', 'ok');
+            showToast('Demande d\'inscription envoyée. En attente de validation.', 'ok');
         }
     } catch(e) {
         window._registering = false;
         const msgs = {
-            'auth/email-already-in-use': 'Cet email est dÃ©jÃ  utilisÃ©.',
+            'auth/email-already-in-use': 'Cet email est déjà utilisé.',
             'auth/invalid-email': 'Email invalide.',
-            'auth/weak-password': 'Mot de passe trop faible (min. 8 caractÃ¨res).',
+            'auth/weak-password': 'Mot de passe trop faible (min. 8 caractères).',
         };
         showAuthError('registerErr', msgs[e.code] || `Erreur : ${e.message}`);
     }
@@ -2022,17 +2039,17 @@ async function doRegister() {
 
 // ========== FORGOT PASSWORD ==========
 async function doForgot() {
-    if (window._firebaseAvailable === false) { showAuthError('forgotErr', 'RÃ©initialisation indisponible sans Firebase. Utilisez le mode local gratuit.'); return; }
+    if (window._firebaseAvailable === false) { showAuthError('forgotErr', 'Réinitialisation indisponible sans Firebase. Utilisez le mode local gratuit.'); return; }
     const email = document.getElementById('forgotEmail').value.trim();
     if (!email) { showAuthError('forgotErr','Saisissez votre email.'); return; }
     const fb = window._fb;
     if (!fb) return;
     try {
         await fb.sendPasswordResetEmail(fb.auth, email);
-        showToast('Email de rÃ©initialisation envoyÃ© !', 'ok');
+        showToast('Email de réinitialisation envoyé !', 'ok');
         showAuthScreen('login');
     } catch(e) {
-        showAuthError('forgotErr', 'Email introuvable ou erreur rÃ©seau.');
+        showAuthError('forgotErr', 'Email introuvable ou erreur réseau.');
     }
 }
 
@@ -2052,7 +2069,7 @@ function toggleUserMenu() {
 
 // ========== UPDATE CHECK ==========
 async function checkAppUpdate() {
-    // Garde anti-boucle : si on vient de faire une mise Ã  jour, on saute le check
+    // Garde anti-boucle : si on vient de faire une mise à jour, on saute le check
     if (sessionStorage.getItem('_skipUpdateCheck')) {
         sessionStorage.removeItem('_skipUpdateCheck');
         return;
@@ -2073,7 +2090,7 @@ async function checkAppUpdate() {
         const affectedByForce = isForced && compareVersions(clientVer, minVer) <= 0;
 
         if (needsUpdate) {
-            const msg = cfg.notes ? `${cfg.notes}\n\nVersion actuelle : ${clientVer} â Nouvelle : ${serverVer}` : `Version actuelle : ${clientVer} â Nouvelle : ${serverVer}`;
+            const msg = cfg.notes ? `${cfg.notes}\n\nVersion actuelle : ${clientVer} → Nouvelle : ${serverVer}` : `Version actuelle : ${clientVer} → Nouvelle : ${serverVer}`;
             document.getElementById('updateMsg').textContent = msg;
             document.getElementById('btnSkipUpdate').style.display = affectedByForce ? 'none' : 'block';
             document.getElementById('updateOverlay').classList.add('active');
@@ -2094,14 +2111,27 @@ function closeUpdateOverlay() {
     document.getElementById('updateOverlay').classList.remove('active');
 }
 
-// Vide le cache SW et recharge la derniÃ¨re version depuis le serveur
-async function doUpdate() {
+function showUpdateProgress(percent, stepText, msgHTML) {
+    const overlay = document.getElementById('updateOverlay');
+    const bar = document.getElementById('updateProgressBar');
+    const stepEl = document.getElementById('updateStep');
+    const msgEl = document.getElementById('updateMsg');
     const btn = document.querySelector('.btn-update');
-    const msg = document.getElementById('updateMsg');
-    if (btn) { btn.disabled = true; btn.textContent = 'â³ Mise Ã  jour en cours...'; }
+    const btnSkip = document.getElementById('btnSkipUpdate');
+    if (!overlay.classList.contains('active')) overlay.classList.add('active');
+    if (bar) bar.style.width = percent + '%';
+    if (stepEl) stepEl.textContent = stepText;
+    if (msgHTML && msgEl) msgEl.innerHTML = msgHTML;
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Mise à jour en cours...'; }
+    if (btnSkip) btnSkip.style.display = 'none';
+}
 
-    // Ãtape 1 : Forcer le nouveau SW Ã  prendre le contrÃ´le
-    if (msg) msg.textContent = 'ð Ãtape 1/3 â VÃ©rification du nouveau code...';
+// Vide le cache SW et recharge la dernière version depuis le serveur
+async function doUpdate() {
+    showUpdateProgress(10, 'Démarrage de la mise à jour...', '🔄 Mise à jour en cours<br>Ne fermez pas l\'application.');
+
+    // Étape 1 : Forcer le nouveau SW à prendre le contrôle
+    showUpdateProgress(25, 'Étape 1/3 — Vérification du nouveau code...', null);
     if ('serviceWorker' in navigator) {
         try {
             const regs = await navigator.serviceWorker.getRegistrations();
@@ -2116,8 +2146,8 @@ async function doUpdate() {
     traceDta('APP_START', { local: IS_LOCAL_DEV, gasUrl: GAS_DRIVE_URL });
     await new Promise(r => setTimeout(r, 1200));
 
-    // Ãtape 2 : Vider tous les caches
-    if (msg) msg.textContent = 'ðï¸ Ãtape 2/3 â Suppression du cache...';
+    // Étape 2 : Vider tous les caches
+    showUpdateProgress(55, 'Étape 2/3 — Suppression du cache...', null);
     if ('caches' in window) {
         try {
             const keys = await caches.keys();
@@ -2126,9 +2156,11 @@ async function doUpdate() {
     }
     await new Promise(r => setTimeout(r, 800));
 
-    // Ãtape 3 : Rechargement de la page
-    if (msg) msg.textContent = 'â Ãtape 3/3 â Chargement de la nouvelle version...';
+    // Étape 3 : Rechargement de la page
+    showUpdateProgress(85, 'Étape 3/3 — Chargement de la nouvelle version...', null);
     await new Promise(r => setTimeout(r, 600));
+    showUpdateProgress(100, 'Redémarrage...', '✅ Mise à jour terminée !');
+    await new Promise(r => setTimeout(r, 400));
     sessionStorage.setItem('_skipUpdateCheck', '1');
     location.reload(true);
 }
@@ -2159,18 +2191,18 @@ async function loadAdminUsers() {
         snap.forEach(d => {
             const u = d.data(); const uid = d.id;
             const roleBadge = u.disabled ? 'badge-disabled' : (u.role === 'admin' ? 'badge-admin' : u.role === 'pending' ? 'badge-pending' : 'badge-agent');
-            const roleLabel = u.disabled ? 'DÃSACTIVÃ' : u.role.toUpperCase();
+            const roleLabel = u.disabled ? 'DÉSACTIVÉ' : u.role.toUpperCase();
             const safeEmail = (u.email||'').replace(/'/g, "\\'");
             html += `<div class="user-row">
               <div class="user-row-info">
                 <div class="user-row-name">${escHtml(u.prenom||'')} ${escHtml(u.nom||'')} <span class="badge-role ${roleBadge}">${roleLabel}</span></div>
-                <div class="user-row-meta">${escHtml(u.matricule||'')} Â· ${escHtml(u.lieuTravail||'')} Â· ${escHtml(u.email||'')}</div>
+                <div class="user-row-meta">${escHtml(u.matricule||'')} · ${escHtml(u.lieuTravail||'')} · ${escHtml(u.email||'')}</div>
               </div>
               <div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">
-                ${u.role === 'pending' && !u.disabled ? `<button class="btn-sm btn-approve" onclick="approveUser('${uid}')">â Valider</button>` : ''}
-                ${!u.disabled && u.role !== 'pending' && u.role !== 'admin' ? `<button class="btn-sm btn-make-admin" onclick="makeAdmin('${uid}')">â Admin</button>` : ''}
-                <button class="btn-sm" style="background:rgba(200,168,75,0.15);color:var(--gold);border:1px solid rgba(200,168,75,0.3)" onclick="adminResetPassword('${safeEmail}','${escHtml(u.prenom||'')} ${escHtml(u.nom||'')}')">ð Reset MDP</button>
-                ${!u.disabled ? `<button class="btn-sm btn-disable" onclick="toggleUser('${uid}',true)">â DÃ©sact.</button>` : `<button class="btn-sm btn-enable" onclick="toggleUser('${uid}',false)">â RÃ©act.</button>`}
+                ${u.role === 'pending' && !u.disabled ? `<button class="btn-sm btn-approve" onclick="approveUser('${uid}')">✓ Valider</button>` : ''}
+                ${!u.disabled && u.role !== 'pending' && u.role !== 'admin' ? `<button class="btn-sm btn-make-admin" onclick="makeAdmin('${uid}')">★ Admin</button>` : ''}
+                <button class="btn-sm" style="background:rgba(200,168,75,0.15);color:var(--gold);border:1px solid rgba(200,168,75,0.3)" onclick="adminResetPassword('${safeEmail}','${escHtml(u.prenom||'')} ${escHtml(u.nom||'')}')">🔑 Reset MDP</button>
+                ${!u.disabled ? `<button class="btn-sm btn-disable" onclick="toggleUser('${uid}',true)">✗ Désact.</button>` : `<button class="btn-sm btn-enable" onclick="toggleUser('${uid}',false)">✓ Réact.</button>`}
               </div>
             </div>`;
         });
@@ -2181,7 +2213,7 @@ async function loadAdminUsers() {
 async function approveUser(uid) {
     const fb = window._fb; if (!fb) return;
     await fb.updateDoc(fb.doc(fb.db, 'users', uid), { role: 'agent' });
-    showToast('Agent validÃ© !', 'ok');
+    showToast('Agent validé !', 'ok');
     loadAdminUsers();
 }
 
@@ -2195,7 +2227,7 @@ async function makeAdmin(uid) {
 async function toggleUser(uid, disable) {
     const fb = window._fb; if (!fb) return;
     await fb.updateDoc(fb.doc(fb.db, 'users', uid), { disabled: disable });
-    showToast(disable ? 'Compte dÃ©sactivÃ©.' : 'Compte rÃ©activÃ©.', disable ? 'err' : 'ok');
+    showToast(disable ? 'Compte désactivé.' : 'Compte réactivé.', disable ? 'err' : 'ok');
     loadAdminUsers();
 }
 
@@ -2203,7 +2235,7 @@ async function loadAdminVersionInfo() {
     const fb = window._fb; if (!fb) return;
     try {
         const snap = await fb.getDoc(fb.doc(fb.db, 'config', 'appVersion'));
-        const ver = snap.exists() ? (snap.data().version || 'â') : 'â';
+        const ver = snap.exists() ? (snap.data().version || '—') : '—';
         document.getElementById('adminCurVersion').textContent = ver;
         if (snap.exists()) {
             const d = snap.data();
@@ -2221,16 +2253,16 @@ async function publierMiseAJour() {
     const notes = document.getElementById('newVersionNotes').value.trim();
     const force = document.getElementById('forceUpdate').checked;
     const minV  = document.getElementById('minVersionInput').value.trim();
-    if (!ver) { showToast('Saisissez un numÃ©ro de version.', 'err'); return; }
+    if (!ver) { showToast('Saisissez un numéro de version.', 'err'); return; }
     if (!/^\d+\.\d+(\.\d+)?$/.test(ver)) { showToast('Format invalide. Ex: 1.1 ou 1.1.0', 'err'); return; }
     const verNorm = ver.includes('.', ver.indexOf('.')+1) ? ver : ver + '.0';
 
     const btn = document.querySelector('[onclick="publierMiseAJour()"]');
-    if (btn) { btn.disabled = true; btn.textContent = 'â³ Publication...'; }
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Publication...'; }
 
     try {
         // 1. Firestore
-        showToast('Mise Ã  jour Firestore...', 'info', 2000);
+        showToast('Mise à jour Firestore...', 'info', 2000);
         await fb.setDoc(fb.doc(fb.db, 'config', 'appVersion'), {
             version: verNorm, notes, forceUpdate: force,
             minVersion: minV || '0.0.0',
@@ -2238,7 +2270,7 @@ async function publierMiseAJour() {
             updatedBy: window.currentUser?.email || 'admin'
         });
 
-        // 2. GitHub â lire le token depuis Firestore
+        // 2. GitHub — lire le token depuis Firestore
         let ghToken = '', ghOwner = 'dtaattt2026-boop', ghRepo = 'vin-expert-attt';
         try {
             const ghSnap = await fb.getDoc(fb.doc(fb.db, 'config', 'github'));
@@ -2253,7 +2285,7 @@ async function publierMiseAJour() {
         if (ghToken) {
             showToast('Synchronisation GitHub...', 'info', 3000);
 
-            // Fichiers Ã  mettre Ã  jour la version
+            // Fichiers à mettre à jour la version
             const filesToUpdate = [
                 { path: 'index.html', regex: /window\.APP_VERSION\s*=\s*["'][^"']*["']/, replace: `window.APP_VERSION = "${verNorm}"` },
                 { path: 'sw.js', regex: /const CACHE_NAME\s*=\s*['"][^'"]*['"]/, replace: `const CACHE_NAME = 'vin-expert-v${verNorm}'` }
@@ -2265,7 +2297,7 @@ async function publierMiseAJour() {
                     const getRes = await fetch(`https://api.github.com/repos/${ghOwner}/${ghRepo}/contents/${file.path}`, {
                         headers: { 'Authorization': `token ${ghToken}`, 'Accept': 'application/vnd.github.v3+json' }
                     });
-                    if (!getRes.ok) { console.warn(`[PUB] ${file.path} non trouvÃ© sur GitHub`); continue; }
+                    if (!getRes.ok) { console.warn(`[PUB] ${file.path} non trouvé sur GitHub`); continue; }
                     const ghData = await getRes.json();
                     let content = atob(ghData.content.replace(/\n/g, ''));
                     content = content.replace(file.regex, file.replace);
@@ -2275,15 +2307,15 @@ async function publierMiseAJour() {
                     const putRes = await fetch(`https://api.github.com/repos/${ghOwner}/${ghRepo}/contents/${file.path}`, {
                         method: 'PUT',
                         headers: { 'Authorization': `token ${ghToken}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ message: `v${verNorm} â ${file.path}`, content: encoded, sha: ghData.sha })
+                        body: JSON.stringify({ message: `v${verNorm} — ${file.path}`, content: encoded, sha: ghData.sha })
                     });
-                    if (putRes.ok) console.log(`[PUB] ${file.path} â v${verNorm} OK`);
+                    if (putRes.ok) console.log(`[PUB] ${file.path} → v${verNorm} OK`);
                     else console.warn(`[PUB] ${file.path} erreur:`, await putRes.text());
                 } catch(e) { console.warn(`[PUB] ${file.path} erreur:`, e.message); }
             }
-            showToast(`v${verNorm} publiÃ©e (Firestore + GitHub) !`, 'ok', 4000);
+            showToast(`v${verNorm} publiée (Firestore + GitHub) !`, 'ok', 4000);
         } else {
-            showToast(`v${verNorm} publiÃ©e (Firestore uniquement â token GitHub manquant)`, 'ok', 4000);
+            showToast(`v${verNorm} publiée (Firestore uniquement — token GitHub manquant)`, 'ok', 4000);
         }
 
         document.getElementById('adminCurVersion').textContent = verNorm;
@@ -2291,7 +2323,7 @@ async function publierMiseAJour() {
     } catch(e) {
         showToast('Erreur : ' + e.message, 'err');
     } finally {
-        if (btn) { btn.disabled = false; btn.textContent = 'ð PUBLIER LA MISE Ã JOUR'; }
+        if (btn) { btn.disabled = false; btn.textContent = '🚀 PUBLIER LA MISE À JOUR'; }
     }
 }
 
@@ -2309,7 +2341,7 @@ async function loadAdminReports() {
             html += `<div class="hist-item">
               <div class="hist-info">
                 <div class="hist-vin">${escHtml(r.vin||'')}</div>
-                <div class="hist-meta">${escHtml(r.agentNom||'')} Â· ${escHtml(r.lieuTravail||'')} Â· ${escHtml(r.date||'')}</div>
+                <div class="hist-meta">${escHtml(r.agentNom||'')} · ${escHtml(r.lieuTravail||'')} · ${escHtml(r.date||'')}</div>
                 <div style="font-size:0.7rem;color:#667">${escHtml(r.info||'')} <span class="hist-badge ${r.is_valid?'badge-valid':'badge-invalid'}">${escHtml(r.status||'')}</span></div>
               </div>
             </div>`;
@@ -2359,7 +2391,7 @@ function filterAdminChat() {
     });
 
     if (filtered.length === 0) {
-        list.innerHTML = '<div class="empty-state"><p>Aucun message trouvÃ©.</p></div>';
+        list.innerHTML = '<div class="empty-state"><p>Aucun message trouvé.</p></div>';
         return;
     }
 
@@ -2369,8 +2401,8 @@ function filterAdminChat() {
         const dateStr = ts ? ts.toLocaleString('fr-FR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit' }) : '?';
         const isPhoto = m.type === 'photo' && m.photoData;
         const contentPreview = isPhoto
-            ? 'ð· <i>Photo</i>' + (m.text ? ' â ' + escHtml(m.text) : '')
-            : escHtml((m.text || '').substring(0, 120)) + (m.text?.length > 120 ? 'â¦' : '');
+            ? '📷 <i>Photo</i>' + (m.text ? ' — ' + escHtml(m.text) : '')
+            : escHtml((m.text || '').substring(0, 120)) + (m.text?.length > 120 ? '…' : '');
 
         html += `<div class="admin-chat-row" style="display:flex;gap:8px;align-items:flex-start;padding:8px 6px;border-bottom:1px solid var(--border)" data-idx="${idx}">
           <input type="checkbox" class="chat-msg-check" data-id="${m.id}" onchange="updateChatSelection()" style="margin-top:4px;cursor:pointer">
@@ -2383,7 +2415,7 @@ function filterAdminChat() {
             <div style="font-size:0.82rem;margin-top:4px;color:var(--text);word-break:break-word">${contentPreview}</div>
             ${isPhoto ? `<img src="${m.photoData}" style="max-width:120px;max-height:80px;border-radius:6px;margin-top:4px;cursor:pointer" onclick="openLightbox(this.src,'Photo chat')">` : ''}
           </div>
-          <button onclick="supprimerMessageChat('${m.id}')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:1rem;padding:4px" title="Supprimer">ð</button>
+          <button onclick="supprimerMessageChat('${m.id}')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:1rem;padding:4px" title="Supprimer">🗑</button>
         </div>`;
     });
 
@@ -2399,7 +2431,7 @@ function updateChatSelection() {
     const checked = document.querySelectorAll('.chat-msg-check:checked');
     const count = checked.length;
     document.getElementById('btnDeleteSelected').style.display = count > 0 ? '' : 'none';
-    document.getElementById('chatSelectedCount').textContent = count > 0 ? `${count} sÃ©lectionnÃ©${count>1?'s':''}` : '';
+    document.getElementById('chatSelectedCount').textContent = count > 0 ? `${count} sélectionné${count>1?'s':''}` : '';
 }
 
 async function supprimerMessageChat(msgId) {
@@ -2407,7 +2439,7 @@ async function supprimerMessageChat(msgId) {
     const fb = window._fb; if (!fb) return;
     try {
         await fb.deleteDoc(fb.doc(fb.db, 'chat_messages', msgId));
-        showToast('Message supprimÃ©', 'ok', 1500);
+        showToast('Message supprimé', 'ok', 1500);
         _adminChatMessages = _adminChatMessages.filter(m => m.id !== msgId);
         filterAdminChat();
     } catch(e) {
@@ -2428,7 +2460,7 @@ async function supprimerMessagesSelectionnes() {
             ok++;
         } catch(e) { err++; }
     }
-    showToast(`${ok} supprimÃ©${ok>1?'s':''}, ${err} erreur${err>1?'s':''}`, ok > 0 ? 'ok' : 'err');
+    showToast(`${ok} supprimé${ok>1?'s':''}, ${err} erreur${err>1?'s':''}`, ok > 0 ? 'ok' : 'err');
     _adminChatMessages = _adminChatMessages.filter(m => !ids.includes(m.id));
     filterAdminChat();
     document.getElementById('chatSelectAll').checked = false;
@@ -2449,15 +2481,15 @@ async function notifierAgentsMaj() {
         } catch(e) {}
     }
     const bcc = emails.join(',');
-    const subject = encodeURIComponent(`Mise Ã  jour VIN Expert v${ver}`);
-    const body = encodeURIComponent(`Une nouvelle version de VIN Expert ATTT (v${ver}) est disponible.\n\nCliquez sur ce lien pour mettre Ã  jour :\n${url}\n\nCordialement,\nDirection Technique d'Automobiles`);
+    const subject = encodeURIComponent(`Mise à jour VIN Expert v${ver}`);
+    const body = encodeURIComponent(`Une nouvelle version de VIN Expert ATTT (v${ver}) est disponible.\n\nCliquez sur ce lien pour mettre à jour :\n${url}\n\nCordialement,\nDirection Technique d'Automobiles`);
     window.open(`mailto:?bcc=${bcc}&subject=${subject}&body=${body}`);
 }
 
 function copierLienForceUpdate() {
     const url = 'https://dtaattt2026-boop.github.io/vin-expert-attt/index.html?force-update=1';
     if (navigator.clipboard) {
-        navigator.clipboard.writeText(url).then(() => showToast('Lien copiÃ© !', 'ok', 2000));
+        navigator.clipboard.writeText(url).then(() => showToast('Lien copié !', 'ok', 2000));
     } else {
         prompt('Copiez ce lien :', url);
     }
@@ -2469,19 +2501,19 @@ function togglePass(inputId, btn) {
     if (!inp) return;
     const isPassword = inp.type === 'password';
     inp.type = isPassword ? 'text' : 'password';
-    btn.textContent = isPassword ? 'ð' : 'ð';
+    btn.textContent = isPassword ? '🙈' : '👁';
 }
 
 // ========== ADMIN RESET PASSWORD ==========
 async function adminResetPassword(email, nomAgent) {
     if (!email) { showToast('Email introuvable pour cet agent.', 'err'); return; }
-    if (!confirm(`Envoyer un email de rÃ©initialisation Ã  ${nomAgent} (${email}) ?\n\nL'agent recevra un lien pour choisir un nouveau mot de passe.\n\nMot de passe temporaire par dÃ©faut : Attt@2026-2`)) return;
+    if (!confirm(`Envoyer un email de réinitialisation à ${nomAgent} (${email}) ?\n\nL'agent recevra un lien pour choisir un nouveau mot de passe.\n\nMot de passe temporaire par défaut : Attt@2026-2`)) return;
     const fb = window._fb; if (!fb) return;
     try {
         await fb.sendPasswordResetEmail(fb.auth, email);
-        showToast(`Email de reset envoyÃ© Ã  ${email}`, 'ok', 5000);
+        showToast(`Email de reset envoyé à ${email}`, 'ok', 5000);
         // Display default temp password reminder
-        setTimeout(() => showToast('MDP temporaire : Attt@2026-2 (Ã  communiquer Ã  l\'agent)', 'info', 7000), 500);
+        setTimeout(() => showToast('MDP temporaire : Attt@2026-2 (à communiquer à l\'agent)', 'info', 7000), 500);
     } catch(e) {
         showToast('Erreur : ' + (e.message || e.code), 'err');
     }
@@ -2491,7 +2523,7 @@ async function adminResetPassword(email, nomAgent) {
 function showChangePassModal() {
     const u = window.currentUser;
     if (!u) return;
-    document.getElementById('changePassEmail').textContent = u.email || 'â';
+    document.getElementById('changePassEmail').textContent = u.email || '—';
     document.getElementById('changePassModal').style.display = 'flex';
 }
 
@@ -2502,7 +2534,7 @@ async function envoyerResetSelf() {
     try {
         await fb.sendPasswordResetEmail(fb.auth, u.email);
         document.getElementById('changePassModal').style.display = 'none';
-        showToast('Email de rÃ©initialisation envoyÃ© !', 'ok');
+        showToast('Email de réinitialisation envoyé !', 'ok');
     } catch(e) { showToast('Erreur : ' + e.message, 'err'); }
 }
 
@@ -2514,19 +2546,19 @@ async function loadProfile() {
     if (el) {
         el.innerHTML = `
             <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px">
-              <span style="color:var(--text-dim);font-size:0.72rem">PrÃ©nom</span><span><b>${escHtml(u.prenom||'â')}</b></span>
-              <span style="color:var(--text-dim);font-size:0.72rem">Nom</span><span><b>${escHtml(u.nom||'â')}</b></span>
-              <span style="color:var(--text-dim);font-size:0.72rem">Matricule</span><span><b style="font-family:var(--font-mono)">${escHtml(u.matricule||'â')}</b></span>
-              <span style="color:var(--text-dim);font-size:0.72rem">Lieu</span><span>${escHtml(u.lieuTravail||'â')}</span>
-              <span style="color:var(--text-dim);font-size:0.72rem">Email</span><span>${escHtml(u.email||'â')}</span>
-              <span style="color:var(--text-dim);font-size:0.72rem">RÃ´le</span><span><span class="badge-role ${u.role==='admin'?'badge-admin':'badge-agent'}">${(u.role||'agent').toUpperCase()}</span></span>
+              <span style="color:var(--text-dim);font-size:0.72rem">Prénom</span><span><b>${escHtml(u.prenom||'—')}</b></span>
+              <span style="color:var(--text-dim);font-size:0.72rem">Nom</span><span><b>${escHtml(u.nom||'—')}</b></span>
+              <span style="color:var(--text-dim);font-size:0.72rem">Matricule</span><span><b style="font-family:var(--font-mono)">${escHtml(u.matricule||'—')}</b></span>
+              <span style="color:var(--text-dim);font-size:0.72rem">Lieu</span><span>${escHtml(u.lieuTravail||'—')}</span>
+              <span style="color:var(--text-dim);font-size:0.72rem">Email</span><span>${escHtml(u.email||'—')}</span>
+              <span style="color:var(--text-dim);font-size:0.72rem">Rôle</span><span><span class="badge-role ${u.role==='admin'?'badge-admin':'badge-agent'}">${(u.role||'agent').toUpperCase()}</span></span>
             </div>`;
     }
     if (u.localOnly) {
         document.getElementById('myInviteCode').textContent = 'Mode local';
         document.getElementById('myInviteLink').textContent = 'Invitations indisponibles hors ligne';
         document.getElementById('myInviteStatus').textContent = 'LOCAL';
-        document.getElementById('myInviteUsedInfo').textContent = 'Les fonctions invitations nÃ©cessitent Firebase.';
+        document.getElementById('myInviteUsedInfo').textContent = 'Les fonctions invitations nécessitent Firebase.';
         document.getElementById('myInviteHistory').innerHTML = '<div class="empty-state"><p>Mode local actif. Historique invitations indisponible.</p></div>';
         return;
     }
@@ -2545,7 +2577,7 @@ function genCode() {
 }
 
 function getInviteLink(code) {
-    // Toujours pointer vers la version GitHub Pages dÃ©ployÃ©e, mÃªme si l'envoyeur est sur localhost
+    // Toujours pointer vers la version GitHub Pages déployée, même si l'envoyeur est sur localhost
     const isLocalhost = /^(localhost|127\.|file:\/)/i.test(window.location.href);
     const base = isLocalhost
         ? 'https://dtaattt2026-boop.github.io/vin-expert-attt/'
@@ -2569,7 +2601,7 @@ async function loadMyInviteCode() {
         }
         afficherMonCode(codeData);
     } catch(e) {
-        document.getElementById('myInviteCode').textContent = 'Erreur rÃ©seau';
+        document.getElementById('myInviteCode').textContent = 'Erreur réseau';
     }
 }
 
@@ -2596,37 +2628,37 @@ function afficherMonCode(data) {
     const linkEl = document.getElementById('myInviteLink');
     const statusEl = document.getElementById('myInviteStatus');
     const usedEl = document.getElementById('myInviteUsedInfo');
-    if (codeEl) codeEl.textContent = data.code || 'â';
+    if (codeEl) codeEl.textContent = data.code || '—';
     if (linkEl) linkEl.textContent = getInviteLink(data.code);
-    if (statusEl) statusEl.textContent = data.used ? 'â UTILISÃ' : 'â ACTIF';
+    if (statusEl) statusEl.textContent = data.used ? '✓ UTILISÉ' : '● ACTIF';
     if (statusEl) statusEl.style.color = data.used ? 'var(--green)' : 'var(--orange)';
     if (usedEl) {
         usedEl.textContent = data.used
-            ? `UtilisÃ© par : ${data.usedByName || 'â'} le ${data.usedAt || 'â'}`
-            : 'Non encore utilisÃ©';
+            ? `Utilisé par : ${data.usedByName || '—'} le ${data.usedAt || '—'}`
+            : 'Non encore utilisé';
     }
 }
 
 async function regenererCode() {
     if (window.currentUser?.localOnly) { showToast('Invitations indisponibles en mode local.', 'err'); return; }
-    if (!confirm('GÃ©nÃ©rer un nouveau code ? L\'ancien sera dÃ©sactivÃ©.')) return;
+    if (!confirm('Générer un nouveau code ? L\'ancien sera désactivé.')) return;
     const data = await creerNouveauCode();
-    if (data) { afficherMonCode(data); showToast('Nouveau code gÃ©nÃ©rÃ© !', 'ok'); }
+    if (data) { afficherMonCode(data); showToast('Nouveau code généré !', 'ok'); }
     await loadMyInviteHistory();
 }
 
 function copyInviteCode() {
     const code = document.getElementById('myInviteCode').textContent;
-    if (code && code !== 'ââââââââ') {
-        navigator.clipboard.writeText(code).then(() => showToast('Code copiÃ© !', 'ok')).catch(() => showToast('Code : ' + code, 'info'));
+    if (code && code !== '────────') {
+        navigator.clipboard.writeText(code).then(() => showToast('Code copié !', 'ok')).catch(() => showToast('Code : ' + code, 'info'));
     }
 }
 
 function copyInviteLink() {
     const code = document.getElementById('myInviteCode').textContent;
-    if (code && code !== 'ââââââââ') {
+    if (code && code !== '────────') {
         const link = getInviteLink(code);
-        navigator.clipboard.writeText(link).then(() => showToast('Lien copiÃ© !', 'ok')).catch(() => showToast('Lien copiÃ© !', 'ok'));
+        navigator.clipboard.writeText(link).then(() => showToast('Lien copié !', 'ok')).catch(() => showToast('Lien copié !', 'ok'));
     }
 }
 
@@ -2639,19 +2671,19 @@ async function envoyerInvitationEmail() {
     const emailTo = document.getElementById('inviteEmailTo').value.trim();
     if (!emailTo || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTo)) { showToast('Email invalide.', 'err'); return; }
     const code = document.getElementById('myInviteCode').textContent;
-    if (!code || code === 'ââââââââ') { showToast('Code d\'invitation introuvable.', 'err'); return; }
+    if (!code || code === '────────') { showToast('Code d\'invitation introuvable.', 'err'); return; }
     const link = getInviteLink(code);
     const u = window.currentUser;
     const senderName = `${u?.prenom||''} ${u?.nom||''}`.trim() || 'Un agent ATTT';
 
-    const subject = `Invitation VIN Expert ATTT â de ${senderName}`;
-    const body = `Bonjour,\n\n${senderName} vous invite Ã  rejoindre l'application VIN Expert ATTT (Agence Technique de Traitement des Titres).\n\nVotre code d'invitation Ã  usage unique :\n\n    ${code}\n\nPour crÃ©er votre compte, cliquez sur le lien ci-dessous :\n${link}\n\nCe code est personnel et ne peut Ãªtre utilisÃ© qu'une seule fois.\n\nCordialement,\n${senderName}\nATTT â Direction Technique d'Automobiles`;
+    const subject = `Invitation VIN Expert ATTT — de ${senderName}`;
+    const body = `Bonjour,\n\n${senderName} vous invite à rejoindre l'application VIN Expert ATTT (Agence Technique de Traitement des Titres).\n\nVotre code d'invitation à usage unique :\n\n    ${code}\n\nPour créer votre compte, cliquez sur le lien ci-dessous :\n${link}\n\nCe code est personnel et ne peut être utilisé qu'une seule fois.\n\nCordialement,\n${senderName}\nATTT — Direction Technique d'Automobiles`;
 
     const gmailUrl = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(emailTo)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.open(gmailUrl, '_blank');
 
     document.getElementById('sendInviteModal').style.display = 'none';
-    showToast(`Gmail ouvert â prÃªt Ã  envoyer Ã  ${emailTo}`, 'ok');
+    showToast(`Gmail ouvert — prêt à envoyer à ${emailTo}`, 'ok');
 }
 
 async function loadMyInviteHistory() {
@@ -2664,13 +2696,13 @@ async function loadMyInviteHistory() {
         const mine = [];
         snap.forEach(d => { if (d.data().createdBy === u.uid) mine.push(d.data()); });
         mine.sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
-        if (!mine.length) { el.innerHTML = '<div class="empty-state"><p>Aucune invitation gÃ©nÃ©rÃ©e.</p></div>'; return; }
+        if (!mine.length) { el.innerHTML = '<div class="empty-state"><p>Aucune invitation générée.</p></div>'; return; }
         el.innerHTML = mine.map(inv => `
             <div style="padding:10px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;font-size:0.8rem">
               <span style="font-family:var(--font-mono);color:var(--gold-light)">${escHtml(inv.code)}</span>
-              <span style="margin-left:8px;font-size:0.65rem;padding:2px 6px;border-radius:4px;${inv.used?'background:rgba(0,200,122,0.15);color:var(--green)':'background:rgba(240,160,32,0.15);color:var(--orange)'}">${inv.used?'UTILISÃ':'ACTIF'}</span>
-              ${inv.used ? `<div style="color:var(--text-dim);margin-top:3px">â ${escHtml(inv.usedByName||'â')} Â· ${escHtml(inv.usedAt||'')}</div>` : ''}
-              <div style="color:var(--text-dim);font-size:0.65rem;margin-top:2px">CrÃ©Ã© : ${escHtml(inv.createdAt?.slice(0,10)||'')}</div>
+              <span style="margin-left:8px;font-size:0.65rem;padding:2px 6px;border-radius:4px;${inv.used?'background:rgba(0,200,122,0.15);color:var(--green)':'background:rgba(240,160,32,0.15);color:var(--orange)'}">${inv.used?'UTILISÉ':'ACTIF'}</span>
+              ${inv.used ? `<div style="color:var(--text-dim);margin-top:3px">→ ${escHtml(inv.usedByName||'—')} · ${escHtml(inv.usedAt||'')}</div>` : ''}
+              <div style="color:var(--text-dim);font-size:0.65rem;margin-top:2px">Créé : ${escHtml(inv.createdAt?.slice(0,10)||'')}</div>
             </div>`).join('');
     } catch(e) { el.innerHTML = '<div class="empty-state"><p>Erreur chargement.</p></div>'; }
 }
@@ -2709,12 +2741,12 @@ async function markInviteCodeUsed(code, uid, nom) {
 }
 
 // ========== INIT ==========
-// Capturer l'Ã©vÃ©nement d'installation PWA (Android Chrome)
+// Capturer l'événement d'installation PWA (Android Chrome)
 let _installPrompt = null;
 window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     _installPrompt = e;
-    // Afficher la banniÃ¨re Android aprÃ¨s 3 secondes
+    // Afficher la bannière Android après 3 secondes
     setTimeout(() => {
         const banner = document.getElementById('installBanner');
         if (banner && !safeStorageGet('pwa_installed')) {
@@ -2744,30 +2776,30 @@ window.onload = () => {
     updateVersionBadge();
     if ('serviceWorker' in navigator) {
         if (IS_LOCAL_DEV) {
-            // En local, vider les caches au dÃ©marrage pour avoir la derniÃ¨re version code.
-            // MAIS garder le SW enregistrÃ© pour tester l'auto-update en dev
+            // En local, vider les caches au démarrage pour avoir la dernière version code.
+            // MAIS garder le SW enregistré pour tester l'auto-update en dev
             console.log('[INIT] Local dev: nettoyage des caches...');
             if ('caches' in window) {
                 caches.keys().then(keys => {
-                    console.log('[INIT] Caches Ã  supprimer:', keys);
+                    console.log('[INIT] Caches à supprimer:', keys);
                     Promise.all(keys.map(k => {
-                        caches.delete(k).then(() => console.log('[INIT] Cache supprimÃ©:', k));
+                        caches.delete(k).then(() => console.log('[INIT] Cache supprimé:', k));
                     })).catch(()=>{});
                 }).catch(()=>{});
             }
         }
-        // Toujours enregistrer le SW (mÃªme en dev) pour tester auto-update
-        // Mais Ã©viter double enregistrement si dÃ©jÃ  fait par script initial
+        // Toujours enregistrer le SW (même en dev) pour tester auto-update
+        // Mais éviter double enregistrement si déjà fait par script initial
         if (!window._swInitialized) {
             console.log('[ONLOAD] Enregistrement du Service Worker (initial)');
             window._swInitialized = true;
             setupServiceWorkerAutoUpdate();
         } else {
-            console.log('[ONLOAD] SW dÃ©jÃ  enregistrÃ© antÃ©rieurement');
+            console.log('[ONLOAD] SW déjà enregistré antérieurement');
         }
     }
 
-    // DÃ©tecter iOS : afficher les instructions d'installation manuelle
+    // Détecter iOS : afficher les instructions d'installation manuelle
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
     const isInStandaloneMode = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
     if (isIOS && !isInStandaloneMode && !safeStorageGet('pwa_installed')) {
@@ -2793,7 +2825,7 @@ function switchTab(t) {
             const el = document.getElementById(s+'Section');
             if (el) el.classList.toggle('active', t === s);
         });
-        document.getElementById('chatMessages').innerHTML = '<div style="text-align:center;padding:40px 20px"><div style="font-size:2.5rem;margin-bottom:12px">ð</div><div style="color:var(--text-dim);font-size:0.88rem;line-height:1.6">Le chat nÃ©cessite une connexion.<br>Connectez-vous pour discuter avec l\'Ã©quipe.</div></div>';
+        document.getElementById('chatMessages').innerHTML = '<div style="text-align:center;padding:40px 20px"><div style="font-size:2.5rem;margin-bottom:12px">🔒</div><div style="color:var(--text-dim);font-size:0.88rem;line-height:1.6">Le chat nécessite une connexion.<br>Connectez-vous pour discuter avec l\'équipe.</div></div>';
         return;
     }
     ['scan','history','chat','admin','profile'].forEach(s => {
@@ -2855,17 +2887,17 @@ function processPhotoFile(file, idx, compress) {
 }
 
 // ========== OCR PROCESSING ==========
-// DÃ©tecte si le fond est sombre (texte clair) pour inverser l'image
+// Détecte si le fond est sombre (texte clair) pour inverser l'image
 function detecterFondNoir(imageData) {
     const d = imageData.data;
     let somme = 0;
-    const pas = 4 * 8; // Ã©chantillonnage 1 pixel sur 8
+    const pas = 4 * 8; // échantillonnage 1 pixel sur 8
     let count = 0;
     for (let i = 0; i < d.length; i += pas) {
-        somme += d[i]; // canal R (image dÃ©jÃ  en niveaux de gris)
+        somme += d[i]; // canal R (image déjà en niveaux de gris)
         count++;
     }
-    return count > 0 && (somme / count) < 100; // fond sombre si luminositÃ© moyenne < 100
+    return count > 0 && (somme / count) < 100; // fond sombre si luminosité moyenne < 100
 }
 
 function clampByte(value) {
@@ -2888,7 +2920,7 @@ function creerZoneVinCanvas(img, maxWidth = 1400) {
     const srcW = canvas.width;
     const srcH = canvas.height;
 
-    // Zone centrÃ©e adaptÃ©e Ã  la photo fournie: le VIN est sur la bande mÃ©diane.
+    // Zone centrée adaptée à la photo fournie: le VIN est sur la bande médiane.
     const cropX = Math.max(0, Math.round(srcW * 0.20));
     const cropY = Math.max(0, Math.round(srcH * 0.34));
     const cropW = Math.min(srcW - cropX, Math.round(srcW * 0.66));
@@ -3035,7 +3067,7 @@ function appliquerSeuilOtsu(imageData) {
 }
 
 function preparerVariantesOCR(img) {
-    // Recadrer la bande du VIN avant OCR. C'est le levier principal de prÃ©cision.
+    // Recadrer la bande du VIN avant OCR. C'est le levier principal de précision.
     const { canvas, ctx } = creerZoneVinCanvas(img, 1400);
     const source = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
@@ -3061,9 +3093,9 @@ function preparerVariantesOCR(img) {
     ctx.putImageData(binaire, 0, 0);
     variantes.push({ label: 'Zone VIN Binaire', data: serialiserCanvasPourOCR(canvas, 'image/png') });
 
-    // 4Ã¨me variante : image complÃ¨te (si le recadrage automatique rate le VIN)
+    // 4ème variante : image complète (si le recadrage automatique rate le VIN)
     const { canvas: fullCanvas, ctx: fullCtx } = creerCanvasOCRDepuisImage(img, 1400);
-    variantes.push({ label: 'Image complÃ¨te', data: serialiserCanvasPourOCR(fullCanvas, 'image/jpeg', 0.80) });
+    variantes.push({ label: 'Image complète', data: serialiserCanvasPourOCR(fullCanvas, 'image/jpeg', 0.80) });
 
     ctx.putImageData(source, 0, 0);
     return variantes;
@@ -3076,10 +3108,10 @@ function traiterImageOCR(file) {
     lastOcrVariants = [];
     lastOcrDiagnostics = null;
     const reader = new FileReader();
-    setLoader(true, 'âï¸ PrÃ©traitement image...', 'AmÃ©lioration OCR');
+    setLoader(true, '⚙️ Prétraitement image...', 'Amélioration OCR');
 
     reader.onload = (e) => {
-        lastOcrPhotoOriginal = e.target.result; // sauvegarder l'originale avant prÃ©traitement
+        lastOcrPhotoOriginal = e.target.result; // sauvegarder l'originale avant prétraitement
         const img = new Image();
         img.onload = () => {
             lastOcrVariants = preparerVariantesOCR(img);
@@ -3097,7 +3129,7 @@ function traiterImageOCR(file) {
             lastOcrPhotoOriginal = '';
             lastOcrVariants = [];
             setLoader(false);
-            setFeedback('<span class="msg-missing">â  Impossible de lire l\'image.</span>');
+            setFeedback('<span class="msg-missing">⚠ Impossible de lire l\'image.</span>');
         };
         img.src = e.target.result;
     };
@@ -3116,13 +3148,13 @@ function extraireVIN(text) {
 
     if (clean.length < 8) return ''; // Trop court
 
-    // Si on n'a mÃªme pas 17 caractÃ¨res, on extrait simplement le bloc alpha-numÃ©rique le plus grand
+    // Si on n'a même pas 17 caractères, on extrait simplement le bloc alpha-numérique le plus grand
     if (clean.length < 17) {
         const match = clean.match(/[A-HJ-NPR-Z0-9]{8,17}/);
         return match ? match[0] : clean;
     }
 
-    // Scannons toutes les fenÃªtres de 17 caractÃ¨res possibles
+    // Scannons toutes les fenêtres de 17 caractères possibles
     const candidates = [];
     for (let start = 0; start <= clean.length - 17; start++) {
         const candidate = clean.substring(start, start + 17);
@@ -3136,7 +3168,7 @@ function extraireVIN(text) {
         return match ? match.sort((a,b)=>b.length-a.length)[0] : clean.substring(0, 17);
     }
 
-    // Evaluer la qualitÃ© de chaque candidat de 17 caractÃ¨res 
+    // Evaluer la qualité de chaque candidat de 17 caractères 
     // et ne PAS se contenter du premier qui passe
     let bestCandidate = candidates[0];
     let maxScore = -9999;
@@ -3144,19 +3176,19 @@ function extraireVIN(text) {
     for (const cand of candidates) {
         let score = 0;
 
-        // 1. ValiditÃ© trÃ¨s forte : code CheckDigit correct ou corrigeable
+        // 1. Validité très forte : code CheckDigit correct ou corrigeable
         const checkDigit = calcCheckDigit(cand);
         if (checkDigit === cand[8]) {
             score += 1000; // 100% de certitude
         } else if (corrigerVINparCheckDigit(cand) !== cand) {
-            score += 500;  // Corrigeable (donc un seul caractÃ¨re d'erreur max)
+            score += 500;  // Corrigeable (donc un seul caractère d'erreur max)
         }
 
-        // 2. Format du WMI (Ex: WMV, WBA, VF3...) gÃ©nÃ©ralement commence par des lettres
+        // 2. Format du WMI (Ex: WMV, WBA, VF3...) généralement commence par des lettres
         if (/^[A-Z]{3}/.test(cand)) score += 50;
         else if (/^[A-Z]{2}[0-9]/.test(cand)) score += 30;
 
-        // 3. ModÃ¨le de VIS normal : finit gÃ©rÃ©ralement par 4 Ã  6 chiffres
+        // 3. Modèle de VIS normal : finit géréralement par 4 à 6 chiffres
         const tailDigits = cand.match(/\d+$/);
         if (tailDigits) {
             score += (tailDigits[0].length * 10);
@@ -3171,17 +3203,17 @@ function extraireVIN(text) {
     return bestCandidate;
 }
 
-// Auto-correction OCR par vÃ©rification du check digit (position 9)
-// Si le VIN a 17 chars mais le chiffre de contrÃ´le est faux, on tente de corriger
-// un seul caractÃ¨re parmi les paires ambiguÃ«s classiques en OCR.
+// Auto-correction OCR par vérification du check digit (position 9)
+// Si le VIN a 17 chars mais le chiffre de contrôle est faux, on tente de corriger
+// un seul caractère parmi les paires ambiguës classiques en OCR.
 function corrigerVINparCheckDigit(vin) {
     if (vin.length !== 17) return vin;
     const vinPattern = /^[A-HJ-NPR-Z0-9]{17}$/;
     if (!vinPattern.test(vin)) return vin;
     const expectedCheckDigit = calcCheckDigit(vin);
-    if (expectedCheckDigit === vin[8]) return vin; // DÃ©jÃ  valide
+    if (expectedCheckDigit === vin[8]) return vin; // Déjà valide
 
-    // Paires d'ambiguÃ¯tÃ© frÃ©quentes en OCR de VIN
+    // Paires d'ambiguïté fréquentes en OCR de VIN
     const paires = {
         '0': ['D'],
         'D': ['0'],
@@ -3221,7 +3253,7 @@ function corrigerVINparCheckDigit(vin) {
 
     const candidatsValides = [];
     for (let i = 0; i < 17; i++) {
-        if (i === 8) continue; // La position 9 est le check digit lui-mÃªme
+        if (i === 8) continue; // La position 9 est le check digit lui-même
         const alts = paires[vin[i]];
         if (!alts) continue;
         for (const alt of alts) {
@@ -3264,15 +3296,15 @@ function updateDoubleScanUI() {
     const el = document.getElementById('ocrDoubleStatus');
     if (!el) return;
     if (doubleScanState.confirmedVin) {
-        el.innerHTML = `Double lecture verrouillÃ©e : <b>${doubleScanState.confirmedVin}</b><br><small>Deux scans OCR concordants ont Ã©tÃ© obtenus.</small>`;
+        el.innerHTML = `Double lecture verrouillée : <b>${doubleScanState.confirmedVin}</b><br><small>Deux scans OCR concordants ont été obtenus.</small>`;
         return;
     }
     if (doubleScanState.pending && doubleScanState.firstVin) {
-        el.innerHTML = `1er scan mÃ©morisÃ© : <b>${doubleScanState.firstVin}</b><br><small>Faites un 2Ã¨me scan indÃ©pendant pour confirmer automatiquement.</small>`;
+        el.innerHTML = `1er scan mémorisé : <b>${doubleScanState.firstVin}</b><br><small>Faites un 2ème scan indépendant pour confirmer automatiquement.</small>`;
         return;
     }
     if (doubleScanState.mismatchCount > 0) {
-        el.innerHTML = `DerniÃ¨re comparaison OCR non concordante.<br><small>Refaites 2 scans du numÃ©ro de chÃ¢ssis jusqu'Ã  obtenir exactement le mÃªme VIN.</small>`;
+        el.innerHTML = `Dernière comparaison OCR non concordante.<br><small>Refaites 2 scans du numéro de châssis jusqu'à obtenir exactement le même VIN.</small>`;
         return;
     }
     el.textContent = 'En attente du 1er scan OCR.';
@@ -3288,7 +3320,7 @@ function resetDoubleScanState(showToastMsg = false) {
         mismatchCount: 0
     };
     updateDoubleScanUI();
-    if (showToastMsg) showToast('Double lecture OCR rÃ©initialisÃ©e.', 'info');
+    if (showToastMsg) showToast('Double lecture OCR réinitialisée.', 'info');
 }
 
 function registerDoubleScanResult(diag) {
@@ -3322,12 +3354,12 @@ function registerDoubleScanResult(diag) {
     doubleScanState.confirmedVin = '';
     doubleScanState.mismatchCount += 1;
     updateDoubleScanUI();
-    showToast('Double lecture OCR non concordante. Un nouveau 2Ã¨me scan est requis.', 'err', 4500);
+    showToast('Double lecture OCR non concordante. Un nouveau 2ème scan est requis.', 'err', 4500);
 }
 
 function calculerNiveauConfianceOCR(vin, conf = 0) {
     const score = evaluerCandidatVIN(vin, conf);
-    if (score >= 1400) return 'Ã©levÃ©e';
+    if (score >= 1400) return 'élevée';
     if (score >= 950) return 'moyenne';
     return 'faible';
 }
@@ -3366,7 +3398,7 @@ function updateOcrReviewUI(vin) {
     }
 
     box.style.display = 'block';
-    note.textContent = `OCR ${diag.mode || 'inconnu'} Â· source ${diag.source || 'n/a'} Â· consensus ${diag.consensus || 1} Â· confiance ${calculerNiveauConfianceOCR(vin, diag.conf || 0)}.`;
+    note.textContent = `OCR ${diag.mode || 'inconnu'} · source ${diag.source || 'n/a'} · consensus ${diag.consensus || 1} · confiance ${calculerNiveauConfianceOCR(vin, diag.conf || 0)}.`;
 }
 
 function ocrExigeConfirmationManuelle(vin) {
@@ -3380,19 +3412,19 @@ function enrichirRapportAvecOCR(vin, vinIntel) {
     const unsure = Array.isArray(vinIntel.unsure) ? vinIntel.unsure : [];
     const diag = lastOcrDiagnostics;
     if (!diag) {
-        unsure.push('OCR: aucune donnÃ©e de diagnostic disponible (saisie manuelle ou ancien enregistrement)');
+        unsure.push('OCR: aucune donnée de diagnostic disponible (saisie manuelle ou ancien enregistrement)');
         return { sure, unsure };
     }
 
     const niveau = calculerNiveauConfianceOCR(vin, diag.conf || 0);
-    const baseLine = `OCR ${diag.mode || 'inconnu'} | source: ${diag.source || 'n/a'} | confiance: ${niveau} | consensus: ${diag.consensus || 1} | double scan: ${diag.doubleScanConfirmed ? 'confirmÃ©' : 'non confirmÃ©'}`;
+    const baseLine = `OCR ${diag.mode || 'inconnu'} | source: ${diag.source || 'n/a'} | confiance: ${niveau} | consensus: ${diag.consensus || 1} | double scan: ${diag.doubleScanConfirmed ? 'confirmé' : 'non confirmé'}`;
     if (vin.length === 17 && calcCheckDigit(vin) === vin[8] && niveau !== 'faible') {
         sure.push(baseLine);
     } else {
         unsure.push(baseLine);
     }
     if (diag.wasFixed) {
-        unsure.push('OCR: caractÃ¨res auto-corrigÃ©s par check digit, vÃ©rifier visuellement la frappe');
+        unsure.push('OCR: caractères auto-corrigés par check digit, vérifier visuellement la frappe');
     }
     if (diag.raw && diag.raw !== vin) {
         unsure.push(`OCR brut: ${diag.raw}`);
@@ -3407,15 +3439,15 @@ function updateRapportBadges(sure, unsure) {
     const countSure = Array.isArray(sure) ? sure.length : 0;
     const countUnsure = Array.isArray(unsure) ? unsure.length : 0;
     if (row) row.style.display = (countSure || countUnsure) ? 'block' : 'none';
-    if (sureBadge) sureBadge.textContent = `SÃ»res: ${countSure}`;
-    if (unsureBadge) unsureBadge.textContent = `Non sÃ»res: ${countUnsure}`;
+    if (sureBadge) sureBadge.textContent = `Sûres: ${countSure}`;
+    if (unsureBadge) unsureBadge.textContent = `Non sûres: ${countUnsure}`;
 }
 let _tesseractWorker = null;
 let _tesseractWorkerReady = false;
 let _tesseractWorkerLoading = false;
 
 async function getTesseractWorker() {
-    // Reset complet si le worker est en Ã©tat erreur
+    // Reset complet si le worker est en état erreur
     if (_tesseractWorker && !_tesseractWorkerReady && !_tesseractWorkerLoading) {
         try { await _tesseractWorker.terminate(); } catch(e) {}
         _tesseractWorker = null;
@@ -3437,7 +3469,7 @@ async function getTesseractWorker() {
     _tesseractWorkerLoading = true;
     try {
         setLoaderSub('Chargement moteur OCR...');
-        // Mode de crÃ©ation standard et robuste pour Tesseract.js v4+
+        // Mode de création standard et robuste pour Tesseract.js v4+
         _tesseractWorker = await Tesseract.createWorker({
             logger: m => console.log(m)
         });
@@ -3454,7 +3486,7 @@ async function getTesseractWorker() {
 }
 
 async function lancerOCRTesseract(imageInput) {
-    setLoader(true, 'âï¸ OCR Web + secours local...', 'Analyse intelligente en cours');
+    setLoader(true, '☁️ OCR Web + secours local...', 'Analyse intelligente en cours');
     
     const variantes = Array.isArray(imageInput) && imageInput.length > 0
         ? imageInput
@@ -3474,11 +3506,11 @@ async function lancerOCRTesseract(imageInput) {
     }, 15000);
 
     try {
-        // Solution Internet 100% gratuite (25 000 requÃªtes/mois sans CB) : API OCR.Space
+        // Solution Internet 100% gratuite (25 000 requêtes/mois sans CB) : API OCR.Space
         const candidats = [];
         for (const variante of variantesWeb) {
             const formData = new FormData();
-            formData.append('apikey', 'helloworld'); // ClÃ© publique gratuite
+            formData.append('apikey', 'helloworld'); // Clé publique gratuite
             formData.append('base64Image', variante.data);
             formData.append('language', 'eng');
             formData.append('scale', 'true');
@@ -3511,7 +3543,7 @@ async function lancerOCRTesseract(imageInput) {
 
         clearTimeout(timeoutId);
         if (!candidats.length) {
-            // Pas de rÃ©sultat pertinent, on tente le fallback local en ultime recours
+            // Pas de résultat pertinent, on tente le fallback local en ultime recours
             return await fallbackOCRLocal(variantes);
         }
 
@@ -3532,11 +3564,11 @@ async function lancerOCRTesseract(imageInput) {
         lastOcrDiagnostics.doubleScanConfirmed = doubleScanState.confirmedVin === meilleur.vin;
         setLoader(false);
         if (meilleur.vin.length === 17) {
-            let finalMsg = `<span class="msg-ok">â VIN dÃ©tectÃ© via Internet (${meilleur.source})</span>`;
-            if (wasFixed) finalMsg += '<br><small>Auto-corrigÃ© â</small>';
+            let finalMsg = `<span class="msg-ok">✓ VIN détecté via Internet (${meilleur.source})</span>`;
+            if (wasFixed) finalMsg += '<br><small>Auto-corrigé ✔</small>';
             setFeedback(finalMsg);
         } else {
-            setFeedback('<span class="msg-missing">â  RÃ©sultat partiel via Internet. VÃ©rifiez le VIN.</span>');
+            setFeedback('<span class="msg-missing">⚠ Résultat partiel via Internet. Vérifiez le VIN.</span>');
         }
         
         document.getElementById('vinField').value = meilleur.vin;
@@ -3547,16 +3579,16 @@ async function lancerOCRTesseract(imageInput) {
         clearTimeout(timeoutId);
         console.error('Erreur OCR Web:', err);
         if (webTimedOut || err?.name === 'AbortError') {
-            setFeedback('<span class="msg-missing">â  OCR web lent â bascule automatique en mode local...</span>');
+            setFeedback('<span class="msg-missing">⚠ OCR web lent — bascule automatique en mode local...</span>');
         }
-        // En cas d'erreur rÃ©seau / timeout / pas d'internet : mode local
+        // En cas d'erreur réseau / timeout / pas d'internet : mode local
         await fallbackOCRLocal(variantes);
     }
 }
 
-// L'ancien Tesseract devient un filet de sÃ©curitÃ© si internet coupe
+// L'ancien Tesseract devient un filet de sécurité si internet coupe
 async function fallbackOCRLocal(imageInput) {
-    setLoader(true, 'ð OCR Local en recours (Internet indisponible)...');
+    setLoader(true, '🔍 OCR Local en recours (Internet indisponible)...');
     try {
         const worker = await getTesseractWorker();
         const variantes = Array.isArray(imageInput) && imageInput.length
@@ -3581,7 +3613,7 @@ async function fallbackOCRLocal(imageInput) {
                     let vin = extraireVIN(data.text || '');
                     if (vin.length === 17) vin = corrigerVINparCheckDigit(vin);
                     if (vin.length >= 8) {
-                        resultats.push({ vin, conf: data.confidence || 0, label: `${variante.label} Â· ${pass.label}` });
+                        resultats.push({ vin, conf: data.confidence || 0, label: `${variante.label} · ${pass.label}` });
                     }
                 } catch (err) {
                     console.warn('Erreur OCR locale:', err);
@@ -3592,7 +3624,7 @@ async function fallbackOCRLocal(imageInput) {
         setLoader(false);
 
         if (!resultats.length) {
-            setFeedback('<span class="msg-missing">â  ChÃ¢ssis illisible. Saisissez manuellement.</span>');
+            setFeedback('<span class="msg-missing">⚠ Châssis illisible. Saisissez manuellement.</span>');
             return;
         }
 
@@ -3612,14 +3644,14 @@ async function fallbackOCRLocal(imageInput) {
         };
         registerDoubleScanResult(lastOcrDiagnostics);
         lastOcrDiagnostics.doubleScanConfirmed = doubleScanState.confirmedVin === meilleur;
-        setFeedback('<span class="msg-missing">â  Mode Hors-Ligne: vÃ©rifiez le rÃ©sultat proposÃ©.</span>');
+        setFeedback('<span class="msg-missing">⚠ Mode Hors-Ligne: vérifiez le résultat proposé.</span>');
         document.getElementById('vinField').value = meilleur;
         handleVinInput();
         updateOcrReviewUI(meilleur);
     } catch(e) {
         setLoader(false);
         console.error('Erreur locale Tesseract:', e);
-        setFeedback('<span class="msg-missing">â  Impossible d\'extraire le texte.</span>');
+        setFeedback('<span class="msg-missing">⚠ Impossible d\'extraire le texte.</span>');
     }
 }
 
@@ -3632,27 +3664,27 @@ function afficherResultatOCR(vin, conf) {
         document.getElementById('vinField').value = vinCorrige;
         handleVinInput();
         let msg = conf > 70
-            ? `<span class="msg-ok">â OCR rÃ©ussi (${Math.round(conf)}%)${wasFixed ? ' Â· auto-corrigÃ© â' : ''}</span>`
+            ? `<span class="msg-ok">✓ OCR réussi (${Math.round(conf)}%)${wasFixed ? ' · auto-corrigé ✔' : ''}</span>`
             : conf > 40
-                ? `<span class="msg-missing">â  VÃ©rifiez les caractÃ¨res (${Math.round(conf)}%)${wasFixed ? ' Â· auto-corrigÃ© â' : ''}</span>`
-                : `<span class="msg-missing">â  OCR incertain â vÃ©rifiez${wasFixed ? ' Â· auto-corrigÃ© â' : ''}</span>`;
+                ? `<span class="msg-missing">⚠ Vérifiez les caractères (${Math.round(conf)}%)${wasFixed ? ' · auto-corrigé ✔' : ''}</span>`
+                : `<span class="msg-missing">⚠ OCR incertain — vérifiez${wasFixed ? ' · auto-corrigé ✔' : ''}</span>`;
         setFeedback(msg);
     } else {
-        setFeedback('<span class="msg-missing">â  OCR difficile. Saisissez manuellement.</span>');
+        setFeedback('<span class="msg-missing">⚠ OCR difficile. Saisissez manuellement.</span>');
     }
 }
 
 async function ocrVIN() {
     const hasPhoto = photos.some(p => p) || !!lastOcrPhotoData;
     if (!hasPhoto) {
-        alert("Capturez d'abord une photo du chÃ¢ssis.");
+        alert("Capturez d'abord une photo du châssis.");
         return;
     }
     if (lastOcrVariants.length || lastOcrPhotoData) {
-        setFeedback('<span class="msg-ok">â OCR intelligent activÃ© (web puis secours local)...</span>');
+        setFeedback('<span class="msg-ok">✓ OCR intelligent activé (web puis secours local)...</span>');
         await lancerOCRTesseract(lastOcrVariants.length ? lastOcrVariants : lastOcrPhotoData);
     } else {
-        setFeedback('<span class="msg-missing">â  Photo OCR non disponible. Utilisez Galerie ou CamÃ©ra.</span>');
+        setFeedback('<span class="msg-missing">⚠ Photo OCR non disponible. Utilisez Galerie ou Caméra.</span>');
     }
 }
 // ========== VIN LOGIC ==========
@@ -3686,8 +3718,8 @@ function handleVinInput() {
     updateOcrReviewUI(vin);
     updateDoubleScanUI();
 
-    if (diff > 0) setFeedback(`<span class="msg-missing">Manque ${diff} caractÃ¨re${diff>1?'s':''}</span>`);
-    else if (diff === 0) setFeedback('<span class="msg-ok">â Longueur OK (17)</span>');
+    if (diff > 0) setFeedback(`<span class="msg-missing">Manque ${diff} caractère${diff>1?'s':''}</span>`);
+    else if (diff === 0) setFeedback('<span class="msg-ok">✓ Longueur OK (17)</span>');
     else setFeedback('<span class="msg-err">Trop long !</span>');
 }
 
@@ -3696,14 +3728,14 @@ function setFeedback(html) { document.getElementById('charFeedback').innerHTML =
 // ========== FULL VERIFY ==========
 async function fullVerify() {
     const vin = document.getElementById('vinField').value.toUpperCase();
-    if (vin.length !== 17) { alert("Le VIN doit faire exactement 17 caractÃ¨res !"); return; }
+    if (vin.length !== 17) { alert("Le VIN doit faire exactement 17 caractères !"); return; }
     if (ocrExigeConfirmationManuelle(vin) && !document.getElementById('ocrReviewConfirm')?.checked) {
-        showToast('OCR non verrouillÃ©: faites 2 scans concordants ou confirmez manuellement aprÃ¨s relecture visuelle.', 'err', 5000);
+        showToast('OCR non verrouillé: faites 2 scans concordants ou confirmez manuellement après relecture visuelle.', 'err', 5000);
         document.getElementById('ocrReviewBox')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         return;
     }
 
-    setLoader(true, 'ð VÃ©rification Check Digit...', '');
+    setLoader(true, '🔎 Vérification Check Digit...', '');
     document.getElementById('resultBox').style.display = 'none';
 
     const computed = calcCheckDigit(vin);
@@ -3727,12 +3759,12 @@ async function fullVerify() {
     const box = document.getElementById('resultBox');
     const header = document.getElementById('resultHeader');
     header.className = 'result-header ' + (isValid ? 'valid' : 'invalid');
-    document.getElementById('resultIcon').textContent = isValid ? 'â' : 'â ï¸';
-    document.getElementById('resultTitle').textContent = isValid ? 'CHÃSSIS VALIDE' : 'CHÃSSIS INVALIDE';
+    document.getElementById('resultIcon').textContent = isValid ? '✅' : '⚠️';
+    document.getElementById('resultTitle').textContent = isValid ? 'CHÂSSIS VALIDE' : 'CHÂSSIS INVALIDE';
     document.getElementById('resCheckDetail').innerHTML = `
-        Attendu (calculÃ©) : <b class="${isValid ? 'check-valid' : 'check-invalid'}">${computed}</b> &nbsp;|&nbsp; 
-        TrouvÃ© (pos.9) : <b>${actual}</b> &nbsp;
-        <span class="${isValid ? 'check-valid' : 'check-invalid'}">${isValid ? 'â Concordance' : 'â Discordance'}</span>
+        Attendu (calculé) : <b class="${isValid ? 'check-valid' : 'check-invalid'}">${computed}</b> &nbsp;|&nbsp; 
+        Trouvé (pos.9) : <b>${actual}</b> &nbsp;
+        <span class="${isValid ? 'check-valid' : 'check-invalid'}">${isValid ? '✓ Concordance' : '✗ Discordance'}</span>
     `;
     document.getElementById('resVehicle').innerHTML = `<b>${carInfo}</b>`;
     updateRapportBadges(vinIntel.sure, vinIntel.unsure);
@@ -3765,15 +3797,15 @@ async function fullVerify() {
     };
     lastVerifyRecord = record;
 
-    // Historique local : stocker sans les photos pour ne pas dÃ©passer le quota localStorage
+    // Historique local : stocker sans les photos pour ne pas dépasser le quota localStorage
     const recordLight = Object.assign({}, record, { photos: [], ocrPhoto: null });
     historique.unshift(recordLight);
     if (historique.length > 20) historique.pop();
     try {
         safeStorageSet('attt_forensic_v1', JSON.stringify(historique));
     } catch(eStorage) {
-        // Quota dÃ©passÃ© â vider l'ancien historique et rÃ©essayer
-        console.warn('[STORAGE] Quota dÃ©passÃ©, nettoyage historique...');
+        // Quota dépassé → vider l'ancien historique et réessayer
+        console.warn('[STORAGE] Quota dépassé, nettoyage historique...');
         historique.splice(5);
         if (!safeStorageSet('attt_forensic_v1', JSON.stringify(historique))) {
             safeStorageRemove('attt_forensic_v1');
@@ -3839,23 +3871,23 @@ async function fullVerify() {
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: drivePayload
         }).then(() => {
-            console.log('[DTA-DRIVE] RequÃªte envoyÃ©e (no-cors, rÃ©ponse opaque).');
+            console.log('[DTA-DRIVE] Requête envoyée (no-cors, réponse opaque).');
             traceDta('DTA_FETCH_OK', { opaque: true });
-            showToast('Rapport synchronisÃ© avec la DTA.', 'ok', 2500);
+            showToast('Rapport synchronisé avec la DTA.', 'ok', 2500);
         }).catch((eFetch) => {
-            console.error('[DTA-DRIVE] Erreur rÃ©seau:', eFetch.message);
+            console.error('[DTA-DRIVE] Erreur réseau:', eFetch.message);
             traceDta('DTA_FETCH_ERR', { message: eFetch.message });
-            showToast('Erreur rÃ©seau DTA: ' + eFetch.message, 'err', 5000);
+            showToast('Erreur réseau DTA: ' + eFetch.message, 'err', 5000);
         });
     } catch(eDrive) {
-        console.error('[DTA-DRIVE] Erreur gÃ©nÃ©ration/envoi:', eDrive.message, eDrive);
+        console.error('[DTA-DRIVE] Erreur génération/envoi:', eDrive.message, eDrive);
         traceDta('DTA_BUILD_ERR', { message: eDrive.message });
         showToast('Erreur envoi DTA: ' + eDrive.message, 'err', 5000);
     }
 }
 
 // ========== PDF REPORT ==========
-// Convertit un Blob en chaÃ®ne base64 data-URL
+// Convertit un Blob en chaîne base64 data-URL
 function blobToBase64(blob) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -3881,13 +3913,13 @@ function genererRapportPdf(record) {
     pdf.text('AGENCE TECHNIQUE DES TRANSPORTS TERRESTRES', 105, 7, { align: 'center' });
     pdf.setFontSize(9);
     pdf.setFont('helvetica', 'normal');
-    pdf.text('Direction Technique d\'Automobiles Â· Rapport VIN Expert', 105, 13, { align: 'center' });
+    pdf.text('Direction Technique d\'Automobiles · Rapport VIN Expert', 105, 13, { align: 'center' });
 
     // Title
     pdf.setTextColor(200, 168, 75);
     pdf.setFontSize(16);
     pdf.setFont('helvetica', 'bold');
-    pdf.text('RAPPORT D\'IDENTIFICATION DE CHÃSSIS', 105, 30, { align: 'center' });
+    pdf.text('RAPPORT D\'IDENTIFICATION DE CHÂSSIS', 105, 30, { align: 'center' });
 
     // Status badge
     const isValid = record.is_valid;
@@ -3896,7 +3928,7 @@ function genererRapportPdf(record) {
     pdf.setTextColor(...(isValid ? [0,200,122] : [224,48,80]));
     pdf.setFontSize(12);
     pdf.setFont('helvetica', 'bold');
-    pdf.text(isValid ? 'â  CHÃSSIS VALIDE' : 'â  CHÃSSIS INVALIDE', 105, 42, { align: 'center' });
+    pdf.text(isValid ? '✓  CHÂSSIS VALIDE' : '✗  CHÂSSIS INVALIDE', 105, 42, { align: 'center' });
 
     // VIN
     pdf.setFillColor(13, 18, 32);
@@ -3908,13 +3940,13 @@ function genererRapportPdf(record) {
 
     // Info table
     const rows = [
-        ['Agent', record.agentNom || 'â'],
-        ['Matricule', record.matricule || 'â'],
-        ['Lieu de travail', record.lieuTravail || 'â'],
+        ['Agent', record.agentNom || '—'],
+        ['Matricule', record.matricule || '—'],
+        ['Lieu de travail', record.lieuTravail || '—'],
         ['Date et heure', record.date],
         ['Localisation', record.locationSummary || 'Non disponible'],
-        ['VÃ©hicule identifiÃ©', record.info || 'Non identifiÃ©'],
-        ['Check Digit (pos.9)', `CalculÃ©: ${calcCheckDigit(record.vin)} | VIN: ${record.vin[8]} | ${isValid ? 'Concordance' : 'Discordance'}`],
+        ['Véhicule identifié', record.info || 'Non identifié'],
+        ['Check Digit (pos.9)', `Calculé: ${calcCheckDigit(record.vin)} | VIN: ${record.vin[8]} | ${isValid ? 'Concordance' : 'Discordance'}`],
     ];
 
     let y = 72;
@@ -3973,8 +4005,8 @@ function genererRapportPdf(record) {
     pdf.setTextColor(50, 60, 80);
     pdf.setFontSize(7.5);
     pdf.setFont('helvetica', 'normal');
-    pdf.text('Document gÃ©nÃ©rÃ© automatiquement par VIN Expert Â· ATTT Â© 2026', 105, 285, { align: 'center' });
-    pdf.text(`RÃ©f: ${record.vin}-${Date.now()}`, 105, 290, { align: 'center' });
+    pdf.text('Document généré automatiquement par VIN Expert · ATTT © 2026', 105, 285, { align: 'center' });
+    pdf.text(`Réf: ${record.vin}-${Date.now()}`, 105, 290, { align: 'center' });
 
     // Photos (if any)
     const validPhotos = record.photos.filter(p => p);
@@ -4005,13 +4037,13 @@ async function envoyerRapportPDF() {
     const agentEmail = u.email || '';
     if (!agentEmail) { showToast('Aucun email agent disponible. Connectez-vous d\'abord.', 'err'); return; }
 
-    showToast('GÃ©nÃ©ration du rapport PDF...', 'info');
+    showToast('Génération du rapport PDF...', 'info');
 
     try {
         const { pdf, filename, validPhotos } = genererRapportPdf(record);
         pdf.save(filename);
 
-        // === Envoi Ã  l'email personnel de l'agent ===
+        // === Envoi à l'email personnel de l'agent ===
         try {
             const pdfBase64 = pdf.output('datauristring').split(',')[1];
             const agentDossier = (record.agentNom || 'Agent').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_\-]/g, '');
@@ -4032,8 +4064,8 @@ async function envoyerRapportPDF() {
                 sendEmail: true,
                 sendToAgent: true,
                 agentEmail: agentEmail,
-                emailSubject: `Votre rapport VIN Expert Â· ${record.vin} Â· ${record.date}`,
-                emailBody: `Bonjour ${record.agentNom || ''},\n\nVoici votre copie du rapport VIN Expert pour le chÃ¢ssis ${record.vin}.\n\nCordialement,\nVIN Expert Â· ATTT`,
+                emailSubject: `Votre rapport VIN Expert · ${record.vin} · ${record.date}`,
+                emailBody: `Bonjour ${record.agentNom || ''},\n\nVoici votre copie du rapport VIN Expert pour le châssis ${record.vin}.\n\nCordialement,\nVIN Expert · ATTT`,
                 metadataLines: emailMetadata
             });
             fetch(GAS_DRIVE_URL, {
@@ -4042,16 +4074,16 @@ async function envoyerRapportPDF() {
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                 body: drivePayload
             }).catch((e) => { console.warn('[AGENT-EMAIL] GAS error:', e.message); });
-            showToast(`ð§ Rapport envoyÃ© Ã  ${agentEmail}`, 'ok', 4000);
+            showToast(`📧 Rapport envoyé à ${agentEmail}`, 'ok', 4000);
         } catch(eAgent) {
             console.warn('Agent email skipped:', eAgent.message);
         }
 
-        showToast('PDF tÃ©lÃ©chargÃ© et envoyÃ© Ã  votre email.', 'ok', 6000);
+        showToast('PDF téléchargé et envoyé à votre email.', 'ok', 6000);
 
     } catch(e) {
         console.error('PDF error:', e);
-        showToast('Erreur gÃ©nÃ©ration PDF : ' + e.message, 'err');
+        showToast('Erreur génération PDF : ' + e.message, 'err');
     }
 }
 
@@ -4066,28 +4098,28 @@ function traduireValeurRapport(value) {
     if (!normalized) return '';
 
     const exactMap = {
-        'Passenger Car': 'Voiture particuliÃ¨re',
-        'Multipurpose Passenger Vehicle (MPV)': 'VÃ©hicule particulier polyvalent (MPV)',
-        'Sport Utility Vehicle (SUV)/Multi-Purpose Vehicle (MPV)': 'SUV / vÃ©hicule polyvalent (MPV)',
+        'Passenger Car': 'Voiture particulière',
+        'Multipurpose Passenger Vehicle (MPV)': 'Véhicule particulier polyvalent (MPV)',
+        'Sport Utility Vehicle (SUV)/Multi-Purpose Vehicle (MPV)': 'SUV / véhicule polyvalent (MPV)',
         'Truck': 'Camion',
         'Van': 'Fourgon',
         'Bus': 'Bus',
-        'Incomplete Vehicle': 'VÃ©hicule incomplet',
+        'Incomplete Vehicle': 'Véhicule incomplet',
         'Sedan/Saloon': 'Berline',
-        'Coupe': 'CoupÃ©',
+        'Coupe': 'Coupé',
         'Convertible/Cabriolet': 'Cabriolet',
         'Hatchback/Liftback/Notchback': 'Hayon / liftback / notchback',
         'Wagon': 'Break',
         'Roadster': 'Roadster',
         'Gasoline': 'Essence',
         'Diesel': 'Diesel',
-        'Electric': 'Ãlectrique',
+        'Electric': 'Électrique',
         'Hybrid': 'Hybride',
         'Plug-in Hybrid': 'Hybride rechargeable',
         'Automatic': 'Automatique',
         'Manual/Standard': 'Manuelle',
-        'Continuously Variable Transmission (CVT)': 'Transmission Ã  variation continue (CVT)',
-        'All-Wheel Drive': 'Transmission intÃ©grale',
+        'Continuously Variable Transmission (CVT)': 'Transmission à variation continue (CVT)',
+        'All-Wheel Drive': 'Transmission intégrale',
         'Rear-Wheel Drive': 'Propulsion',
         'Front-Wheel Drive': 'Traction',
         '4x2': '4x2',
@@ -4097,9 +4129,9 @@ function traduireValeurRapport(value) {
         'Standard': 'Standard',
         'Optional': 'Optionnel',
         'Direct': 'Direct',
-        'Sequential': 'SÃ©quentielle',
-        'United States (USA)': 'Ãtats-Unis',
-        'United States': 'Ãtats-Unis',
+        'Sequential': 'Séquentielle',
+        'United States (USA)': 'États-Unis',
+        'United States': 'États-Unis',
         'Germany': 'Allemagne',
         'France': 'France',
         'Italy': 'Italie',
@@ -4108,22 +4140,22 @@ function traduireValeurRapport(value) {
         'Mexico': 'Mexique',
         'Canada': 'Canada',
         'China': 'Chine',
-        'South Korea': 'CorÃ©e du Sud',
+        'South Korea': 'Corée du Sud',
         'United Kingdom (UK)': 'Royaume-Uni',
         'United Kingdom': 'Royaume-Uni',
-        'Czech Republic': 'RÃ©publique tchÃ¨que',
+        'Czech Republic': 'République tchèque',
         'Slovakia': 'Slovaquie',
         'Hungary': 'Hongrie',
         'Austria': 'Autriche',
         'Belgium': 'Belgique',
         'Netherlands': 'Pays-Bas',
-        'Sweden': 'SuÃ¨de',
+        'Sweden': 'Suède',
         'No': 'Non',
         'Yes': 'Oui',
-        'Driver Seat Only': 'SiÃ¨ge conducteur uniquement',
-        '1st Row (Driver and Passenger)': '1re rangÃ©e (conducteur et passager)',
-        '1st and 2nd Rows': '1re et 2e rangÃ©es',
-        '1st, 2nd and 3rd Rows': '1re, 2e et 3e rangÃ©es',
+        'Driver Seat Only': 'Siège conducteur uniquement',
+        '1st Row (Driver and Passenger)': '1re rangée (conducteur et passager)',
+        '1st and 2nd Rows': '1re et 2e rangées',
+        '1st, 2nd and 3rd Rows': '1re, 2e et 3e rangées',
         'Active': 'Actif',
         'Passive': 'Passif'
     };
@@ -4132,26 +4164,26 @@ function traduireValeurRapport(value) {
 
     let translated = normalized;
     const replacements = [
-        [/\bPassenger Car\b/gi, 'Voiture particuliÃ¨re'],
-        [/\bMultipurpose Passenger Vehicle\b/gi, 'VÃ©hicule particulier polyvalent'],
+        [/\bPassenger Car\b/gi, 'Voiture particulière'],
+        [/\bMultipurpose Passenger Vehicle\b/gi, 'Véhicule particulier polyvalent'],
         [/\bSport Utility Vehicle\b/gi, 'SUV'],
-        [/\bVehicle\b/gi, 'VÃ©hicule'],
+        [/\bVehicle\b/gi, 'Véhicule'],
         [/\bTruck\b/gi, 'Camion'],
         [/\bVan\b/gi, 'Fourgon'],
         [/\bSedan\/Saloon\b/gi, 'Berline'],
-        [/\bCoupe\b/gi, 'CoupÃ©'],
+        [/\bCoupe\b/gi, 'Coupé'],
         [/\bConvertible\/Cabriolet\b/gi, 'Cabriolet'],
         [/\bWagon\b/gi, 'Break'],
         [/\bHatchback\/Liftback\/Notchback\b/gi, 'Hayon / liftback / notchback'],
         [/\bGasoline\b/gi, 'Essence'],
         [/\bDiesel\b/gi, 'Diesel'],
-        [/\bElectric\b/gi, 'Ãlectrique'],
+        [/\bElectric\b/gi, 'Électrique'],
         [/\bHybrid\b/gi, 'Hybride'],
         [/\bAutomatic\b/gi, 'Automatique'],
         [/\bManual\/Standard\b/gi, 'Manuelle'],
         [/\bFront-Wheel Drive\b/gi, 'Traction'],
         [/\bRear-Wheel Drive\b/gi, 'Propulsion'],
-        [/\bAll-Wheel Drive\b/gi, 'Transmission intÃ©grale'],
+        [/\bAll-Wheel Drive\b/gi, 'Transmission intégrale'],
         [/\bHydraulic\b/gi, 'Hydraulique'],
         [/\bStandard\b/gi, 'Standard'],
         [/\bOptional\b/gi, 'Optionnel'],
@@ -4161,11 +4193,11 @@ function traduireValeurRapport(value) {
         [/\bNo\b/gi, 'Non'],
         [/\bNot Applicable\b/gi, 'Non applicable'],
         [/\bUnknown\b/gi, 'Inconnu'],
-        [/\bUnited States( \(USA\))?\b/gi, 'Ãtats-Unis'],
+        [/\bUnited States( \(USA\))?\b/gi, 'États-Unis'],
         [/\bGermany\b/gi, 'Allemagne'],
         [/\bJapan\b/gi, 'Japon'],
         [/\bMexico\b/gi, 'Mexique'],
-        [/\bSouth Korea\b/gi, 'CorÃ©e du Sud']
+        [/\bSouth Korea\b/gi, 'Corée du Sud']
     ];
 
     replacements.forEach(([pattern, replacement]) => {
@@ -4180,19 +4212,19 @@ function traduireCommentaireNhtsa(value) {
     if (!normalized) return '';
     let translated = normalized;
     const replacements = [
-        [/^0\s*-\s*VIN decoded clean\.?$/i, '0 - VIN dÃ©codÃ© correctement.'],
-        [/\bVIN decoded clean\b/gi, 'VIN dÃ©codÃ© correctement'],
+        [/^0\s*-\s*VIN decoded clean\.?$/i, '0 - VIN décodé correctement.'],
+        [/\bVIN decoded clean\b/gi, 'VIN décodé correctement'],
         [/\bError Code\b/gi, 'Code erreur'],
         [/\bPossible Values\b/gi, 'Valeurs possibles'],
-        [/\bSuggested VIN\b/gi, 'VIN suggÃ©rÃ©'],
-        [/\bCheck Digit\b/gi, 'Chiffre de contrÃ´le'],
+        [/\bSuggested VIN\b/gi, 'VIN suggéré'],
+        [/\bCheck Digit\b/gi, 'Chiffre de contrôle'],
         [/\bManufacturer\b/gi, 'Constructeur'],
-        [/\bModel Year\b/gi, 'AnnÃ©e modÃ¨le'],
+        [/\bModel Year\b/gi, 'Année modèle'],
         [/\bPlant\b/gi, 'Usine'],
         [/\bincorrect\b/gi, 'incorrect'],
         [/\binvalid\b/gi, 'invalide'],
         [/\bnot applicable\b/gi, 'non applicable'],
-        [/\bdecoded\b/gi, 'dÃ©codÃ©']
+        [/\bdecoded\b/gi, 'décodé']
     ];
     replacements.forEach(([pattern, replacement]) => {
         translated = translated.replace(pattern, replacement);
@@ -4209,13 +4241,13 @@ function isValeurSure(value) {
 }
 
 function construireTexteRapportVin(sure, unsure) {
-    const lignesSure = Array.isArray(sure) && sure.length ? sure : ['Aucune information confirmÃ©e'];
-    const lignesUnsure = Array.isArray(unsure) && unsure.length ? unsure : ['Aucune incertitude remontÃ©e'];
+    const lignesSure = Array.isArray(sure) && sure.length ? sure : ['Aucune information confirmée'];
+    const lignesUnsure = Array.isArray(unsure) && unsure.length ? unsure : ['Aucune incertitude remontée'];
     return [
-        '1) Informations sÃ»res',
+        '1) Informations sûres',
         ...lignesSure.map(v => `- ${v}`),
         '',
-        '2) Informations non sÃ»res',
+        '2) Informations non sûres',
         ...lignesUnsure.map(v => `- ${v}`)
     ].join('\n');
 }
@@ -4229,29 +4261,29 @@ async function apiDecodeDetailed(vin) {
 
         const champsPrioritaires = [
             ['Make', 'Marque'],
-            ['Model', 'ModÃ¨le'],
-            ['Model Year', 'AnnÃ©e modÃ¨le'],
-            ['Vehicle Type', 'Type vÃ©hicule'],
+            ['Model', 'Modèle'],
+            ['Model Year', 'Année modèle'],
+            ['Vehicle Type', 'Type véhicule'],
             ['Body Class', 'Carrosserie'],
-            ['Series', 'SÃ©rie'],
+            ['Series', 'Série'],
             ['Trim', 'Finition'],
-            ['Displacement (L)', 'CylindrÃ©e (L)'],
+            ['Displacement (L)', 'Cylindrée (L)'],
             ['Engine Number of Cylinders', 'Nombre cylindres'],
             ['Fuel Type - Primary', 'Carburant principal'],
-            ['Transmission Style', 'BoÃ®te de vitesse'],
-            ['Drive Type', 'Transmission / MotricitÃ©'],
+            ['Transmission Style', 'Boîte de vitesse'],
+            ['Drive Type', 'Transmission / Motricité'],
             ['Brake System Type', 'Type freinage'],
             ['Plant Country', 'Pays usine'],
             ['Plant Company Name', 'Constructeur usine'],
             ['Plant City', 'Ville usine'],
-            ['Plant State', 'Ãtat/RÃ©gion usine'],
+            ['Plant State', 'État/Région usine'],
             ['Manufacturer Name', 'Constructeur'],
             ['GVWR', 'PTAC (GVWR)'],
-            ['Seats', 'Nombre de siÃ¨ges'],
+            ['Seats', 'Nombre de sièges'],
             ['Doors', 'Nombre de portes'],
             ['Air Bag Loc Front', 'Airbags avant'],
-            ['Air Bag Loc Side', 'Airbags latÃ©raux'],
-            ['ESC', 'ContrÃ´le de stabilitÃ© (ESC)'],
+            ['Air Bag Loc Side', 'Airbags latéraux'],
+            ['ESC', 'Contrôle de stabilité (ESC)'],
             ['ABS', 'ABS'],
             ['TPMS', 'TPMS'],
             ['WMI', 'Code WMI']
@@ -4274,13 +4306,13 @@ async function apiDecodeDetailed(vin) {
         const suggestedVin = get('Suggested VIN');
 
         if (isValeurSure(errorCode) && errorCode !== '0') {
-            unsure.push(`DÃ©codage NHTSA: code erreur ${errorCode}`);
+            unsure.push(`Décodage NHTSA: code erreur ${errorCode}`);
         }
         if (isValeurSure(errorText) && !/0\s*-\s*vin decoded clean/i.test(errorText)) {
             unsure.push(`Commentaire NHTSA: ${traduireCommentaireNhtsa(errorText)}`);
         }
         if (isValeurSure(suggestedVin) && suggestedVin !== vin) {
-            unsure.push(`VIN suggÃ©rÃ© par NHTSA: ${suggestedVin}`);
+            unsure.push(`VIN suggéré par NHTSA: ${suggestedVin}`);
         }
 
         // Ajouter un maximum d'informations exploitables hors liste prioritaire.
@@ -4295,14 +4327,14 @@ async function apiDecodeDetailed(vin) {
         const make = traduireValeurRapport(get('Make'));
         const model = traduireValeurRapport(get('Model'));
         const year = traduireValeurRapport(get('Model Year'));
-        const summary = [make, model, year].filter(Boolean).join(' ') || 'Non identifiÃ©';
+        const summary = [make, model, year].filter(Boolean).join(' ') || 'Non identifié';
 
         return { summary, sure, unsure };
     } catch(e) {
         return {
             summary: 'Info non disponible',
             sure: [],
-            unsure: ['DÃ©codage NHTSA indisponible (rÃ©seau ou service externe)']
+            unsure: ['Décodage NHTSA indisponible (réseau ou service externe)']
         };
     }
 }
@@ -4320,7 +4352,7 @@ function setLoaderSub(s) { document.getElementById('loaderSub').textContent = s;
 function renderHistory() {
     const list = document.getElementById('histList');
     if (!historique.length) {
-        list.innerHTML = '<div class="empty-state"><div class="empty-icon">ðï¸</div><p>Aucun Identification VIN enregistrÃ©.</p></div>';
+        list.innerHTML = '<div class="empty-state"><div class="empty-icon">🗂️</div><p>Aucun Identification VIN enregistré.</p></div>';
         return;
     }
     list.innerHTML = historique.map((h, i) => {
@@ -4352,9 +4384,9 @@ function showHistItem(idx) {
     const box = document.getElementById('resultBox');
     const header = document.getElementById('resultHeader');
     header.className = 'result-header ' + (isValid ? 'valid' : 'invalid');
-    document.getElementById('resultIcon').textContent = isValid ? 'â' : 'â ï¸';
-    document.getElementById('resultTitle').textContent = isValid ? 'CHÃSSIS VALIDE' : 'CHÃSSIS INVALIDE';
-    document.getElementById('resCheckDetail').innerHTML = `Attendu (calculÃ©) : <b class="${isValid ? 'check-valid' : 'check-invalid'}">${computed}</b> &nbsp;|&nbsp; TrouvÃ© (pos.9) : <b>${actual}</b>`;
+    document.getElementById('resultIcon').textContent = isValid ? '✅' : '⚠️';
+    document.getElementById('resultTitle').textContent = isValid ? 'CHÂSSIS VALIDE' : 'CHÂSSIS INVALIDE';
+    document.getElementById('resCheckDetail').innerHTML = `Attendu (calculé) : <b class="${isValid ? 'check-valid' : 'check-invalid'}">${computed}</b> &nbsp;|&nbsp; Trouvé (pos.9) : <b>${actual}</b>`;
     document.getElementById('resVehicle').innerHTML = `<b>${escHtml(h.info || '')}</b>`;
     updateRapportBadges(h.sureInfo || [], h.unsureInfo || []);
     const aiRow = document.getElementById('resAiRow');
@@ -4392,20 +4424,20 @@ function buildVinDots() {
 }
 </script>
 
-<!-- âââ CHAT / MESSAGERIE âââ -->
+<!-- ═══ CHAT / MESSAGERIE ═══ -->
 <script>
-// === CHAT TEMPS RÃEL ===
+// === CHAT TEMPS RÉEL ===
 let _chatUnsubscribe = null;
 let _chatLastRead = 0;
 
 function chargerMessagesChat() {
     const messagesDiv = document.getElementById('chatMessages');
     if (!window._firebaseAvailable) {
-        messagesDiv.innerHTML = '<div style="text-align:center;padding:40px 20px"><div style="font-size:2.5rem;margin-bottom:12px">â ï¸</div><div style="color:var(--text-dim);font-size:0.88rem;line-height:1.6">Connexion Firebase indisponible.<br>RedÃ©marrez l\'application ou utilisez le lien force-update.</div></div>';
+        messagesDiv.innerHTML = '<div style="text-align:center;padding:40px 20px"><div style="font-size:2.5rem;margin-bottom:12px">⚠️</div><div style="color:var(--text-dim);font-size:0.88rem;line-height:1.6">Connexion Firebase indisponible.<br>Redémarrez l\'application ou utilisez le lien force-update.</div></div>';
         return;
     }
     if (!window.currentUser) {
-        messagesDiv.innerHTML = '<div style="text-align:center;padding:40px 20px"><div style="font-size:2.5rem;margin-bottom:12px">ð</div><div style="color:var(--text-dim);font-size:0.88rem;line-height:1.6">Connectez-vous pour accÃ©der au chat.</div></div>';
+        messagesDiv.innerHTML = '<div style="text-align:center;padding:40px 20px"><div style="font-size:2.5rem;margin-bottom:12px">🔐</div><div style="color:var(--text-dim);font-size:0.88rem;line-height:1.6">Connectez-vous pour accéder au chat.</div></div>';
         return;
     }
     const { db, collection, query, orderBy, limit, onSnapshot } = window._fb;
@@ -4428,7 +4460,7 @@ function chargerMessagesChat() {
 
             let html = '';
             if (!isMine) {
-                html += '<div class="chat-sender">' + escHtml(msg.senderName || 'Agent') + (msg.senderLieu ? ' Â· ' + escHtml(msg.senderLieu) : '') + '</div>';
+                html += '<div class="chat-sender">' + escHtml(msg.senderName || 'Agent') + (msg.senderLieu ? ' · ' + escHtml(msg.senderLieu) : '') + '</div>';
             }
             if (msg.type === 'photo' && msg.photoData) {
                 html += '<img src="' + msg.photoData + '" alt="Photo" loading="lazy">';
@@ -4509,7 +4541,7 @@ async function envoyerPhotoChatFromInput(inputEl) {
 
         // Archive full-res photo to Drive for admin (fire-and-forget)
         archiveChatPhotoDrive(file, u);
-        showToast('Photo envoyÃ©e', 'ok', 1500);
+        showToast('Photo envoyée', 'ok', 1500);
     } catch (e) {
         console.error('[CHAT] Erreur envoi photo:', e);
         showToast('Erreur envoi photo', 'err');
@@ -4650,7 +4682,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbo
     overlay.addEventListener('touchend', function(e) {
         _lbPanning = false;
         if (e.touches.length === 0 && _lbScale <= 1.05) {
-            // Simple tap with no zoom â close
+            // Simple tap with no zoom → close
             if (_lbScale <= 1 && !e.target.closest('.lightbox-close')) {
                 // Only close if wasn't pinching
             }
@@ -4696,7 +4728,7 @@ document.addEventListener('click', function(e) {
     // Photos dans le chat
     if (img.closest('.chat-msg')) {
         e.stopPropagation();
-        openLightbox(img.src, 'Photo partagÃ©e');
+        openLightbox(img.src, 'Photo partagée');
         return;
     }
     // Preview OCR
@@ -4707,13 +4739,13 @@ document.addEventListener('click', function(e) {
     }
 }, true);
 
-// EmpÃªcher takePic quand on zoome (double-tap sur slot rempli)
+// Empêcher takePic quand on zoome (double-tap sur slot rempli)
 const origTakePic = window.takePic;
 window.takePic = function(i) {
     const img = document.getElementById('p' + i);
     if (img && img.src && !img.src.includes('data:,') && img.naturalWidth > 0) {
-        // Slot dÃ©jÃ  rempli â le clic sur l'image ouvre le lightbox (gÃ©rÃ© ci-dessus)
-        // On ne relance takePic que si on clique sur l'icÃ´ne ou le label
+        // Slot déjà rempli — le clic sur l'image ouvre le lightbox (géré ci-dessus)
+        // On ne relance takePic que si on clique sur l'icône ou le label
         return;
     }
     origTakePic(i);
