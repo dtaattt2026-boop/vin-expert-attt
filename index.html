@@ -3485,7 +3485,17 @@ async function getTesseractWorker() {
     }
 }
 
+let _ocrWebBlocked = false; // Mémoriser si l'API web est bloquée pour cette session
+
 async function lancerOCRTesseract(imageInput) {
+    if (_ocrWebBlocked) {
+        // API web bloquée, aller directement en local
+        return await fallbackOCRLocal(
+            Array.isArray(imageInput) && imageInput.length > 0
+                ? imageInput
+                : (imageInput ? [{ label: 'Image OCR', data: imageInput }] : [])
+        );
+    }
     setLoader(true, '☁️ OCR Web + secours local...', 'Analyse intelligente en cours');
     
     const variantes = Array.isArray(imageInput) && imageInput.length > 0
@@ -3508,7 +3518,9 @@ async function lancerOCRTesseract(imageInput) {
     try {
         // Solution Internet 100% gratuite (25 000 requêtes/mois sans CB) : API OCR.Space
         const candidats = [];
+        let apiBlocked = false;
         for (const variante of variantesWeb) {
+            if (apiBlocked) break; // Ne pas insister si l'API est bloquée
             const formData = new FormData();
             formData.append('apikey', 'helloworld'); // Clé publique gratuite
             formData.append('base64Image', variante.data);
@@ -3523,6 +3535,13 @@ async function lancerOCRTesseract(imageInput) {
                 body: formData,
                 signal: controller.signal
             });
+
+            if (response.status === 403 || response.status === 429) {
+                console.warn('[OCR] API web bloquée (', response.status, '), bascule en local...');
+                apiBlocked = true;
+                _ocrWebBlocked = true;
+                break;
+            }
 
             const json = await response.json();
             if (json.IsErroredOnProcessing || !json.ParsedResults || json.ParsedResults.length === 0) {
