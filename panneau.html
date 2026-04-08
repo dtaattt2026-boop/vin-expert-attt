@@ -1255,22 +1255,28 @@ async function publier() {
           // ── Fichiers texte ──
           for (const file of textFiles) {
             try {
-              const res = await fetch(`./${file}`, { cache: 'no-store' });
-              if (!res.ok) { log(`${file} — non trouvé localement, ignoré`, 'err'); continue; }
-              const buf = await res.arrayBuffer();
-              let bytes = new Uint8Array(buf);
-              // Retirer le BOM UTF-8 s'il est présent
-              if (bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {
-                bytes = bytes.subarray(3);
+              // Lire depuis GitHub (source de vérité) au lieu du cache local
+              let content, sha = null;
+              try {
+                const gh = await ghGetFile(token, owner, repo, file);
+                content = gh.content;
+                sha = gh.sha;
+              } catch(e) {
+                // Fichier pas encore sur GitHub, lire en local
+                const res = await fetch(`./${file}`, { cache: 'no-store' });
+                if (!res.ok) { log(`${file} — non trouvé, ignoré`, 'err'); continue; }
+                const buf = await res.arrayBuffer();
+                let bts = new Uint8Array(buf);
+                if (bts.length >= 3 && bts[0] === 0xEF && bts[1] === 0xBB && bts[2] === 0xBF) bts = bts.subarray(3);
+                content = new TextDecoder('utf-8').decode(bts);
               }
-              let content = new TextDecoder('utf-8').decode(bytes);
 
               // Mettre à jour la version dans index.html et sw.js
               if (file === 'index.html') {
                 content = content.replace(/window\.APP_VERSION\s*=\s*["'][^"']*["']/, `window.APP_VERSION = "${verNorm}"`);
               }
               if (file === 'sw.js') {
-                content = content.replace(/const CACHE_NAME\s*=\s*['"][^'"]*['']/, `const CACHE_NAME = 'vin-expert-v${verNorm}'`);
+                content = content.replace(/const CACHE_NAME\s*=\s*['"][^'"]*['"]/, `const CACHE_NAME = 'vin-expert-v${verNorm}'`);
               }
 
               const encoded = new TextEncoder().encode(content);
@@ -1280,12 +1286,6 @@ async function publier() {
                 binary += String.fromCharCode(...encoded.subarray(i, Math.min(i + chunk, encoded.length)));
               }
               const b64 = btoa(binary);
-
-              let sha = null;
-              const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${file}`, {
-                headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
-              });
-              if (ghRes.ok) { sha = (await ghRes.json()).sha; }
 
               const body = { message: `v${verNorm} — ${file}`, content: b64 };
               if (sha) body.sha = sha;
