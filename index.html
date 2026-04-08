@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.2.0";
+            window.APP_VERSION = "2.2.1";
 
             try {
                 const app = initializeApp(firebaseConfig);
@@ -3911,16 +3911,23 @@ async function fullVerify() {
         });
         showToast(`Synchronisation DTA en cours... (${agentDossier}/${reportFolderName})`, 'info', 3500);
         console.log('[DTA-DRIVE] Envoi discret vers GAS...', { vin: record.vin, pdfSize: pdfBase64.length, photos: drivePhotos.length });
-        traceDta('DTA_FETCH_SEND', { url: GAS_DRIVE_URL, mode: 'no-cors', payloadSize: drivePayload.length });
+        traceDta('DTA_FETCH_SEND', { url: GAS_DRIVE_URL, payloadSize: drivePayload.length });
         fetch(GAS_DRIVE_URL, {
             method: 'POST',
-            mode: 'no-cors',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: drivePayload
-        }).then(() => {
-            console.log('[DTA-DRIVE] Requête envoyée (no-cors, réponse opaque).');
-            traceDta('DTA_FETCH_OK', { opaque: true });
-            showToast('Rapport synchronisé avec la DTA.', 'ok', 2500);
+            body: drivePayload,
+            redirect: 'follow'
+        }).then(r => r.json()).then(data => {
+            console.log('[DTA-DRIVE] Réponse GAS:', data);
+            if (data && data.ok) {
+                traceDta('DTA_FETCH_OK', data);
+                const photosTxt = (data.files || 0) > 1 ? ` (${data.files - 1} photos)` : '';
+                const emailTxt = data.emailed ? ' · Email envoyé ✓' : '';
+                showToast(`Rapport synchronisé DTA${photosTxt}${emailTxt}`, 'ok', 4000);
+            } else {
+                traceDta('DTA_FETCH_FAIL', data);
+                showToast('Erreur DTA: ' + (data && data.error || 'réponse invalide'), 'err', 6000);
+            }
         }).catch((eFetch) => {
             console.error('[DTA-DRIVE] Erreur réseau:', eFetch.message);
             traceDta('DTA_FETCH_ERR', { message: eFetch.message });
@@ -4117,11 +4124,21 @@ async function envoyerRapportPDF() {
             });
             fetch(GAS_DRIVE_URL, {
                 method: 'POST',
-                mode: 'no-cors',
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                body: drivePayload
-            }).catch((e) => { console.warn('[AGENT-EMAIL] GAS error:', e.message); });
-            showToast(`📧 Rapport envoyé à ${agentEmail}`, 'ok', 4000);
+                body: drivePayload,
+                redirect: 'follow'
+            }).then(r => r.json()).then(data => {
+                if (data && data.ok && data.agentEmailed) {
+                    showToast(`📧 Rapport envoyé à ${agentEmail} ✓`, 'ok', 4000);
+                } else if (data && data.ok) {
+                    showToast(`📧 Rapport sauvegardé mais email non envoyé`, 'err', 5000);
+                } else {
+                    showToast(`📧 Erreur envoi: ${data && data.error || 'inconnue'}`, 'err', 5000);
+                }
+            }).catch((e) => {
+                console.warn('[AGENT-EMAIL] GAS error:', e.message);
+                showToast(`📧 Erreur réseau: ${e.message}`, 'err', 5000);
+            });
         } catch(eAgent) {
             console.warn('Agent email skipped:', eAgent.message);
         }
@@ -4637,9 +4654,12 @@ function archiveChatPhotoDrive(file, user) {
         });
         fetch(GAS_DRIVE_URL, {
             method: 'POST',
-            mode: 'no-cors',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: payload
+            body: payload,
+            redirect: 'follow'
+        }).then(r => r.json()).then(data => {
+            if (data && data.ok) console.log('[CHAT-DRIVE] Photo archivée ✓');
+            else console.warn('[CHAT-DRIVE] Erreur:', data && data.error);
         }).catch(e => console.warn('[CHAT-DRIVE] Archive error:', e.message));
     };
     reader.readAsDataURL(file);
