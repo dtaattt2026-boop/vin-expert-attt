@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.2.1";
+            window.APP_VERSION = "2.3.0";
 
             try {
                 const app = initializeApp(firebaseConfig);
@@ -1484,6 +1484,156 @@ const RESCUE_ROLE  = "admin";
 
 const VIN_MAP = {'A':1,'B':2,'C':3,'D':4,'E':5,'F':6,'G':7,'H':8,'J':1,'K':2,'L':3,'M':4,'N':5,'P':7,'R':9,'S':2,'T':3,'U':4,'V':5,'W':6,'X':7,'Y':8,'Z':9};
 const VIN_WEIGHTS = [8,7,6,5,4,3,2,10,0,9,8,7,6,5,4,3,2];
+
+// ========== TABLES DE DÉCODAGE VIN (ISO 3779 / SAE J853) ==========
+// Position 1 : Pays d'origine
+const WMI_PAYS = {
+'A':'Afrique du Sud','B':'Angola','C':'Bénin','D':'Égypte','E':'Éthiopie','F':'Mozambique',
+'J':'Japon','K':'Corée du Sud','L':'Chine','M':'Inde','N':'Iran','P':'Philippines',
+'R':'Taïwan','S':'Royaume-Uni','T':'Suisse','U':'États-Unis',
+'V':'France','W':'Allemagne','X':'Russie','Y':'Suède','Z':'Italie',
+'1':'États-Unis','2':'Canada','3':'Mexique','4':'États-Unis','5':'États-Unis',
+'6':'Australie','7':'Nouvelle-Zélande','8':'Argentine','9':'Brésil'
+};
+// Pays par plage WMI (2 premiers chars)
+const WMI_PAYS_2 = {
+'AA':'Afrique du Sud','AB':'Côte d\'Ivoire','AC':'Bénin','BA':'Kenya','BB':'Tanzanie',
+'DA':'Égypte','EA':'Éthiopie','FA':'Ghana','JA':'Japon','KL':'Corée du Sud','KM':'Corée du Sud',
+'KN':'Corée du Sud','LA':'Chine','LB':'Chine','LC':'Chine','LD':'Chine','LE':'Chine','LF':'Chine',
+'MA':'Inde','MH':'Indonésie','MN':'Turquie','MM':'Thaïlande','MR':'Arabie Saoudite',
+'NM':'Turquie','PA':'Philippines','PL':'Malaisie',
+'RA':'Émirats Arabes Unis','RF':'Taïwan','RL':'Taïwan',
+'SA':'Royaume-Uni','SB':'Royaume-Uni','SC':'Royaume-Uni','SJ':'Royaume-Uni',
+'SN':'Allemagne/Royaume-Uni',
+'TA':'Suisse','TJ':'Tchéquie','TK':'Slovaquie','TM':'Tchéquie','TN':'Tunisie',
+'TR':'Hongrie','TV':'Roumanie','TW':'Portugal',
+'UU':'Roumanie','UH':'Hongrie',
+'VF':'France','VG':'France','VN':'France','VR':'France','VS':'Espagne','VV':'Espagne',
+'WA':'Allemagne','WB':'Allemagne','WD':'Allemagne','WF':'Allemagne','WM':'Allemagne',
+'WP':'Allemagne','WV':'Allemagne','W0':'Allemagne','W1':'Allemagne',
+'XL':'Pays-Bas','XT':'Russie','XW':'Russie',
+'YA':'Belgique','YB':'Finlande','YK':'Finlande','YS':'Suède','YT':'Suède','YV':'Suède',
+'ZA':'Italie','ZC':'Italie','ZD':'Italie','ZF':'Italie','ZH':'Slovénie','ZL':'Italie',
+'1G':'États-Unis','1H':'États-Unis','1N':'États-Unis','1F':'États-Unis',
+'1J':'États-Unis','1C':'États-Unis','1L':'États-Unis','1M':'États-Unis',
+'2G':'Canada','2H':'Canada','2T':'Canada','2M':'Canada',
+'3G':'Mexique','3H':'Mexique','3N':'Mexique','3V':'Mexique',
+'8A':'Argentine','8B':'Argentine','9B':'Brésil','93':'Brésil','9A':'Brésil'
+};
+// WMI (3 chars) → Constructeur
+const WMI_CONSTRUCTEUR = {
+'JTD':'Toyota','JTE':'Toyota','JTM':'Toyota','JTN':'Toyota',
+'JHM':'Honda','JHL':'Honda','JHG':'Honda',
+'JN1':'Nissan','JN3':'Nissan','JN6':'Nissan','JN8':'Nissan',
+'JMB':'Mitsubishi','JMY':'Mitsubishi','JMZ':'Mazda',
+'JS1':'Suzuki','JS2':'Suzuki','JSA':'Suzuki',
+'KMH':'Hyundai','KNA':'Kia','KNB':'Kia','KNC':'Kia','KND':'Kia',
+'LAE':'DFSK','LBE':'Beijing Benz','LBV':'BYD','LDC':'Dongfeng','LFV':'FAW-VW','LGX':'BYD',
+'LHG':'Great Wall','LJD':'JAC','LKL':'Geely','LVS':'Changan','LZW':'SAIC-GM',
+'MA1':'Mahindra','MA3':'Suzuki Inde','MAJ':'Ford Inde','MAT':'Tata Motors','MBH':'Suzuki Inde',
+'MHR':'Honda Thaïlande','MMT':'Mitsubishi Thaïlande','MNB':'Ford Thaïlande',
+'NMT':'Toyota Turquie','NM0':'Ford Turquie','NM4':'Tofas (Fiat Turquie)',
+'SAJ':'Jaguar','SAL':'Land Rover','SAR':'Rover','SCA':'Rolls-Royce/Bentley','SCB':'Bentley',
+'SCF':'Aston Martin','SDB':'Peugeot (UK)','SFD':'Alexander Dennis',
+'TMA':'Hyundai Tchéquie','TMB':'Škoda','TMP':'Škoda',
+'TRU':'Audi Hongrie',
+'UU1':'Dacia/Renault Roumanie','UU6':'Dacia Roumanie',
+'VF1':'Renault','VF2':'Renault','VF3':'Peugeot','VF4':'Talbot','VF6':'Renault Véh. Ind.',
+'VF7':'Citroën','VF8':'Matra/Alpine','VGA':'Bugatti','VNK':'Toyota France',
+'VSS':'SEAT','VS6':'Ford Espagne','VS7':'Citroën Espagne','VSX':'Opel Espagne',
+'WA1':'Audi','WAU':'Audi','WAP':'Porsche/Audi','WBA':'BMW','WBS':'BMW M','WBY':'BMW i',
+'WDB':'Mercedes-Benz','WDC':'Mercedes-Benz','WDD':'Mercedes-Benz','WDF':'Mercedes-Benz',
+'WF0':'Ford Allemagne','WMA':'MAN','WME':'Smart','WMW':'MINI','WMX':'MINI',
+'WP0':'Porsche','WP1':'Porsche','WUA':'Lamborghini',
+'WVG':'Volkswagen','WVW':'Volkswagen','WV1':'Volkswagen Véh. Com.','WV2':'Volkswagen',
+'W0L':'Opel','W0V':'Opel','W1K':'Mercedes-Benz','W1N':'Mercedes-Benz',
+'XTA':'AvtoVAZ (Lada)','XTT':'GAZ',
+'YK1':'Saab','YS2':'Scania','YS3':'Saab','YV1':'Volvo','YV4':'Volvo',
+'ZAR':'Alfa Romeo','ZCF':'Iveco','ZDF':'Ferrari','ZFA':'Fiat','ZFF':'Ferrari',
+'ZHW':'Lamborghini','ZLA':'Lancia',
+'1C3':'Chrysler','1C4':'Chrysler','1C6':'Chrysler',
+'1FA':'Ford','1FB':'Ford','1FC':'Ford','1FD':'Ford','1FM':'Ford','1FT':'Ford',
+'1G1':'Chevrolet','1G2':'Pontiac','1G3':'Oldsmobile','1G4':'Buick','1G6':'Cadillac',
+'1GC':'Chevrolet','1GT':'GMC','1GY':'Cadillac',
+'1HD':'Harley-Davidson','1HG':'Honda','1J4':'Jeep','1J8':'Jeep',
+'1LN':'Lincoln','1ME':'Mercury','1N4':'Nissan','1N6':'Nissan',
+'1VW':'Volkswagen','1YV':'Mazda','1ZV':'Ford (Mazda)',
+'2C3':'Chrysler Canada','2G1':'Chevrolet Canada','2HG':'Honda Canada','2HK':'Honda Canada',
+'2T1':'Toyota Canada','2T3':'Toyota Canada','3FA':'Ford Mexique','3G5':'Buick Mexique',
+'3GN':'GMC Mexique','3GT':'GMC Mexique','3N1':'Nissan Mexique','3VW':'Volkswagen Mexique',
+'8AP':'Fiat Argentine','93H':'Honda Brésil','9BW':'Volkswagen Brésil','9BG':'Chevrolet Brésil'
+};
+// Position 10 : Année modèle (code cyclique SAE J853)
+const VIN_ANNEE = {
+'A':2010,'B':2011,'C':2012,'D':2013,'E':2014,'F':2015,'G':2016,'H':2017,'J':2018,
+'K':2019,'L':2020,'M':2021,'N':2022,'P':2023,'R':2024,'S':2025,'T':2026,'V':2027,
+'W':2028,'X':2029,'Y':2030,'1':2031,'2':2032,'3':2033,'4':2034,'5':2035,'6':2036,
+'7':2037,'8':2038,'9':2039
+};
+// Cycle précédent (1980-2009) — position 7 détermine le cycle
+const VIN_ANNEE_ANCIEN = {
+'A':1980,'B':1981,'C':1982,'D':1983,'E':1984,'F':1985,'G':1986,'H':1987,'J':1988,
+'K':1989,'L':1990,'M':1991,'N':1992,'P':1993,'R':1994,'S':1995,'T':1996,'V':1997,
+'W':1998,'X':1999,'Y':2000,'1':2001,'2':2002,'3':2003,'4':2004,'5':2005,'6':2006,
+'7':2007,'8':2008,'9':2009
+};
+
+function decoderVinStructurel(vin) {
+    if (!vin || vin.length !== 17) return null;
+    vin = vin.toUpperCase();
+    const wmi = vin.substring(0, 3);
+    const vds = vin.substring(3, 9);
+    const vis = vin.substring(9, 17);
+    const c1 = vin[0], c12 = vin.substring(0, 2);
+    // Pays
+    const pays = WMI_PAYS_2[c12] || WMI_PAYS[c1] || 'Pays inconnu';
+    // Constructeur
+    const constructeur = WMI_CONSTRUCTEUR[wmi] || null;
+    // Année modèle (position 10 = index 9)
+    const codeAnnee = vin[9];
+    const pos7 = vin[6];
+    // Si pos7 est un chiffre → cycle 2010-2039, sinon → cycle 1980-2009
+    const annee = /[0-9]/.test(pos7) ? (VIN_ANNEE[codeAnnee] || null) : (VIN_ANNEE_ANCIEN[codeAnnee] || null);
+    // Usine d'assemblage (position 11 = index 10)
+    const codeUsine = vin[10];
+    // Numéro de série (positions 12-17)
+    const numSerie = vin.substring(11, 17);
+
+    return {
+        wmi, vds, vis, pays, constructeur,
+        anneeModele: annee, codeAnnee, codeUsine, numSerie,
+        positions: [
+            { pos: '1-3', nom: 'WMI (Identifiant mondial du constructeur)', valeur: wmi, detail: `${constructeur || 'Constructeur inconnu'} — ${pays}` },
+            { pos: '4-8', nom: 'VDS (Descripteur du véhicule)', valeur: vds, detail: 'Caractéristiques : modèle, moteur, carrosserie (spécifique au constructeur)' },
+            { pos: '9', nom: 'Chiffre de contrôle (Check Digit)', valeur: vin[8], detail: `Calculé : ${calcCheckDigit(vin)} — ${calcCheckDigit(vin) === vin[8] ? 'Valide ✓' : 'Invalide ✗'}` },
+            { pos: '10', nom: 'Année modèle', valeur: codeAnnee, detail: annee ? `${annee}` : 'Code non reconnu' },
+            { pos: '11', nom: 'Code usine d\'assemblage', valeur: codeUsine, detail: 'Identifiant de l\'usine de montage' },
+            { pos: '12-17', nom: 'Numéro de série', valeur: numSerie, detail: `Séquentiel de production : ${numSerie}` }
+        ]
+    };
+}
+
+async function rechercherRappelsNHTSA(make, model, year) {
+    if (!make || !model || !year) return [];
+    try {
+        const url = `https://api.nhtsa.gov/recalls/recallsByVehicle?make=${encodeURIComponent(make)}&model=${encodeURIComponent(model)}&modelYear=${encodeURIComponent(year)}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        if (!res.ok) return [];
+        const data = await res.json();
+        if (!data || !Array.isArray(data.results)) return [];
+        return data.results.map(r => ({
+            composant: r.Component || '',
+            resume: r.Summary || '',
+            consequence: r.Consequence || '',
+            remede: r.Remedy || '',
+            date: r.ReportReceivedDate || '',
+            campagne: r.NHTSACampaignNumber || ''
+        }));
+    } catch(e) {
+        console.warn('[RAPPELS] Erreur:', e.message);
+        return [];
+    }
+}
 
 let photos = [null, null, null, null];
 let currentPhotoIdx = 0;
@@ -3794,6 +3944,37 @@ async function fullVerify() {
         apiDecodeDetailed(vin),
         collectCurrentLocation()
     ]);
+    // Décodage structurel local (WMI, année, pays)
+    const vinStructure = decoderVinStructurel(vin);
+    // Enrichir les infos sûres avec le décodage local
+    if (vinStructure) {
+        if (vinStructure.pays && vinStructure.pays !== 'Pays inconnu')
+            vinIntel.sure.unshift(`Pays d'origine: ${vinStructure.pays}`);
+        if (vinStructure.constructeur)
+            vinIntel.sure.unshift(`Constructeur (WMI): ${vinStructure.constructeur}`);
+        if (vinStructure.anneeModele)
+            vinIntel.sure.unshift(`Année modèle (pos.10): ${vinStructure.anneeModele}`);
+    }
+    // Rechercher les rappels de sécurité
+    setLoaderSub('Recherche rappels de sécurité...');
+    const makeRaw = vinIntel.sure.find(s => s.startsWith('Marque:'));
+    const modelRaw = vinIntel.sure.find(s => s.startsWith('Modèle:'));
+    const yearRaw = vinIntel.sure.find(s => s.startsWith('Année modèle'));
+    const makeVal = makeRaw ? makeRaw.split(':')[1].trim() : '';
+    const modelVal = modelRaw ? modelRaw.split(':')[1].trim() : '';
+    const yearVal = yearRaw ? yearRaw.split(':')[1].trim() : (vinStructure?.anneeModele || '');
+    let rappels = [];
+    if (makeVal && modelVal && yearVal) {
+        rappels = await rechercherRappelsNHTSA(makeVal, modelVal, yearVal);
+    }
+    if (rappels.length > 0) {
+        vinIntel.sure.push(`Rappels de sécurité: ${rappels.length} rappel(s) trouvé(s)`);
+        rappels.slice(0, 5).forEach((r, i) => {
+            vinIntel.unsure.push(`Rappel #${i+1}: ${r.composant} — ${r.resume.substring(0, 120)}${r.resume.length > 120 ? '...' : ''}`);
+        });
+    } else if (makeVal && modelVal && yearVal) {
+        vinIntel.sure.push('Rappels de sécurité: Aucun rappel trouvé ✓');
+    }
     const intelAvecOcr = enrichirRapportAvecOCR(vin, vinIntel);
     vinIntel.sure = intelAvecOcr.sure;
     vinIntel.unsure = intelAvecOcr.unsure;
@@ -3834,6 +4015,8 @@ async function fullVerify() {
         info: carInfo, ai: aiReport,
         sureInfo: vinIntel.sure,
         unsureInfo: vinIntel.unsure,
+        vinStructure: vinStructure,
+        rappels: rappels,
         locationInfo,
         locationSummary: formatLocationSummary(locationInfo),
         date: new Date().toLocaleString('fr-TN'),
@@ -4017,6 +4200,66 @@ function genererRapportPdf(record) {
         pdf.text(String(val), 70, y + 6);
         y += 10;
     });
+
+    // === SECTION DÉCODAGE STRUCTUREL DU VIN ===
+    const vinStruct = record.vinStructure;
+    if (vinStruct && vinStruct.positions) {
+        y += 4;
+        pdf.setTextColor(200, 168, 75);
+        pdf.setFontSize(9);
+        pdf.setFont('helvetica', 'bold');
+        pdf.text('DÉCODAGE STRUCTUREL DU VIN (ISO 3779)', 15, y);
+        y += 5;
+        vinStruct.positions.forEach(p => {
+            if (y > 260) { pdf.addPage(); pdf.setFillColor(8,12,20); pdf.rect(0,0,210,297,'F'); y = 18; }
+            pdf.setFillColor(17, 24, 39);
+            pdf.rect(15, y, 180, 8, 'F');
+            pdf.setTextColor(26, 127, 255);
+            pdf.setFontSize(7);
+            pdf.setFont('courier', 'bold');
+            pdf.text(`Pos. ${p.pos}`, 18, y + 5.5);
+            pdf.setTextColor(200, 168, 75);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(7);
+            pdf.text(p.valeur, 40, y + 5.5);
+            pdf.setTextColor(160, 175, 200);
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(6.8);
+            pdf.text(`${p.nom}: ${p.detail}`, 56, y + 5.5);
+            y += 8.5;
+        });
+    }
+
+    // === SECTION RAPPELS DE SÉCURITÉ ===
+    const rappelsList = record.rappels;
+    if (Array.isArray(rappelsList) && rappelsList.length > 0) {
+        y += 4;
+        if (y > 240) { pdf.addPage(); pdf.setFillColor(8,12,20); pdf.rect(0,0,210,297,'F'); y = 18; }
+        pdf.setTextColor(224, 48, 80);
+        pdf.setFontSize(9);
+        pdf.setFont('helvetica', 'bold');
+        pdf.text(`RAPPELS DE SÉCURITÉ (${rappelsList.length} trouvé${rappelsList.length > 1 ? 's' : ''})`, 15, y);
+        y += 5;
+        rappelsList.slice(0, 5).forEach((r, i) => {
+            if (y > 250) { pdf.addPage(); pdf.setFillColor(8,12,20); pdf.rect(0,0,210,297,'F'); y = 18; }
+            const rLines = pdf.splitTextToSize(`#${i+1} ${r.composant}: ${r.resume}`, 170);
+            const rH = rLines.length * 3.5 + 4;
+            pdf.setFillColor(25, 15, 18);
+            pdf.rect(15, y, 180, rH, 'F');
+            pdf.setTextColor(224, 170, 180);
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(6.5);
+            pdf.text(rLines, 18, y + 4);
+            y += rH + 2;
+        });
+    } else if (Array.isArray(rappelsList)) {
+        y += 4;
+        pdf.setTextColor(0, 200, 122);
+        pdf.setFontSize(8);
+        pdf.setFont('helvetica', 'bold');
+        pdf.text('RAPPELS DE SÉCURITÉ: Aucun rappel trouvé ✓', 15, y);
+        y += 5;
+    }
 
     const sureLines = Array.isArray(record.sureInfo) ? record.sureInfo : [];
     const unsureLines = Array.isArray(record.unsureInfo) ? record.unsureInfo : [];
