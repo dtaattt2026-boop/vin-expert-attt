@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.1.9";
+            window.APP_VERSION = "2.2.0";
 
             try {
                 const app = initializeApp(firebaseConfig);
@@ -1624,9 +1624,9 @@ function setupServiceWorkerAutoUpdate() {
 async function checkVersionFromFirestore() {
     try {
         if (!window._fb || !window._firebaseAvailable) return;
-        // Si cette session a publié cette version, ne pas boucler (utile sur localhost)
+        // Si cette session a publié ou déjà traité une version, ne pas boucler
         const publishedVer = sessionStorage.getItem('_vin_just_published');
-        if (publishedVer) {
+        if (publishedVer && compareVersions(publishedVer, window.APP_VERSION || '0') >= 0) {
             window.APP_VERSION = publishedVer;
             return;
         }
@@ -1635,6 +1635,13 @@ async function checkVersionFromFirestore() {
         const serverVer = snap.data().version || '0.0.0';
         const localVer = window.APP_VERSION || '0.0.0';
         if (compareVersions(localVer, serverVer) < 0) {
+            // Sur localhost, la purge+reload ne sert à rien (fichiers sur disque)
+            const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+            if (isLocal) {
+                console.log('[VERSION] Obsolète sur localhost:', localVer, '→', serverVer, '— ignoré (fichiers sur disque)');
+                showToast('Nouvelle version ' + serverVer + ' disponible. Relancez ATTT.bat pour synchroniser.', 'info', 8000);
+                return;
+            }
             console.log('[VERSION] Obsolète:', localVer, '→', serverVer, '— purge auto...');
             showUpdateProgress(15, 'Version obsolète détectée (' + localVer + ' → ' + serverVer + ')', '🔄 Mise à jour requise<br>Ne fermez pas l\'application.');
             // Purger les caches et recharger
@@ -2267,6 +2274,10 @@ async function publierMiseAJour() {
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Publication...'; }
 
     try {
+        // Empêcher la boucle de mise à jour AVANT toute modification
+        sessionStorage.setItem('_vin_just_published', verNorm);
+        window.APP_VERSION = verNorm;
+
         // 1. Firestore
         showToast('Mise à jour Firestore...', 'info', 2000);
         await fb.setDoc(fb.doc(fb.db, 'config', 'appVersion'), {
@@ -2337,9 +2348,6 @@ async function publierMiseAJour() {
         }
 
         document.getElementById('adminCurVersion').textContent = verNorm;
-        window.APP_VERSION = verNorm;
-        // Empêcher la boucle de mise à jour sur localhost
-        sessionStorage.setItem('_vin_just_published', verNorm);
     } catch(e) {
         showToast('Erreur : ' + e.message, 'err');
     } finally {
