@@ -1270,14 +1270,14 @@ async function publier() {
                 content = content.replace(/window\.APP_VERSION\s*=\s*["'][^"']*["']/, `window.APP_VERSION = "${verNorm}"`);
               }
               if (file === 'sw.js') {
-                content = content.replace(/const CACHE_NAME\s*=\s*['"][^'"]*['"]/, `const CACHE_NAME = 'vin-expert-v${verNorm}'`);
+                content = content.replace(/const CACHE_NAME\s*=\s*['"][^'"]*['']/, `const CACHE_NAME = 'vin-expert-v${verNorm}'`);
               }
 
-              const bytes = new TextEncoder().encode(content);
+              const encoded = new TextEncoder().encode(content);
               let binary = '';
               const chunk = 8192;
-              for (let i = 0; i < bytes.length; i += chunk) {
-                binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.length)));
+              for (let i = 0; i < encoded.length; i += chunk) {
+                binary += String.fromCharCode(...encoded.subarray(i, Math.min(i + chunk, encoded.length)));
               }
               const b64 = btoa(binary);
 
@@ -1583,11 +1583,11 @@ async function syncAllToGithub() {
         const content = new TextDecoder('utf-8').decode(bytes);
 
         // Encoder en base64 (UTF-8 safe)
-        const bytes = new TextEncoder().encode(content);
+        const encoded = new TextEncoder().encode(content);
         let binary = '';
         const chunk = 8192;
-        for (let i = 0; i < bytes.length; i += chunk) {
-          binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.length)));
+        for (let i = 0; i < encoded.length; i += chunk) {
+          binary += String.fromCharCode(...encoded.subarray(i, Math.min(i + chunk, encoded.length)));
         }
         const b64 = btoa(binary);
 
