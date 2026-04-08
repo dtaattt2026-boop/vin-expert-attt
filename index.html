@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.1.8";
+            window.APP_VERSION = "2.1.9";
 
             try {
                 const app = initializeApp(firebaseConfig);
@@ -1624,6 +1624,12 @@ function setupServiceWorkerAutoUpdate() {
 async function checkVersionFromFirestore() {
     try {
         if (!window._fb || !window._firebaseAvailable) return;
+        // Si cette session a publié cette version, ne pas boucler (utile sur localhost)
+        const publishedVer = sessionStorage.getItem('_vin_just_published');
+        if (publishedVer) {
+            window.APP_VERSION = publishedVer;
+            return;
+        }
         const snap = await window._fb.getDoc(window._fb.doc(window._fb.db, 'config', 'appVersion'));
         if (!snap.exists()) return;
         const serverVer = snap.data().version || '0.0.0';
@@ -2332,6 +2338,8 @@ async function publierMiseAJour() {
 
         document.getElementById('adminCurVersion').textContent = verNorm;
         window.APP_VERSION = verNorm;
+        // Empêcher la boucle de mise à jour sur localhost
+        sessionStorage.setItem('_vin_just_published', verNorm);
     } catch(e) {
         showToast('Erreur : ' + e.message, 'err');
     } finally {

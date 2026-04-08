@@ -6,6 +6,21 @@ param([string]$page = "app")
 $AppFolder = $PSScriptRoot
 $pageFichier = if ($page -eq "panneau") { "panneau.html" } else { "index.html" }
 
+# Auto-sync : récupérer la dernière version depuis GitHub
+try {
+    Push-Location $AppFolder
+    $gitStatus = git status --porcelain 2>$null
+    if (-not $gitStatus) {
+        git pull origin main --ff-only 2>$null | Out-Null
+        Write-Host "  [GIT] Synchronisation OK" -ForegroundColor Green
+    } else {
+        Write-Host "  [GIT] Fichiers modifiés localement, sync ignorée" -ForegroundColor Yellow
+    }
+    Pop-Location
+} catch {
+    Write-Host "  [GIT] Sync non disponible" -ForegroundColor Yellow
+}
+
 # Trouver un port libre
 $port = 8082
 foreach ($p in @(8082, 8083, 9080, 9090, 7070, 5000)) {
