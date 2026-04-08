@@ -1,6 +1,4 @@
-import http.server, socketserver, sys, os
-
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
+﻿import http.server, socketserver, sys
 
 class NoCacheSWHandler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
