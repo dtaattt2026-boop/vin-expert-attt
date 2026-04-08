@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.1.6";
+            window.APP_VERSION = "2.1.7";
 
             try {
                 const app = initializeApp(firebaseConfig);
@@ -2299,11 +2299,23 @@ async function publierMiseAJour() {
                     });
                     if (!getRes.ok) { console.warn(`[PUB] ${file.path} non trouvé sur GitHub`); continue; }
                     const ghData = await getRes.json();
-                    let content = atob(ghData.content.replace(/\n/g, ''));
+
+                    // Décoder base64 → bytes → UTF-8 texte (sans corruption)
+                    const raw = atob(ghData.content.replace(/\n/g, ''));
+                    const rawBytes = new Uint8Array(raw.length);
+                    for (let i = 0; i < raw.length; i++) rawBytes[i] = raw.charCodeAt(i);
+                    let content = new TextDecoder('utf-8').decode(rawBytes);
                     content = content.replace(file.regex, file.replace);
 
-                    // Encoder et pousser
-                    const encoded = btoa(unescape(encodeURIComponent(content)));
+                    // Encoder texte → UTF-8 bytes → base64 (sans double-encodage)
+                    const encBytes = new TextEncoder().encode(content);
+                    let bin = '';
+                    const chunk = 8192;
+                    for (let i = 0; i < encBytes.length; i += chunk) {
+                        bin += String.fromCharCode(...encBytes.subarray(i, Math.min(i + chunk, encBytes.length)));
+                    }
+                    const encoded = btoa(bin);
+
                     const putRes = await fetch(`https://api.github.com/repos/${ghOwner}/${ghRepo}/contents/${file.path}`, {
                         method: 'PUT',
                         headers: { 'Authorization': `token ${ghToken}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
