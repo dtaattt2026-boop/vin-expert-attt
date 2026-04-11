@@ -589,6 +589,17 @@
         .intel-badge.sure { background: rgba(0,200,122,0.14); color: var(--green); border-color: rgba(0,200,122,0.4); }
         .intel-badge.unsure { background: rgba(240,160,32,0.14); color: var(--orange); border-color: rgba(240,160,32,0.4); }
 
+        /* ── Carte Étalon BKA ── */
+        .vinref-card { display:flex; gap:12px; align-items:flex-start; margin-top:5px; }
+        .vinref-photo { width:120px; height:78px; object-fit:cover; border-radius:6px; border:2px solid var(--accent); flex-shrink:0; cursor:pointer; transition:opacity 0.2s; }
+        .vinref-photo:hover { opacity:0.85; }
+        .vinref-photo-placeholder { width:120px; height:78px; border-radius:6px; border:2px dashed rgba(255,255,255,0.15); display:flex; align-items:center; justify-content:center; color:var(--text-dim); font-size:0.7rem; flex-shrink:0; text-align:center; }
+        .vinref-info { font-size:0.82rem; line-height:1.8; color:var(--text); }
+        .vinref-info strong { color:var(--accent); font-size:0.9rem; }
+        .vinref-statut-ok  { color:#00c87a; font-weight:700; }
+        .vinref-statut-alerte { color:#e8a020; font-weight:700; }
+        .vinref-statut-suspect { color:#e03050; font-weight:700; }
+
         /* === AI REPORT === */
         .ai-report {
             background: rgba(0,0,0,0.3);
@@ -1228,6 +1239,11 @@
                         <div class="result-label">Rapport complémentaire</div>
                         <div class="ai-report" id="resAiReport"></div>
                     </div>
+                    <!-- Étalon BKA -->
+                    <div class="result-row" id="resVinRefRow" style="display:none">
+                        <div class="result-label">📸 Référence Étalon BKA</div>
+                        <div id="resVinRefContent"></div>
+                    </div>
                     <div class="result-row" style="margin-top:12px">
                         <button class="btn-verify" style="background:linear-gradient(135deg,#004020,#007040);font-size:0.85rem" onclick="envoyerRapportPDF()">
                             📧 Envoyer rapport PDF par email
@@ -1344,6 +1360,7 @@
           <button onclick="switchAdmin('update')">🔄 Mise à jour</button>
           <button onclick="switchAdmin('reports')">📊 Rapports</button>
           <button onclick="switchAdmin('chat')">💬 Chat</button>
+          <button onclick="switchAdmin('bka')">📦 Base BKA</button>
         </div>
 
         <!-- AGENTS SUB -->
@@ -1405,6 +1422,27 @@
             </div>
             <div id="adminChatList" style="max-height:calc(100vh - 350px);overflow-y:auto"><div class="empty-state"><div class="empty-icon">💬</div><p>Cliquez 🔄 pour charger</p></div></div>
           </div>
+        </div>
+
+        <!-- BASE BKA SUB -->
+        <div class="admin-sub" id="adminBka">
+          <div style="margin-bottom:14px">
+            <div style="font-size:0.82rem;color:var(--text-dim);line-height:1.7;margin-bottom:12px">
+              Base de référence véhicules <b>BKA 2012-2013</b> stockée dans Google Drive.<br>
+              Le GAS crée automatiquement le Google Sheet puis lit le dossier Drive BKA pour en extraire les véhicules, modèles et photos étalons.
+            </div>
+            <div id="bkaStats" style="font-size:0.8rem;color:var(--text-dim);margin-bottom:10px">—</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn-auth" style="flex:1;padding:10px;font-size:0.82rem;border-radius:8px;margin-top:0;background:linear-gradient(135deg,#004d1a,#008030)" onclick="importerBaseBKA()">
+                📥 Importer / Mettre à jour la base BKA
+              </button>
+              <button class="btn-auth" style="padding:10px;font-size:0.78rem;border-radius:8px;margin-top:0;background:var(--panel2);border:1px solid var(--border);color:var(--text)" onclick="loadBkaStats()">
+                🔄 Stats
+              </button>
+            </div>
+            <div id="bkaImportLog" style="margin-top:12px;font-size:0.78rem;line-height:1.7;color:var(--text-dim);display:none;background:rgba(0,0,0,0.3);padding:10px;border-radius:8px;border:1px solid var(--border)"></div>
+          </div>
+          <div id="bkaPreview" style="margin-top:4px"></div>
         </div>
 
         <!-- LIENS UTILES / OUTILS ADMIN -->
@@ -1633,6 +1671,48 @@ async function rechercherRappelsNHTSA(make, model, year) {
         console.warn('[RAPPELS] Erreur:', e.message);
         return [];
     }
+}
+
+// ─── Référence Étalon BKA (via GAS + Google Sheet) ──────────
+let lastVinRefData = null;
+
+async function fetchVinRefData(wmi) {
+    if (!wmi || wmi.length < 2) return null;
+    try {
+        const url = `${GAS_DRIVE_URL}?action=lookupVinRef&wmi=${encodeURIComponent(wmi)}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+        if (!res.ok) return null;
+        const data = await res.json();
+        return (data && data.ok) ? data : null;
+    } catch(e) {
+        console.warn('[VIN-REF] Lookup BKA échoué:', e.message);
+        return null;
+    }
+}
+
+function displayVinRef(data) {
+    const row = document.getElementById('resVinRefRow');
+    const content = document.getElementById('resVinRefContent');
+    if (!row || !content) return;
+    if (!data || !data.found) { row.style.display = 'none'; return; }
+    lastVinRefData = data;
+    const statutClass = data.statut === 'ALERTE'   ? 'vinref-statut-alerte' :
+                        data.statut === 'SUSPECT'  ? 'vinref-statut-suspect' : 'vinref-statut-ok';
+    const photoHtml = data.photoUrl
+        ? `<img class="vinref-photo" src="${data.photoUrl}" alt="Étalon ${data.marque} ${data.modele}" onclick="window.open('${data.photoUrl}','_blank')" onerror="this.outerHTML='<div class=vinref-photo-placeholder>Photo<br>indisponible</div>'">`
+        : `<div class="vinref-photo-placeholder">Aucune<br>photo étalon</div>`;
+    content.innerHTML = `
+        <div class="vinref-card">
+            ${photoHtml}
+            <div class="vinref-info">
+                <strong>${data.marque || '—'} ${data.modele || ''}</strong><br>
+                Années réf. : ${data.anneeMin || '?'}–${data.anneeMax || '?'}<br>
+                Motorisation : ${data.motorisation || 'NC'}<br>
+                ${data.notes ? `<em>${data.notes}</em><br>` : ''}
+                Statut BKA : <span class="${statutClass}">${data.statut || 'OK'}</span>
+            </div>
+        </div>`;
+    row.style.display = 'block';
 }
 
 let photos = [null, null, null, null];
@@ -2334,12 +2414,13 @@ function switchAdmin(sub) {
     document.querySelectorAll('.admin-nav button').forEach(b => b.classList.remove('active'));
     document.getElementById('admin' + sub.charAt(0).toUpperCase() + sub.slice(1)).classList.add('active');
     const btns = document.querySelectorAll('.admin-nav button');
-    const map = { users:0, update:1, reports:2, chat:3 };
-    if (btns[map[sub]]) btns[map[sub]].classList.add('active');
+    const map = { users:0, update:1, reports:2, chat:3, bka:4 };
+    if (btns[map[sub]] !== undefined) btns[map[sub]].classList.add('active');
     if (sub === 'users') loadAdminUsers();
     if (sub === 'update') loadAdminVersionInfo();
     if (sub === 'reports') loadAdminReports();
     if (sub === 'chat') loadAdminChat();
+    if (sub === 'bka') loadBkaStats();
 }
 
 async function loadAdminUsers() {
@@ -2526,6 +2607,68 @@ async function loadAdminReports() {
         });
         list.innerHTML = html;
     } catch(e) { list.innerHTML = `<div class="empty-state"><p>Erreur : ${e.message}</p></div>`; }
+}
+
+// ========== BASE BKA ==========
+const BKA_FOLDER_ID = '1jVi_jfZB3l4oyC4dlQGSeOMQnZCXGi6q';
+
+async function loadBkaStats() {
+    const statsEl = document.getElementById('bkaStats');
+    if (statsEl) statsEl.textContent = 'Chargement des stats...';
+    try {
+        const res = await fetch(`${GAS_DRIVE_URL}?action=getRefStats`, { signal: AbortSignal.timeout(12000) });
+        const data = await res.json();
+        if (statsEl) {
+            statsEl.innerHTML = data.ok
+                ? `<span style="color:var(--green)">✓</span> <b>${data.total}</b> véhicule(s) dans la base · Sheet: <em>${data.sheetName || 'VIN_REF_BKA'}</em>`
+                : `<span style="color:var(--red)">✗</span> ${data.error || 'Erreur'}`;
+        }
+    } catch(e) {
+        if (statsEl) statsEl.textContent = 'Impossible de joindre le GAS.';
+    }
+}
+
+async function importerBaseBKA() {
+    const logEl = document.getElementById('bkaImportLog');
+    const preview = document.getElementById('bkaPreview');
+    if (!logEl) return;
+    logEl.style.display = 'block';
+    logEl.innerHTML = '⏳ Import en cours — lecture du dossier BKA drive et extraction des véhicules...</br>Ne fermez pas cette page.';
+    try {
+        const payload = JSON.stringify({ action: 'importBka', folderId: BKA_FOLDER_ID });
+        const res = await fetch(GAS_DRIVE_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: payload
+        });
+        const text = await res.text();
+        let data;
+        try { data = JSON.parse(text); } catch(e) { data = { ok: false, error: 'Réponse inattendue: ' + text.substring(0, 200) }; }
+        if (data.ok) {
+            logEl.innerHTML = `<span style="color:var(--green)">✅ Import terminé</span><br>
+                • <b>${data.imported}</b> véhicule(s) importé(s)<br>
+                • <b>${data.photos}</b> photo(s) indexée(s)<br>
+                • ${data.message || ''}`;
+            loadBkaStats();
+            // Afficher un aperçu: chercher un WMI connu
+            if (data.imported > 0) {
+                const sample = await fetch(`${GAS_DRIVE_URL}?action=lookupByMarque&marque=Toyota`, { signal: AbortSignal.timeout(8000) });
+                const sampleData = await sample.json().catch(() => null);
+                if (sampleData && sampleData.found && preview) {
+                    preview.innerHTML = '<div style="font-size:0.78rem;color:var(--text-dim);margin-top:6px">Aperçu (Toyota) :</div>';
+                    displayVinRef(sampleData);
+                    if (document.getElementById('resVinRefRow')) {
+                        const cloned = document.getElementById('resVinRefContent').cloneNode(true);
+                        preview.appendChild(cloned);
+                    }
+                }
+            }
+        } else {
+            logEl.innerHTML = `<span style="color:var(--red)">✗ Erreur:</span> ${data.error || 'Inconnue'}`;
+        }
+    } catch(e) {
+        logEl.innerHTML = `<span style="color:var(--red)">✗ Erreur réseau:</span> ${e.message}`;
+    }
 }
 
 // ========== ADMIN CHAT MODERATION ==========
@@ -3939,10 +4082,12 @@ async function fullVerify() {
     const actual = vin[8];
     const isValid = computed === actual;
 
-    setLoaderSub('Connexion NHTSA et localisation...');
-    const [vinIntel, locationInfo] = await Promise.all([
+    setLoaderSub('Connexion NHTSA, localisation, base BKA...');
+    lastVinRefData = null;
+    const [vinIntel, locationInfo, vinRefData] = await Promise.all([
         apiDecodeDetailed(vin),
-        collectCurrentLocation()
+        collectCurrentLocation(),
+        fetchVinRefData(vin.substring(0, 3))
     ]);
     // Décodage structurel local (WMI, année, pays)
     const vinStructure = decoderVinStructurel(vin);
@@ -3956,7 +4101,7 @@ async function fullVerify() {
             vinIntel.sure.unshift(`Année modèle (pos.10): ${vinStructure.anneeModele}`);
     }
     // Rechercher les rappels de sécurité
-    setLoaderSub('Recherche rappels de sécurité...');
+    setLoaderSub('Recherche rappels de sécurité + étalon BKA...');
     const makeRaw = vinIntel.sure.find(s => s.startsWith('Marque:'));
     const modelRaw = vinIntel.sure.find(s => s.startsWith('Modèle:'));
     const yearRaw = vinIntel.sure.find(s => s.startsWith('Année modèle'));
@@ -3975,6 +4120,21 @@ async function fullVerify() {
     } else if (makeVal && modelVal && yearVal) {
         vinIntel.sure.push('Rappels de sécurité: Aucun rappel trouvé ✓');
     }
+
+    // ─ Étalon BKA : si WMI non trouvé, tenter par nom marque NHTSA
+    let finalVinRef = (vinRefData && vinRefData.found) ? vinRefData : null;
+    if (!finalVinRef && makeVal) {
+        try {
+            const url = `${GAS_DRIVE_URL}?action=lookupByMarque&marque=${encodeURIComponent(makeVal)}`;
+            const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+            const d = await r.json();
+            if (d && d.ok && d.found) finalVinRef = d;
+        } catch(e) { /* silencieux */ }
+    }
+    if (finalVinRef) {
+        vinIntel.sure.push(`Étalon BKA: ${finalVinRef.marque} ${finalVinRef.modele} (${finalVinRef.anneeMin}–${finalVinRef.anneeMax}) — Statut: ${finalVinRef.statut}`);
+    }
+
     const intelAvecOcr = enrichirRapportAvecOCR(vin, vinIntel);
     vinIntel.sure = intelAvecOcr.sure;
     vinIntel.unsure = intelAvecOcr.unsure;
@@ -4008,6 +4168,9 @@ async function fullVerify() {
     box.style.display = 'block';
     box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
+    // Afficher la carte étalon BKA si trouvée (WMI ou fallback marque)
+    displayVinRef(finalVinRef);
+
     const u = window.currentUser || {};
     const statusMsg = isValid ? 'VALIDE' : 'INVALIDE';
     const record = {
@@ -4017,6 +4180,7 @@ async function fullVerify() {
         unsureInfo: vinIntel.unsure,
         vinStructure: vinStructure,
         rappels: rappels,
+        vinRef: finalVinRef || null,
         locationInfo,
         locationSummary: formatLocationSummary(locationInfo),
         date: new Date().toLocaleString('fr-TN'),
@@ -4259,6 +4423,32 @@ function genererRapportPdf(record) {
         pdf.setFont('helvetica', 'bold');
         pdf.text('RAPPELS DE SÉCURITÉ: Aucun rappel trouvé ✓', 15, y);
         y += 5;
+    }
+
+    // === SECTION ÉTALON BKA ===
+    const vinRef = record.vinRef;
+    if (vinRef && vinRef.found) {
+        y += 4;
+        if (y > 245) { pdf.addPage(); pdf.setFillColor(8,12,20); pdf.rect(0,0,210,297,'F'); y = 18; }
+        pdf.setTextColor(200, 168, 75);
+        pdf.setFontSize(9);
+        pdf.setFont('helvetica', 'bold');
+        pdf.text('RÉFÉRENCE ÉTALON BKA 2012-2013', 15, y);
+        y += 5;
+        const refH = 28;
+        pdf.setFillColor(13, 20, 35);
+        pdf.rect(15, y, 180, refH, 'F');
+        const refLines = [
+            `WMI : ${vinRef.wmi}  |  ${vinRef.marque} ${vinRef.modele}`,
+            `Années de référence : ${vinRef.anneeMin}–${vinRef.anneeMax}   Motorisation : ${vinRef.motorisation || 'NC'}`,
+            vinRef.notes ? `Observations : ${vinRef.notes}` : null,
+            `Statut BKA : ${vinRef.statut || 'OK'}${vinRef.photoId ? '   |   Photo étalon disponible dans la base Drive' : ''}`
+        ].filter(Boolean);
+        pdf.setTextColor(180, 200, 230);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(7.5);
+        pdf.text(refLines, 18, y + 6);
+        y += refH + 4;
     }
 
     const sureLines = Array.isArray(record.sureInfo) ? record.sureInfo : [];
