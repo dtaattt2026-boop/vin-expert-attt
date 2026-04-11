@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.5.4";
+            window.APP_VERSION = "2.5.5";
 
             try {
                 const app = initializeApp(firebaseConfig);
@@ -1397,8 +1397,18 @@
 
         <!-- AGENTS SUB -->
         <div class="admin-sub active" id="adminUsers">
-          <div style="display:flex; gap:8px; margin-bottom:12px;">
+          <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; align-items:center;">
             <button class="btn-auth" style="padding:10px;font-size:0.78rem;border-radius:8px; margin-top:0" onclick="loadAdminUsers()">🔄 Actualiser</button>
+            <label style="display:flex;align-items:center;gap:6px;font-size:0.8rem;cursor:pointer;padding:8px 10px;background:rgba(255,255,255,0.05);border-radius:8px;border:1px solid var(--border)">
+              <input type="checkbox" id="selectAllAgents" onchange="toggleSelectAllAgents(this.checked)" style="width:16px;height:16px;cursor:pointer;">
+              <span>Tout sélectionner</span>
+            </label>
+          </div>
+          <div id="bulkActionBar" style="display:none;margin-bottom:10px;padding:10px;background:rgba(0,120,220,0.1);border:1px solid rgba(0,120,220,0.3);border-radius:10px;display:none;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span id="bulkCount" style="font-size:0.8rem;color:var(--text-dim);flex:1">0 sélectionné(s)</span>
+            <button class="btn-sm" style="background:rgba(0,200,122,0.2);color:var(--green);border:1px solid rgba(0,200,122,0.3)" onclick="bulkToggleEnvoyer(true)">📨 Activer envoi</button>
+            <button class="btn-sm" style="background:rgba(90,100,120,0.15);color:var(--text-dim);border:1px solid var(--border)" onclick="bulkToggleEnvoyer(false)">📭 Désactiver envoi</button>
+            <button class="btn-sm" style="background:rgba(224,48,80,0.15);color:#e03050;border:1px solid rgba(224,48,80,0.3)" onclick="deselectAllAgents()">✕ Désélectionner</button>
           </div>
           <div id="adminUserList"><div class="empty-state"><div class="empty-icon">👥</div><p>Chargement...</p></div></div>
         </div>
@@ -2484,6 +2494,10 @@ function switchAdmin(sub) {
 async function loadAdminUsers() {
     const fb = window._fb;
     if (!fb) return;
+    // Reset sélection
+    document.getElementById('selectAllAgents').checked = false;
+    const bar = document.getElementById('bulkActionBar');
+    bar.style.display = 'none';
     const list = document.getElementById('adminUserList');
     list.innerHTML = '<div class="empty-state"><p>Chargement...</p></div>';
     try {
@@ -2498,10 +2512,13 @@ async function loadAdminUsers() {
             const envoyerBadge = u.envoyerRapport
                 ? `<span class="badge-envoyer">📨 Envoi supérieur OUI</span>`
                 : `<span class="badge-no-envoyer">📭 Envoi supérieur NON</span>`;
-            html += `<div class="user-row">
-              <div class="user-row-info">
+            html += `<div class="user-row" id="urow-${uid}" style="display:flex;gap:10px;align-items:flex-start">
+              <label style="display:flex;align-items:center;padding-top:14px;cursor:pointer">
+                <input type="checkbox" class="agent-cb" data-uid="${uid}" data-envoyer="${u.envoyerRapport ? '1' : '0'}" onchange="updateBulkBar()" style="width:17px;height:17px;cursor:pointer;accent-color:var(--blue)">
+              </label>
+              <div class="user-row-info" style="flex:1">
                 <div class="user-row-name">${escHtml(u.prenom||'')} ${escHtml(u.nom||'')} <span class="badge-role ${roleBadge}">${roleLabel}</span></div>
-                <div class="user-row-meta">${escHtml(u.matricule||'')} · ${escHtml(u.lieuTravail||'—')} · ${escHtml(u.email||'')}</div>
+                <div class="user-row-meta">${escHtml(u.matricule||'')} · ${escHtml(u.lieuTravail||'-')} · ${escHtml(u.email||'')}</div>
                 <div style="margin-top:4px">${envoyerBadge}</div>
               </div>
               <div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">
@@ -2515,6 +2532,54 @@ async function loadAdminUsers() {
         });
         list.innerHTML = html;
     } catch(e) { list.innerHTML = `<div class="empty-state"><p>Erreur : ${e.message}</p></div>`; }
+}
+
+function updateBulkBar() {
+    const checked = document.querySelectorAll('.agent-cb:checked');
+    const bar = document.getElementById('bulkActionBar');
+    const count = document.getElementById('bulkCount');
+    if (checked.length > 0) {
+        bar.style.display = 'flex';
+        count.textContent = `${checked.length} agent(s) sélectionné(s)`;
+    } else {
+        bar.style.display = 'none';
+    }
+    // Sync "Tout sélectionner"
+    const all = document.querySelectorAll('.agent-cb');
+    document.getElementById('selectAllAgents').checked = all.length > 0 && checked.length === all.length;
+    document.getElementById('selectAllAgents').indeterminate = checked.length > 0 && checked.length < all.length;
+}
+
+function toggleSelectAllAgents(checked) {
+    document.querySelectorAll('.agent-cb').forEach(cb => { cb.checked = checked; });
+    updateBulkBar();
+}
+
+function deselectAllAgents() {
+    document.querySelectorAll('.agent-cb').forEach(cb => { cb.checked = false; });
+    document.getElementById('selectAllAgents').checked = false;
+    document.getElementById('selectAllAgents').indeterminate = false;
+    document.getElementById('bulkActionBar').style.display = 'none';
+}
+
+async function bulkToggleEnvoyer(val) {
+    const fb = window._fb; if (!fb) return;
+    const checked = document.querySelectorAll('.agent-cb:checked');
+    if (checked.length === 0) return;
+    const btn1 = document.querySelector('[onclick="bulkToggleEnvoyer(true)"]');
+    const btn2 = document.querySelector('[onclick="bulkToggleEnvoyer(false)"]');
+    if (btn1) btn1.disabled = true;
+    if (btn2) btn2.disabled = true;
+    showToast(`Mise à jour de ${checked.length} agent(s)...`, 'info', 2000);
+    try {
+        await Promise.all([...checked].map(cb =>
+            fb.updateDoc(fb.doc(fb.db, 'users', cb.dataset.uid), { envoyerRapport: val })
+        ));
+        showToast(`${checked.length} agent(s) mis à jour : envoi ${val ? 'activé' : 'désactivé'}.`, 'ok', 3500);
+    } catch(e) {
+        showToast('Erreur : ' + e.message, 'err');
+    }
+    loadAdminUsers();
 }
 
 async function approveUser(uid) {
