@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.5.3";
+            window.APP_VERSION = "2.5.4";
 
             try {
                 const app = initializeApp(firebaseConfig);
@@ -4520,6 +4520,21 @@ async function genererRapportPdf(record) {
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
+    // === HELPER: sécuriser les textes pour jsPDF (Helvetica = Latin-1 uniquement) ===
+    // Les caractères Unicode hors Latin-1 (✓ ✗ guillemets courbes — …) corrompent TOUTE la chaîne
+    const pdfSafe = (str) => {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/[\u2018\u2019\u02BC\u02BB]/g, "'")
+            .replace(/[\u201C\u201D\u00AB\u00BB]/g, '"')
+            .replace(/[\u2013\u2014\u2015\u2012]/g, '-')
+            .replace(/[\u2713\u2714\u2705\u2611]/g, '(OK)')
+            .replace(/[\u2717\u2718\u274C\u2612]/g, '(!)')
+            .replace(/\u2026/g, '...')
+            .replace(/[\u2022\u2023\u2043\u25CF]/g, '-')
+            .replace(/[^\x00-\xFF]/g, '?');
+    };
+
     // === FOND BLANC (impression) ===
     pdf.setFillColor(255, 255, 255);
     pdf.rect(0, 0, 210, 297, 'F');
@@ -4554,7 +4569,7 @@ async function genererRapportPdf(record) {
     pdf.setTextColor(...(isValid ? [0,100,40] : [180,0,40]));
     pdf.setFontSize(11);
     pdf.setFont('helvetica', 'bold');
-    pdf.text(isValid ? '✓  CHÂSSIS VALIDE' : '✗  CHÂSSIS INVALIDE', 105, 42, { align: 'center' });
+    pdf.text(isValid ? '>> CHASSIS VALIDE' : '!! CHASSIS INVALIDE', 105, 42, { align: 'center' });
 
     // VIN box
     pdf.setFillColor(240, 245, 255);
@@ -4567,13 +4582,13 @@ async function genererRapportPdf(record) {
 
     // Info table
     const rows = [
-        ['Agent', record.agentNom || '—'],
-        ['Matricule', record.matricule || '—'],
-        ['Lieu de travail', record.lieuTravail || '—'],
+        ['Agent', pdfSafe(record.agentNom) || '-'],
+        ['Matricule', record.matricule || '-'],
+        ['Lieu de travail', pdfSafe(record.lieuTravail) || '-'],
         ['Date et heure', record.date],
-        ['Localisation', record.locationSummary || 'Non disponible'],
-        ['Véhicule identifié', record.info || 'Non identifié'],
-        ['Check Digit (pos.9)', `Calculé: ${calcCheckDigit(record.vin)} | VIN: ${record.vin[8]} | ${isValid ? 'Concordance' : 'Discordance'}`],
+        ['Localisation', pdfSafe(record.locationSummary) || 'Non disponible'],
+        ['Vehicule identifie', pdfSafe(record.info) || 'Non identifie'],
+        ['Check Digit (pos.9)', pdfSafe(`Calcule: ${calcCheckDigit(record.vin)} | VIN: ${record.vin[8]} | ${isValid ? 'Concordance' : 'Discordance'}`)],
     ];
 
     let y = 72;
@@ -4617,11 +4632,11 @@ async function genererRapportPdf(record) {
             pdf.setTextColor(160, 100, 0);
             pdf.setFont('helvetica', 'bold');
             pdf.setFontSize(7);
-            pdf.text(p.valeur, 40, y + 5.5);
+            pdf.text(pdfSafe(p.valeur), 40, y + 5.5);
             pdf.setTextColor(60, 70, 90);
             pdf.setFont('helvetica', 'normal');
             pdf.setFontSize(6.8);
-            pdf.text(`${p.nom}: ${p.detail}`, 56, y + 5.5);
+            pdf.text(pdfSafe(`${p.nom}: ${p.detail}`), 56, y + 5.5);
             y += 8.5;
         });
     }
@@ -4640,7 +4655,7 @@ async function genererRapportPdf(record) {
         y += 9;
         rappelsList.slice(0, 5).forEach((r, i) => {
             if (y > 250) { pdf.addPage(); pdf.setFillColor(255,255,255); pdf.rect(0,0,210,297,'F'); y = 18; }
-            const rLines = pdf.splitTextToSize(`#${i+1} ${r.composant}: ${r.resume}`, 170);
+            const rLines = pdf.splitTextToSize(pdfSafe(`#${i+1} ${r.composant}: ${r.resume}`), 170);
             const rH = rLines.length * 3.5 + 4;
             pdf.setFillColor(255, 240, 242);
             pdf.setDrawColor(220, 50, 70);
@@ -4659,7 +4674,7 @@ async function genererRapportPdf(record) {
         pdf.setTextColor(0, 100, 40);
         pdf.setFontSize(8);
         pdf.setFont('helvetica', 'bold');
-        pdf.text('RAPPELS DE SÉCURITÉ : Aucun rappel trouvé ✓', 18, y + 6);
+        pdf.text('Aucun rappel de securite enregistre', 18, y + 6);
         y += 11;
     }
 
@@ -4676,10 +4691,10 @@ async function genererRapportPdf(record) {
         pdf.text('RÉFÉRENCE ÉTALON BKA 2012-2013', 18, y + 5);
         y += 9;
         const refLines = [
-            `WMI : ${vinRef.wmi}   |   Marque : ${vinRef.marque}   |   Modèle : ${vinRef.modele || 'NC'}`,
-            `Années de référence : ${vinRef.anneeMin}–${vinRef.anneeMax}   |   Motorisation : ${vinRef.motorisation || 'NC'}`,
-            vinRef.notes ? `Observations : ${vinRef.notes}` : `Source : Base de référence véhicules BKA`,
-            `Statut BKA : ${vinRef.statut || 'OK'}${vinRef.photoId ? '   |   Photo étalon indexée dans la base Drive' : ''}`
+            pdfSafe(`WMI : ${vinRef.wmi}   |   Marque : ${vinRef.marque}   |   Modele : ${vinRef.modele || 'NC'}`),
+            pdfSafe(`Annees de reference : ${vinRef.anneeMin}-${vinRef.anneeMax}   |   Motorisation : ${vinRef.motorisation || 'NC'}`),
+            vinRef.notes ? pdfSafe(`Observations : ${vinRef.notes}`) : `Source : Base de reference vehicules BKA`,
+            pdfSafe(`Statut BKA : ${vinRef.statut || 'OK'}${vinRef.photoId ? '   |   Photo etalon indexee dans la base Drive' : ''}`)
         ].filter(Boolean);
         const refH = refLines.length * 5 + 6;
         pdf.setFillColor(255, 252, 235);
@@ -4720,11 +4735,11 @@ async function genererRapportPdf(record) {
         pdf.setTextColor(255, 255, 255);
         pdf.setFontSize(8.5);
         pdf.setFont('helvetica', 'bold');
-        pdf.text('RAPPORT VIN DÉTAILLÉ', 18, y + 5);
+        pdf.text('RAPPORT VIN DETAILLE', 18, y + 5);
         y += 9;
 
-        const blocSure = [`1) INFORMATIONS SÛRES`, ...(sureLines.length ? sureLines : ['Aucune information confirmée'])];
-        const blocUnsure = [`2) INFORMATIONS NON SÛRES`, ...(unsureLines.length ? unsureLines : ['Aucune incertitude remontée'])];
+        const blocSure = [`1) INFORMATIONS SURES`, ...(sureLines.length ? sureLines.map(pdfSafe) : ['Aucune information confirmee'])];
+        const blocUnsure = [`2) INFORMATIONS NON SURES`, ...(unsureLines.length ? unsureLines.map(pdfSafe) : ['Aucune incertitude remontee'])];
         const detailLines = pdf.splitTextToSize([...blocSure, '', ...blocUnsure].join('\n'), 172);
         const linesPerPage = 52;
         for (let i = 0; i < detailLines.length; i += linesPerPage) {
