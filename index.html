@@ -37,8 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.5.8";
-
+            window.APP_VERSION = "2.5.9";
             try {
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
@@ -107,7 +106,7 @@
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
         // Version définie tôt pour autoPurgeCache et SW
-        window.APP_VERSION = "2.5.8"; cache si version différente OU force-update ══
+        window.APP_VERSION = "2.5.9"; // cache si version différente OU force-update
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -851,6 +850,14 @@
             padding: 30px 24px; max-width: 400px; width: 100%;
             text-align: center; animation: fadeIn 0.3s ease;
         }
+        /* ===== MODAL ADMIN CHANGER LIEU ===== */
+        #adminChangeLieuModal {
+            display: none; position: fixed; inset: 0; z-index: 9500;
+            background: rgba(0,0,0,0.88);
+            justify-content: center; align-items: center;
+            padding: 20px;
+        }
+        #adminChangeLieuModal.active { display: flex; }
         .update-card h2 { font-family: var(--font-display); font-size: 1.2rem; font-weight: 700; color: var(--gold); margin-bottom: 8px; }
         .update-card p { font-size: 0.85rem; color: var(--text); line-height: 1.6; margin-bottom: 20px; }
         .btn-update { background: linear-gradient(135deg, #a07000, #d4a017); color: #fff; border: none; border-radius: 10px; padding: 12px 24px; font-family: var(--font-display); font-weight: 700; font-size: 0.9rem; cursor: pointer; width: 100%; transition: opacity 0.2s; }
@@ -1035,6 +1042,23 @@
     <button class="btn-auth" style="width:100%;padding:12px;font-size:0.9rem;border-radius:10px;margin-top:0" onclick="saveLieuForce()">
       💾 Confirmer mon lieu de travail
     </button>
+  </div>
+</div>
+
+<!-- MODAL ADMIN — Changer lieu d'un agent -->
+<div id="adminChangeLieuModal">
+  <div class="lieu-force-card" style="max-width:380px">
+    <div style="font-size:1.6rem;margin-bottom:10px">🏢</div>
+    <h2 style="margin-bottom:4px;font-size:1rem;color:var(--gold)">Changer le lieu de travail</h2>
+    <p id="adminChangeLieuNom" style="font-size:0.82rem;color:var(--text-dim);margin-bottom:14px"></p>
+    <input type="hidden" id="adminChangeLieuUid">
+    <select id="adminChangeLieuSelect" style="width:100%;padding:11px 14px;background:var(--panel2);border:1px solid var(--gold);border-radius:10px;color:var(--text);font-size:0.9rem;margin-bottom:14px">
+      <option value="">— Choisir un lieu —</option>
+    </select>
+    <div style="display:flex;gap:8px">
+      <button class="btn-auth" style="flex:1;padding:11px;font-size:0.88rem;border-radius:10px;margin-top:0" onclick="confirmAdminChangeLieu()">💾 Enregistrer</button>
+      <button class="btn-auth" style="flex:1;padding:11px;font-size:0.88rem;border-radius:10px;margin-top:0;background:rgba(90,100,120,0.2);color:var(--text-dim)" onclick="document.getElementById('adminChangeLieuModal').classList.remove('active')">✕ Annuler</button>
+    </div>
   </div>
 </div>
 
@@ -1320,14 +1344,7 @@
       <div class="card">
         <div class="card-title">👤 Mon Profil</div>
         <div id="profileInfo" style="font-size:0.85rem;line-height:2;color:var(--text)"></div>
-        <!-- Widget lieu de travail (visible uniquement si tous les lieux sont "obligatoire") -->
-        <div id="lieuTravailWidget" style="display:none;margin-top:14px;padding:12px;background:var(--panel2);border-radius:10px;border:1px solid var(--border)">
-          <div style="font-size:0.8rem;font-weight:700;color:var(--gold);margin-bottom:8px">🏢 Lieu de travail <span style="color:var(--red);font-size:0.7rem">* obligatoire</span></div>
-          <select id="lieuTravailSelect" style="width:100%;padding:9px 12px;background:var(--panel);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.88rem;margin-bottom:10px">
-            <option value="">— Choisir un lieu —</option>
-          </select>
-          <button class="btn-auth" style="padding:9px 16px;font-size:0.82rem;border-radius:8px;margin-top:0" onclick="saveLieuTravailProfil()">💾 Mettre à jour mon lieu</button>
-        </div>
+        <!-- Widget lieu de travail: supprimé (l'admin seul peut changer le lieu) -->
         <button class="btn-auth secondary" style="margin-top:12px;padding:10px" onclick="showChangePassModal()">🔑 Changer mon mot de passe</button>
       </div>
 
@@ -1432,10 +1449,12 @@
               <span>Tout sélectionner</span>
             </label>
           </div>
-          <div id="bulkActionBar" style="display:none;margin-bottom:10px;padding:10px;background:rgba(0,120,220,0.1);border:1px solid rgba(0,120,220,0.3);border-radius:10px;display:none;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div id="bulkActionBar" style="display:none;margin-bottom:10px;padding:10px;background:rgba(0,120,220,0.1);border:1px solid rgba(0,120,220,0.3);border-radius:10px;align-items:center;gap:8px;flex-wrap:wrap;">
             <span id="bulkCount" style="font-size:0.8rem;color:var(--text-dim);flex:1">0 sélectionné(s)</span>
-            <button class="btn-sm" style="background:rgba(0,200,122,0.2);color:var(--green);border:1px solid rgba(0,200,122,0.3)" onclick="bulkToggleEnvoyer(true)">📨 Activer envoi</button>
-            <button class="btn-sm" style="background:rgba(90,100,120,0.15);color:var(--text-dim);border:1px solid var(--border)" onclick="bulkToggleEnvoyer(false)">📭 Désactiver envoi</button>
+            <button class="btn-sm" style="background:rgba(0,200,122,0.2);color:var(--green);border:1px solid rgba(0,200,122,0.3)" onclick="bulkToggleEnvoyer(true)">📨 Envoi OUI</button>
+            <button class="btn-sm" style="background:rgba(90,100,120,0.15);color:var(--text-dim);border:1px solid var(--border)" onclick="bulkToggleEnvoyer(false)">📭 Envoi NON</button>
+            <button class="btn-sm" style="background:rgba(0,200,122,0.2);color:var(--green);border:1px solid rgba(0,200,122,0.3)" onclick="bulkSetObligatoireLieu(true)">🏢 Lieu obligatoire OUI</button>
+            <button class="btn-sm" style="background:rgba(90,100,120,0.15);color:var(--text-dim);border:1px solid var(--border)" onclick="bulkSetObligatoireLieu(false)">🏢 Lieu obligatoire NON</button>
             <button class="btn-sm" style="background:rgba(224,48,80,0.15);color:#e03050;border:1px solid rgba(224,48,80,0.3)" onclick="deselectAllAgents()">✕ Désélectionner</button>
           </div>
           <div id="adminUserList"><div class="empty-state"><div class="empty-icon">👥</div><p>Chargement...</p></div></div>
@@ -1457,6 +1476,12 @@
               <button class="btn-auth" style="padding:9px 16px;font-size:0.8rem;border-radius:8px;margin-top:0" onclick="saveLieu()">💾 Enregistrer</button>
               <button class="btn-auth" style="padding:9px 16px;font-size:0.8rem;border-radius:8px;margin-top:0;background:rgba(90,100,120,0.2);color:var(--text-dim)" onclick="resetLieuForm()">✕ Annuler</button>
             </div>
+          </div>
+          <!-- Bouton réinitialisation des lieux non valides dans les comptes -->
+          <div style="margin-bottom:10px">
+            <button class="btn-auth" style="padding:8px 14px;font-size:0.78rem;border-radius:8px;margin-top:0;background:rgba(224,48,80,0.15);color:#e03050;border:1px solid rgba(224,48,80,0.3)" onclick="resetLieuxAnciens()">
+              🔄 Réinitialiser les lieux non valides des agents
+            </button>
           </div>
           <!-- Liste des lieux -->
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
@@ -2268,8 +2293,8 @@ function showApp() {
     updateHCount();
     // Pré-charger le worker Tesseract en arrière-plan dès la connexion
     setTimeout(() => getTesseractWorker().catch(() => {}), 2000);
-    // Vérifier si l'utilisateur doit choisir son lieu de travail (obligatoire + pas encore défini)
-    if (!u.localOnly && !u.lieuTravail) {
+    // Vérifier si l'utilisateur doit choisir son lieu de travail
+    if (!u.localOnly && u.role !== 'admin') {
         setTimeout(checkLieuForceModal, 800);
     }
 }
@@ -2562,23 +2587,31 @@ async function loadAdminUsers() {
             const roleBadge = u.disabled ? 'badge-disabled' : (u.role === 'admin' ? 'badge-admin' : u.role === 'pending' ? 'badge-pending' : 'badge-agent');
             const roleLabel = u.disabled ? 'DÉSACTIVÉ' : u.role.toUpperCase();
             const safeEmail = (u.email||'').replace(/'/g, "\\'");
+            const safeLieu = (u.lieuTravail||'').replace(/'/g,"\\'");
+            const safeNom = escHtml(`${u.prenom||''} ${u.nom||''}`.trim());
             const envoyerBadge = u.envoyerRapport
-                ? `<span class="badge-envoyer">📨 Envoi supérieur OUI</span>`
-                : `<span class="badge-no-envoyer">📭 Envoi supérieur NON</span>`;
+                ? `<span class="badge-envoyer">📨 Envoi OUI</span>`
+                : `<span class="badge-no-envoyer">📭 Envoi NON</span>`;
+            const obligBadge = u.obligatoireLieu
+                ? `<span class="badge-envoyer">🏢 Lieu obligatoire</span>`
+                : `<span class="badge-no-envoyer">🏢 Lieu non obligatoire</span>`;
             html += `<div class="user-row" id="urow-${uid}" style="display:flex;gap:10px;align-items:flex-start">
               <label style="display:flex;align-items:center;padding-top:14px;cursor:pointer">
-                <input type="checkbox" class="agent-cb" data-uid="${uid}" data-envoyer="${u.envoyerRapport ? '1' : '0'}" onchange="updateBulkBar()" style="width:17px;height:17px;cursor:pointer;accent-color:var(--blue)">
+                <input type="checkbox" class="agent-cb" data-uid="${uid}" onchange="updateBulkBar()" style="width:17px;height:17px;cursor:pointer;accent-color:var(--blue)">
               </label>
               <div class="user-row-info" style="flex:1">
-                <div class="user-row-name">${escHtml(u.prenom||'')} ${escHtml(u.nom||'')} <span class="badge-role ${roleBadge}">${roleLabel}</span></div>
-                <div class="user-row-meta">${escHtml(u.matricule||'')} · ${escHtml(u.lieuTravail||'-')} · ${escHtml(u.email||'')}</div>
-                <div style="margin-top:4px">${envoyerBadge}</div>
+                <div class="user-row-name">${safeNom} <span class="badge-role ${roleBadge}">${roleLabel}</span></div>
+                <div class="user-row-meta">${escHtml(u.matricule||'')} · ${escHtml(u.email||'')}</div>
+                <div style="margin-top:3px;font-size:0.78rem;color:var(--text-dim)">🏢 ${escHtml(u.lieuTravail||'— non défini —')}</div>
+                <div style="margin-top:4px;display:flex;gap:5px;flex-wrap:wrap">${envoyerBadge}${obligBadge}</div>
               </div>
               <div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">
                 ${u.role === 'pending' && !u.disabled ? `<button class="btn-sm btn-approve" onclick="approveUser('${uid}')">✓ Valider</button>` : ''}
                 ${!u.disabled && u.role !== 'pending' && u.role !== 'admin' ? `<button class="btn-sm btn-make-admin" onclick="makeAdmin('${uid}')">★ Admin</button>` : ''}
-                <button class="btn-sm" style="background:rgba(200,168,75,0.15);color:var(--gold);border:1px solid rgba(200,168,75,0.3)" onclick="adminResetPassword('${safeEmail}','${escHtml(u.prenom||'')} ${escHtml(u.nom||'')}')">🔑 Reset MDP</button>
-                <button class="btn-sm" style="background:${u.envoyerRapport ? 'rgba(0,200,122,0.2)' : 'rgba(90,100,120,0.15)'};color:${u.envoyerRapport ? 'var(--green)' : 'var(--text-dim)'};border:1px solid ${u.envoyerRapport ? 'rgba(0,200,122,0.3)' : 'var(--border)'}" onclick="toggleEnvoyerRapport('${uid}',${!u.envoyerRapport})">${u.envoyerRapport ? '📨 Envoyer' : '📭 Envoyer'}</button>
+                <button class="btn-sm" style="background:rgba(0,63,145,0.2);color:var(--blue-light);border:1px solid rgba(0,63,145,0.3)" onclick="adminChangerLieu('${uid}','${safeLieu}','${safeNom}')">🏢 Lieu</button>
+                <button class="btn-sm" style="background:rgba(200,168,75,0.15);color:var(--gold);border:1px solid rgba(200,168,75,0.3)" onclick="adminResetPassword('${safeEmail}','${safeNom}')">🔑 MDP</button>
+                <button class="btn-sm" style="background:${u.envoyerRapport ? 'rgba(0,200,122,0.2)' : 'rgba(90,100,120,0.15)'};color:${u.envoyerRapport ? 'var(--green)' : 'var(--text-dim)'};border:1px solid ${u.envoyerRapport ? 'rgba(0,200,122,0.3)' : 'var(--border)'}" onclick="toggleEnvoyerRapport('${uid}',${!u.envoyerRapport})">${u.envoyerRapport ? '📨' : '📭'} Envoi</button>
+                <button class="btn-sm" style="background:${u.obligatoireLieu ? 'rgba(0,200,122,0.2)' : 'rgba(90,100,120,0.15)'};color:${u.obligatoireLieu ? 'var(--green)' : 'var(--text-dim)'};border:1px solid ${u.obligatoireLieu ? 'rgba(0,200,122,0.3)' : 'var(--border)'}" onclick="toggleObligatoireLieu('${uid}',${!u.obligatoireLieu})">${u.obligatoireLieu ? '🏢' : '🏢'} Oblig.</button>
                 ${!u.disabled ? `<button class="btn-sm btn-disable" onclick="toggleUser('${uid}',true)">✗ Désact.</button>` : `<button class="btn-sm btn-enable" onclick="toggleUser('${uid}',false)">✓ Réact.</button>`}
               </div>
             </div>`;
@@ -3251,8 +3284,7 @@ async function loadProfile() {
               <span style="color:var(--text-dim);font-size:0.72rem">Rôle</span><span><span class="badge-role ${u.role==='admin'?'badge-admin':'badge-agent'}">${(u.role||'agent').toUpperCase()}</span></span>
             </div>`;
     }
-    // Vérifier si le dropdown "lieu de travail" doit être affiché (tous lieux obligatoires)
-    await checkLieuObligatoire();
+    // Le lieu de travail ne peut être modifié que par l'administrateur
     if (u.localOnly) {
         document.getElementById('myInviteCode').textContent = 'Mode local';
         document.getElementById('myInviteLink').textContent = 'Invitations indisponibles hors ligne';
@@ -3321,17 +3353,36 @@ async function saveLieuTravailProfil() {
     } catch(e) { showToast('Erreur : ' + e.message, 'err'); }
 }
 
-// === Overlay forcé au login si lieu manquant + tous obligatoires ===
+// === Overlay forcé au login si lieu manquant ou invalide + obligatoireLieu ===
 async function checkLieuForceModal() {
     const u = window.currentUser;
-    if (!u || u.localOnly || u.lieuTravail) return; // déjà un lieu → rien à faire
-    const lieux = await getLieuxObligatoires();
-    if (!lieux) return; // pas obligatoire → rien à faire
+    if (!u || u.localOnly || u.role === 'admin') return; // admins toujours exemptés
+    if (!u.obligatoireLieu) return; // pas marqué obligatoire pour cet utilisateur
+
+    const fb = window._fb; if (!fb) return;
+    // Récupérer tous les lieux configurés (tous, pas seulement obligatoire=true)
+    let lieux = [];
+    try {
+        const snap = await fb.getDocs(fb.collection(fb.db, 'lieux_travail'));
+        snap.forEach(d => lieux.push({ id: d.id, ...d.data() }));
+    } catch(e) { return; }
+    if (lieux.length === 0) return; // aucun lieu configuré → rien à faire
+
+    // Vérifier si le lieu actuel est valide (dans la liste officielle)
+    const designations = lieux.map(l => (l.designation||'').trim().toLowerCase());
+    const lieuActuel = (u.lieuTravail||'').trim().toLowerCase();
+    if (lieuActuel && designations.includes(lieuActuel)) return; // lieu valide → OK
+
     // Peupler le select
     const sel = document.getElementById('lieuForceSelect');
     if (!sel) return;
     sel.innerHTML = '<option value="">— Choisir votre lieu de travail —</option>' +
         lieux.map(l => `<option value="${escHtml(l.designation)}">${escHtml(l.designation)}</option>`).join('');
+    // Pré-sélectionner si l'utilisateur avait un ancien lieu (invalide mais reconnaissable)
+    if (u.lieuTravail) {
+        const match = lieux.find(l => l.designation.toLowerCase().includes(lieuActuel) || lieuActuel.includes(l.designation.toLowerCase()));
+        if (match) sel.value = match.designation;
+    }
     // Afficher l'overlay (bloquant, pas de bouton fermer)
     document.getElementById('lieuForceOverlay').classList.add('active');
 }
@@ -3353,14 +3404,112 @@ async function saveLieuForce() {
         // Mettre à jour l'affichage profil si visible
         const disp = document.getElementById('profileLieuDisplay');
         if (disp) disp.textContent = val;
-        // Mettre à jour le widget profil
-        const widget = document.getElementById('lieuTravailWidget');
-        if (widget) widget.style.display = 'none';
         showToast('Lieu de travail enregistré : ' + val, 'ok', 4000);
     } catch(e) {
         if (btn) { btn.disabled = false; btn.textContent = '💾 Confirmer mon lieu de travail'; }
         showToast('Erreur : ' + e.message, 'err');
     }
+}
+
+// ===== ADMIN: Changer le lieu d'un agent =====
+async function adminChangerLieu(uid, currentLieu, nomAgent) {
+    const fb = window._fb; if (!fb) return;
+    // Charger les lieux
+    let lieux = [];
+    try {
+        const snap = await fb.getDocs(fb.collection(fb.db, 'lieux_travail'));
+        snap.forEach(d => lieux.push({ id: d.id, ...d.data() }));
+    } catch(e) { showToast('Erreur chargement lieux : ' + e.message, 'err'); return; }
+
+    const sel = document.getElementById('adminChangeLieuSelect');
+    sel.innerHTML = '<option value="">— Choisir un lieu —</option>' +
+        lieux.map(l => `<option value="${escHtml(l.designation)}">${escHtml(l.designation)}</option>`).join('');
+    if (currentLieu) sel.value = currentLieu; // pré-sélection
+
+    document.getElementById('adminChangeLieuUid').value = uid;
+    document.getElementById('adminChangeLieuNom').textContent = nomAgent || uid;
+    document.getElementById('adminChangeLieuModal').classList.add('active');
+}
+
+async function confirmAdminChangeLieu() {
+    const fb = window._fb; if (!fb) return;
+    const uid = document.getElementById('adminChangeLieuUid').value;
+    const val = document.getElementById('adminChangeLieuSelect').value;
+    if (!val) { showToast('Veuillez choisir un lieu.', 'err'); return; }
+    const btn = document.querySelector('[onclick="confirmAdminChangeLieu()"]');
+    if (btn) btn.disabled = true;
+    try {
+        await fb.updateDoc(fb.doc(fb.db, 'users', uid), { lieuTravail: val });
+        document.getElementById('adminChangeLieuModal').classList.remove('active');
+        showToast('Lieu de travail mis à jour.', 'ok');
+        loadAdminUsers();
+    } catch(e) {
+        showToast('Erreur : ' + e.message, 'err');
+        if (btn) btn.disabled = false;
+    }
+}
+
+// ===== ADMIN: Toggle obligatoireLieu pour un agent =====
+async function toggleObligatoireLieu(uid, val) {
+    const fb = window._fb; if (!fb) return;
+    try {
+        await fb.updateDoc(fb.doc(fb.db, 'users', uid), { obligatoireLieu: val });
+        showToast(`Lieu obligatoire ${val ? 'activé' : 'désactivé'}.`, 'ok', 2500);
+        loadAdminUsers();
+    } catch(e) { showToast('Erreur : ' + e.message, 'err'); }
+}
+
+// ===== BULK: obligatoireLieu =====
+async function bulkSetObligatoireLieu(val) {
+    const fb = window._fb; if (!fb) return;
+    const checked = document.querySelectorAll('.agent-cb:checked');
+    if (checked.length === 0) return;
+    showToast(`Mise à jour de ${checked.length} agent(s)...`, 'info', 2000);
+    try {
+        await Promise.all([...checked].map(cb =>
+            fb.updateDoc(fb.doc(fb.db, 'users', cb.dataset.uid), { obligatoireLieu: val })
+        ));
+        showToast(`${checked.length} agent(s) : lieu obligatoire ${val ? 'activé' : 'désactivé'}.`, 'ok', 3500);
+    } catch(e) { showToast('Erreur : ' + e.message, 'err'); }
+    loadAdminUsers();
+}
+
+// ===== ADMIN Lieux: réinitialiser les lieux non valides des agents =====
+async function resetLieuxAnciens() {
+    const fb = window._fb; if (!fb) return;
+    if (!confirm('Ceci va effacer le lieu de travail de TOUS les agents dont le lieu ne correspond pas à un lieu officiel.\nCes agents devront rechoix leur lieu à la prochaine connexion (si obligatoireLieu = OUI).\n\nContinuer ?')) return;
+
+    // Charger la liste officielle des lieux
+    let lieux = [];
+    try {
+        const s = await fb.getDocs(fb.collection(fb.db, 'lieux_travail'));
+        s.forEach(d => lieux.push((d.data().designation||'').trim().toLowerCase()));
+    } catch(e) { showToast('Erreur : ' + e.message, 'err'); return; }
+
+    // Charger tous les utilisateurs
+    let updates = 0;
+    try {
+        const snap = await fb.getDocs(fb.collection(fb.db, 'users'));
+        const promises = [];
+        snap.forEach(d => {
+            const u = d.data();
+            if (u.role === 'admin') return; // admins exemptés
+            const lieu = (u.lieuTravail||'').trim().toLowerCase();
+            if (lieu && !lieux.includes(lieu)) {
+                // Lieu invalide → effacer
+                promises.push(fb.updateDoc(fb.doc(fb.db, 'users', d.id), { lieuTravail: '' }));
+                updates++;
+            }
+        });
+        await Promise.all(promises);
+    } catch(e) { showToast('Erreur : ' + e.message, 'err'); return; }
+
+    if (updates === 0) {
+        showToast('Aucun lieu invalide trouvé — tous les agents ont déjà un lieu valide.', 'info', 4000);
+    } else {
+        showToast(`${updates} agent(s) réinitialisé(s). Ils devront choisir leur lieu à la prochaine connexion.`, 'ok', 5000);
+    }
+    loadAdminUsers();
 }
 
 // ========== INVITATION SYSTEM ==========
