@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.5.5";
+            window.APP_VERSION = "2.5.6";
 
             try {
                 const app = initializeApp(firebaseConfig);
@@ -1058,9 +1058,11 @@
       <label>Matricule</label>
       <input type="text" id="regMatricule" placeholder="ex: 12345/A" autocomplete="username">
     </div>
-    <div class="form-group">
-      <label>Lieu de travail</label>
-      <input type="text" id="regLieu" placeholder="ex: Centre CTV Tunis">
+    <div class="form-group" id="regLieuWidget" style="display:none">
+      <label>Lieu de travail <span style="color:var(--red);font-size:0.75rem">* obligatoire</span></label>
+      <select id="regLieuSelect" style="width:100%;padding:10px 12px;background:var(--panel);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:0.88rem">
+        <option value="">— Choisir votre lieu de travail —</option>
+      </select>
     </div>
     <div class="form-group">
       <label>Email professionnel</label>
@@ -2157,6 +2159,8 @@ function showAuthScreen(view) {
         const invField = document.getElementById('regInviteCode');
         if (invField) invField.value = window._pendingInviteCode;
     }
+    // Initialiser le widget Lieu de travail sur l'écran d'inscription
+    if (view === 'register') { setTimeout(initRegLieuWidget, 100); }
     updateAuthModeUI();
 }
 
@@ -2284,13 +2288,17 @@ async function doRegister() {
     const prenom = document.getElementById('regPrenom').value.trim();
     const nom    = document.getElementById('regNom').value.trim();
     const mat    = document.getElementById('regMatricule').value.trim();
-    const lieu   = document.getElementById('regLieu').value.trim();
+    // Lieu : dropdown si widget visible, sinon vide (non obligatoire)
+    const lieuWidget = document.getElementById('regLieuWidget');
+    const lieuOblig  = lieuWidget && lieuWidget.style.display !== 'none';
+    const lieu = lieuOblig ? (document.getElementById('regLieuSelect')?.value || '').trim() : '';
     const email  = document.getElementById('regEmail').value.trim();
     const pass   = document.getElementById('regPass').value;
     const pass2  = document.getElementById('regPass2').value;
     const invCode = (document.getElementById('regInviteCode')?.value||'').trim().toUpperCase();
 
-    if (!prenom||!nom||!mat||!lieu||!email||!pass) { showAuthError('registerErr','Tous les champs sont obligatoires.'); return; }
+    if (!prenom||!nom||!mat||!email||!pass) { showAuthError('registerErr','Tous les champs sont obligatoires.'); return; }
+    if (lieuOblig && !lieu) { showAuthError('registerErr','Veuillez choisir votre lieu de travail.'); return; }
     if (pass !== pass2) { showAuthError('registerErr','Les mots de passe ne correspondent pas.'); return; }
     if (pass.length < 8) { showAuthError('registerErr','Le mot de passe doit contenir au moins 8 caractères.'); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showAuthError('registerErr','Email invalide.'); return; }
@@ -3125,24 +3133,43 @@ async function loadProfile() {
 }
 
 // Vérifie si tous les lieux ont "obligatoire=true", et affiche/masque le widget de choix
+// Charge les lieux et vérifie si tous sont obligatoires — utilisé en profil ET en inscription
+async function getLieuxObligatoires() {
+    const fb = window._fb;
+    if (!fb) return null;
+    try {
+        const snap = await fb.getDocs(fb.collection(fb.db, 'lieux_travail'));
+        if (snap.empty) return null; // pas de lieux = non obligatoire
+        let lieux = []; snap.forEach(d => lieux.push({ id: d.id, ...d.data() }));
+        const allOblig = lieux.every(l => l.obligatoire === true);
+        return allOblig ? lieux : null;
+    } catch(e) { return null; }
+}
+
+// Widget lieu de travail dans le formulaire d'inscription
+async function initRegLieuWidget() {
+    const widget = document.getElementById('regLieuWidget');
+    const sel    = document.getElementById('regLieuSelect');
+    if (!widget || !sel) return;
+    const lieux = await getLieuxObligatoires();
+    if (!lieux) { widget.style.display = 'none'; return; }
+    sel.innerHTML = '<option value="">— Choisir votre lieu de travail —</option>' +
+        lieux.map(l => `<option value="${escHtml(l.designation)}">${escHtml(l.designation)}</option>`).join('');
+    widget.style.display = '';
+}
+
 async function checkLieuObligatoire() {
     const fb = window._fb;
     const u = window.currentUser;
     const container = document.getElementById('lieuTravailWidget');
     if (!container || !fb || !u || u.localOnly) return;
-    try {
-        const snap = await fb.getDocs(fb.collection(fb.db, 'lieux_travail'));
-        if (snap.empty) { container.style.display = 'none'; return; }
-        let lieux = []; snap.forEach(d => lieux.push({ id: d.id, ...d.data() }));
-        const allOblig = lieux.every(l => l.obligatoire === true);
-        if (!allOblig) { container.style.display = 'none'; return; }
-        // Afficher le sélecteur
-        container.style.display = '';
-        const sel = document.getElementById('lieuTravailSelect');
-        if (!sel) return;
-        sel.innerHTML = '<option value="">— Choisir un lieu —</option>' +
-            lieux.map(l => `<option value="${escHtml(l.designation)}" ${(u.lieuTravail||'') === l.designation ? 'selected' : ''}>${escHtml(l.designation)}</option>`).join('');
-    } catch(e) { /* silencieux */ }
+    const lieux = await getLieuxObligatoires();
+    if (!lieux) { container.style.display = 'none'; return; }
+    container.style.display = '';
+    const sel = document.getElementById('lieuTravailSelect');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">\u2014 Choisir un lieu \u2014</option>' +
+        lieux.map(l => `<option value="${escHtml(l.designation)}" ${(u.lieuTravail||'') === l.designation ? 'selected' : ''}>${escHtml(l.designation)}</option>`).join('');
 }
 
 async function saveLieuTravailProfil() {
