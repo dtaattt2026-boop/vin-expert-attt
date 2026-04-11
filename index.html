@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.5.7";
+            window.APP_VERSION = "2.5.8";
 
             try {
                 const app = initializeApp(firebaseConfig);
@@ -107,8 +107,7 @@
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
         // Version définie tôt pour autoPurgeCache et SW
-        window.APP_VERSION = "2.5.7";
-        // ══ Auto-purge cache si version différente OU force-update ══
+        window.APP_VERSION = "2.5.8"; cache si version différente OU force-update ══
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -836,13 +835,22 @@
             padding: 20px;
         }
         #updateOverlay.active { display: flex; }
-        .update-card {
+        .update-icon { font-size: 3rem; margin-bottom: 14px; }
+
+        /* ===== LIEU FORCE OVERLAY ===== */
+        #lieuForceOverlay {
+            display: none; position: fixed; inset: 0; z-index: 9000;
+            background: rgba(0,0,0,0.92);
+            justify-content: center; align-items: center;
+            padding: 20px;
+        }
+        #lieuForceOverlay.active { display: flex; }
+        .lieu-force-card {
             background: var(--panel); border: 1px solid var(--gold);
             border-top: 3px solid var(--gold); border-radius: 16px;
-            padding: 30px 24px; max-width: 380px; width: 100%;
+            padding: 30px 24px; max-width: 400px; width: 100%;
             text-align: center; animation: fadeIn 0.3s ease;
         }
-        .update-icon { font-size: 3rem; margin-bottom: 14px; }
         .update-card h2 { font-family: var(--font-display); font-size: 1.2rem; font-weight: 700; color: var(--gold); margin-bottom: 8px; }
         .update-card p { font-size: 0.85rem; color: var(--text); line-height: 1.6; margin-bottom: 20px; }
         .btn-update { background: linear-gradient(135deg, #a07000, #d4a017); color: #fff; border: none; border-radius: 10px; padding: 12px 24px; font-family: var(--font-display); font-weight: 700; font-size: 0.9rem; cursor: pointer; width: 100%; transition: opacity 0.2s; }
@@ -1009,6 +1017,24 @@
     <div class="update-step" id="updateStep"></div>
     <button class="btn-update" onclick="doUpdate()">Mettre à jour maintenant</button>
     <button class="btn-skip-update" id="btnSkipUpdate" onclick="closeUpdateOverlay()" style="display:none">Ignorer (optionnel)</button>
+  </div>
+</div>
+
+<!-- LIEU FORCE OVERLAY — affiché si lieu obligatoire et utilisateur sans lieu -->
+<div id="lieuForceOverlay">
+  <div class="lieu-force-card">
+    <div style="font-size:2.5rem;margin-bottom:12px">🏢</div>
+    <h2 style="margin-bottom:8px;font-size:1.1rem;color:var(--gold)">Lieu de travail requis</h2>
+    <p style="font-size:0.85rem;color:var(--text-dim);margin-bottom:18px;line-height:1.5">
+      Votre administrateur a rendu le lieu de travail obligatoire.<br>
+      Veuillez sélectionner votre lieu avant de continuer.
+    </p>
+    <select id="lieuForceSelect" style="width:100%;padding:11px 14px;background:var(--panel2);border:1px solid var(--gold);border-radius:10px;color:var(--text);font-size:0.9rem;margin-bottom:16px">
+      <option value="">— Choisir votre lieu de travail —</option>
+    </select>
+    <button class="btn-auth" style="width:100%;padding:12px;font-size:0.9rem;border-radius:10px;margin-top:0" onclick="saveLieuForce()">
+      💾 Confirmer mon lieu de travail
+    </button>
   </div>
 </div>
 
@@ -2242,6 +2268,10 @@ function showApp() {
     updateHCount();
     // Pré-charger le worker Tesseract en arrière-plan dès la connexion
     setTimeout(() => getTesseractWorker().catch(() => {}), 2000);
+    // Vérifier si l'utilisateur doit choisir son lieu de travail (obligatoire + pas encore défini)
+    if (!u.localOnly && !u.lieuTravail) {
+        setTimeout(checkLieuForceModal, 800);
+    }
 }
 
 // ========== LOGIN ==========
@@ -3289,6 +3319,48 @@ async function saveLieuTravailProfil() {
         if (disp) disp.textContent = val;
         showToast('Lieu de travail mis à jour.', 'ok');
     } catch(e) { showToast('Erreur : ' + e.message, 'err'); }
+}
+
+// === Overlay forcé au login si lieu manquant + tous obligatoires ===
+async function checkLieuForceModal() {
+    const u = window.currentUser;
+    if (!u || u.localOnly || u.lieuTravail) return; // déjà un lieu → rien à faire
+    const lieux = await getLieuxObligatoires();
+    if (!lieux) return; // pas obligatoire → rien à faire
+    // Peupler le select
+    const sel = document.getElementById('lieuForceSelect');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— Choisir votre lieu de travail —</option>' +
+        lieux.map(l => `<option value="${escHtml(l.designation)}">${escHtml(l.designation)}</option>`).join('');
+    // Afficher l'overlay (bloquant, pas de bouton fermer)
+    document.getElementById('lieuForceOverlay').classList.add('active');
+}
+
+async function saveLieuForce() {
+    const fb = window._fb;
+    const u = window.currentUser;
+    if (!fb || !u) return;
+    const sel = document.getElementById('lieuForceSelect');
+    const val = sel ? sel.value.trim() : '';
+    if (!val) { showToast('Veuillez choisir votre lieu de travail.', 'err'); return; }
+    const btn = document.querySelector('[onclick="saveLieuForce()"]');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Enregistrement...'; }
+    try {
+        await fb.updateDoc(fb.doc(fb.db, 'users', u.uid), { lieuTravail: val });
+        window.currentUser.lieuTravail = val;
+        // Fermer l'overlay
+        document.getElementById('lieuForceOverlay').classList.remove('active');
+        // Mettre à jour l'affichage profil si visible
+        const disp = document.getElementById('profileLieuDisplay');
+        if (disp) disp.textContent = val;
+        // Mettre à jour le widget profil
+        const widget = document.getElementById('lieuTravailWidget');
+        if (widget) widget.style.display = 'none';
+        showToast('Lieu de travail enregistré : ' + val, 'ok', 4000);
+    } catch(e) {
+        if (btn) { btn.disabled = false; btn.textContent = '💾 Confirmer mon lieu de travail'; }
+        showToast('Erreur : ' + e.message, 'err');
+    }
 }
 
 // ========== INVITATION SYSTEM ==========
