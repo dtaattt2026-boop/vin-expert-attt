@@ -342,20 +342,40 @@ function saveVinReport(payload) {
     });
   }
 
-  // Envoi email à l'agent (bouton "Envoyer rapport PDF par email")
+  // Envoi email à l'agent (auto après fullVerify ou bouton "Envoyer rapport PDF par email")
   var agentEmailed = false;
-  if (payload.sendToAgent && payload.agentEmail && pdfBlobForMail) {
+  if (payload.agentEmail && pdfBlobForMail) {
     sendVinReportEmail({
       to: payload.agentEmail,
       subject: emailSubject,
-      body: emailBody,
+      body: payload.emailBody || ('Bonjour,\n\nVotre rapport VIN Expert est disponible en pièce jointe.\n\nCordialement,\nVIN Expert · ATTT'),
       metadataLines: metadataLines,
-      pdfBlob: pdfBlobForMail,
-      photoBlobs: photoBlobsForMail,
+      pdfBlob: pdfBlobForMail.copyBlob(),
+      photoBlobs: photoBlobsForMail.map(function(b){ return b.copyBlob(); }),
       agentName: agentName,
       pdfName: pdfName
     });
     agentEmailed = true;
+  }
+
+  // Envoi copie au supérieur hiérarchique (si demandé par l'admin)
+  var superieurEmailed = false;
+  if (payload.superieurEmail && pdfBlobForMail) {
+    try {
+      sendVinReportEmail({
+        to: payload.superieurEmail,
+        subject: '[Copie Supérieur] ' + emailSubject,
+        body: 'Copie automatique transmise par VIN Expert ATTT.\n\n' + (payload.superieurNote || ''),
+        metadataLines: metadataLines,
+        pdfBlob: pdfBlobForMail.copyBlob(),
+        photoBlobs: photoBlobsForMail.map(function(b){ return b.copyBlob(); }),
+        agentName: agentName,
+        pdfName: pdfName
+      });
+      superieurEmailed = true;
+    } catch(eSup) {
+      Logger.log('Erreur envoi supérieur: ' + eSup.message);
+    }
   }
 
   return {
@@ -365,7 +385,8 @@ function saveVinReport(payload) {
     files: (photos.length + (pdfBase64 ? 1 : 0)),
     emailed: shouldEmail && !!pdfBlobForMail,
     emailTo: shouldEmail && pdfBlobForMail ? REPORT_EMAIL_TO : '',
-    agentEmailed: agentEmailed
+    agentEmailed: agentEmailed,
+    superieurEmailed: superieurEmailed
   };
 }
 

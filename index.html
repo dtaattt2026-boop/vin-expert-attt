@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.3.1";
+            window.APP_VERSION = "2.5.0";
 
             try {
                 const app = initializeApp(firebaseConfig);
@@ -929,6 +929,27 @@
         /* ===== PROFILE SECTION ===== */
         #profileSection { display: none; }
         #profileSection.active { display: block; }
+
+        /* ===== LIEUX DE TRAVAIL ===== */
+        .lieu-row { display:flex; align-items:center; gap:8px; padding:8px 10px; border-bottom:1px solid var(--border); font-size:0.82rem; flex-wrap:wrap; }
+        .lieu-row:last-child { border-bottom:none; }
+        .lieu-desig { font-weight:700; color:var(--text); flex:1; min-width:120px; }
+        .lieu-addr { font-size:0.75rem; color:var(--text-dim); flex:2; min-width:150px; word-break:break-all; }
+        .toggle-pill { display:inline-flex; align-items:center; gap:5px; font-size:0.75rem; cursor:pointer; }
+        .toggle-pill input[type=checkbox] { width:15px; height:15px; cursor:pointer; accent-color:var(--green); }
+        .badge-envoyer { background:rgba(0,200,122,0.18); color:var(--green); border:1px solid rgba(0,200,122,0.3); font-size:0.68rem; padding:2px 7px; border-radius:10px; font-weight:700; }
+        .badge-no-envoyer { background:rgba(90,100,120,0.12); color:var(--text-dim); border:1px solid var(--border); font-size:0.68rem; padding:2px 7px; border-radius:10px; }
+        .lieu-form { background:var(--panel2); border-radius:10px; padding:14px; margin-bottom:12px; border:1px solid var(--border); }
+        .lieu-form .form-group { margin-bottom:8px; }
+        .lieu-form label { font-size:0.75rem; color:var(--text-dim); display:block; margin-bottom:3px; }
+        .lieu-form input[type=text], .lieu-form input[type=email] { width:100%; padding:8px 10px; background:var(--input-bg,var(--panel)); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:0.85rem; box-sizing:border-box; }
+        @media print {
+          .admin-nav, #adminSection .btn-auth, .btn-sm, #chatSection, #scanSection,
+          #histSection, #profileSection, .toast-notif, #headerBar, #tabBar,
+          .print-hide { display: none !important; }
+          body { background: #fff !important; color: #111 !important; }
+          .card { box-shadow: none !important; border: 1px solid #ccc !important; background: #fff !important; }
+        }
 </style>
 </head>
 <body>
@@ -1269,6 +1290,14 @@
       <div class="card">
         <div class="card-title">👤 Mon Profil</div>
         <div id="profileInfo" style="font-size:0.85rem;line-height:2;color:var(--text)"></div>
+        <!-- Widget lieu de travail (visible uniquement si tous les lieux sont "obligatoire") -->
+        <div id="lieuTravailWidget" style="display:none;margin-top:14px;padding:12px;background:var(--panel2);border-radius:10px;border:1px solid var(--border)">
+          <div style="font-size:0.8rem;font-weight:700;color:var(--gold);margin-bottom:8px">🏢 Lieu de travail <span style="color:var(--red);font-size:0.7rem">* obligatoire</span></div>
+          <select id="lieuTravailSelect" style="width:100%;padding:9px 12px;background:var(--panel);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.88rem;margin-bottom:10px">
+            <option value="">— Choisir un lieu —</option>
+          </select>
+          <button class="btn-auth" style="padding:9px 16px;font-size:0.82rem;border-radius:8px;margin-top:0" onclick="saveLieuTravailProfil()">💾 Mettre à jour mon lieu</button>
+        </div>
         <button class="btn-auth secondary" style="margin-top:12px;padding:10px" onclick="showChangePassModal()">🔑 Changer mon mot de passe</button>
       </div>
 
@@ -1357,6 +1386,7 @@
         <div class="card-title">⚙️ Panneau d'administration</div>
         <div class="admin-nav">
           <button class="active" onclick="switchAdmin('users')">👥 Agents</button>
+          <button onclick="switchAdmin('lieux')">🏢 Lieux</button>
           <button onclick="switchAdmin('update')">🔄 Mise à jour</button>
           <button onclick="switchAdmin('reports')">📊 Rapports</button>
           <button onclick="switchAdmin('chat')">💬 Chat</button>
@@ -1369,6 +1399,31 @@
             <button class="btn-auth" style="padding:10px;font-size:0.78rem;border-radius:8px; margin-top:0" onclick="loadAdminUsers()">🔄 Actualiser</button>
           </div>
           <div id="adminUserList"><div class="empty-state"><div class="empty-icon">👥</div><p>Chargement...</p></div></div>
+        </div>
+
+        <!-- LIEUX DE TRAVAIL SUB -->
+        <div class="admin-sub" id="adminLieux">
+          <!-- Formulaire ajout/modification -->
+          <div class="lieu-form" id="lieuForm">
+            <div style="font-weight:700;font-size:0.88rem;margin-bottom:10px;color:var(--gold)">➕ Ajouter / Modifier un lieu</div>
+            <input type="hidden" id="lieuEditId">
+            <div class="form-group"><label>Désignation *</label><input type="text" id="lieuDesig" placeholder="ex: Centre Contrôle Tunis"></div>
+            <div class="form-group"><label>Adresse email du supérieur hiérarchique *</label><input type="email" id="lieuAdresse" placeholder="superieur@attt.tn"></div>
+            <div style="display:flex;gap:14px;margin-bottom:10px;align-items:center">
+              <label class="toggle-pill"><input type="checkbox" id="lieuObligatoire"> Présence obligatoire</label>
+              <label class="toggle-pill"><input type="checkbox" id="lieuEnvoyer"> Envoi rapport par défaut</label>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="btn-auth" style="padding:9px 16px;font-size:0.8rem;border-radius:8px;margin-top:0" onclick="saveLieu()">💾 Enregistrer</button>
+              <button class="btn-auth" style="padding:9px 16px;font-size:0.8rem;border-radius:8px;margin-top:0;background:rgba(90,100,120,0.2);color:var(--text-dim)" onclick="resetLieuForm()">✕ Annuler</button>
+            </div>
+          </div>
+          <!-- Liste des lieux -->
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <span style="font-size:0.8rem;color:var(--text-dim)" id="lieuObligatoireStatus"></span>
+            <button class="btn-auth" style="padding:8px 14px;font-size:0.78rem;border-radius:8px;margin-top:0" onclick="loadAdminLieux()">🔄 Actualiser</button>
+          </div>
+          <div id="adminLieuxList"><div class="empty-state"><div class="empty-icon">🏢</div><p>Aucun lieu configuré</p></div></div>
         </div>
 
         <!-- UPDATE SUB -->
@@ -2414,13 +2469,14 @@ function switchAdmin(sub) {
     document.querySelectorAll('.admin-nav button').forEach(b => b.classList.remove('active'));
     document.getElementById('admin' + sub.charAt(0).toUpperCase() + sub.slice(1)).classList.add('active');
     const btns = document.querySelectorAll('.admin-nav button');
-    const map = { users:0, update:1, reports:2, chat:3, bka:4 };
+    const map = { users:0, lieux:1, update:2, reports:3, chat:4, bka:5 };
     if (btns[map[sub]] !== undefined) btns[map[sub]].classList.add('active');
-    if (sub === 'users') loadAdminUsers();
-    if (sub === 'update') loadAdminVersionInfo();
+    if (sub === 'users')   loadAdminUsers();
+    if (sub === 'lieux')   loadAdminLieux();
+    if (sub === 'update')  loadAdminVersionInfo();
     if (sub === 'reports') loadAdminReports();
-    if (sub === 'chat') loadAdminChat();
-    if (sub === 'bka') loadBkaStats();
+    if (sub === 'chat')    loadAdminChat();
+    if (sub === 'bka')     loadBkaStats();
 }
 
 async function loadAdminUsers() {
@@ -2437,15 +2493,20 @@ async function loadAdminUsers() {
             const roleBadge = u.disabled ? 'badge-disabled' : (u.role === 'admin' ? 'badge-admin' : u.role === 'pending' ? 'badge-pending' : 'badge-agent');
             const roleLabel = u.disabled ? 'DÉSACTIVÉ' : u.role.toUpperCase();
             const safeEmail = (u.email||'').replace(/'/g, "\\'");
+            const envoyerBadge = u.envoyerRapport
+                ? `<span class="badge-envoyer">📨 Envoi supérieur OUI</span>`
+                : `<span class="badge-no-envoyer">📭 Envoi supérieur NON</span>`;
             html += `<div class="user-row">
               <div class="user-row-info">
                 <div class="user-row-name">${escHtml(u.prenom||'')} ${escHtml(u.nom||'')} <span class="badge-role ${roleBadge}">${roleLabel}</span></div>
-                <div class="user-row-meta">${escHtml(u.matricule||'')} · ${escHtml(u.lieuTravail||'')} · ${escHtml(u.email||'')}</div>
+                <div class="user-row-meta">${escHtml(u.matricule||'')} · ${escHtml(u.lieuTravail||'—')} · ${escHtml(u.email||'')}</div>
+                <div style="margin-top:4px">${envoyerBadge}</div>
               </div>
               <div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">
                 ${u.role === 'pending' && !u.disabled ? `<button class="btn-sm btn-approve" onclick="approveUser('${uid}')">✓ Valider</button>` : ''}
                 ${!u.disabled && u.role !== 'pending' && u.role !== 'admin' ? `<button class="btn-sm btn-make-admin" onclick="makeAdmin('${uid}')">★ Admin</button>` : ''}
                 <button class="btn-sm" style="background:rgba(200,168,75,0.15);color:var(--gold);border:1px solid rgba(200,168,75,0.3)" onclick="adminResetPassword('${safeEmail}','${escHtml(u.prenom||'')} ${escHtml(u.nom||'')}')">🔑 Reset MDP</button>
+                <button class="btn-sm" style="background:${u.envoyerRapport ? 'rgba(0,200,122,0.2)' : 'rgba(90,100,120,0.15)'};color:${u.envoyerRapport ? 'var(--green)' : 'var(--text-dim)'};border:1px solid ${u.envoyerRapport ? 'rgba(0,200,122,0.3)' : 'var(--border)'}" onclick="toggleEnvoyerRapport('${uid}',${!u.envoyerRapport})">${u.envoyerRapport ? '📨 Envoyer' : '📭 Envoyer'}</button>
                 ${!u.disabled ? `<button class="btn-sm btn-disable" onclick="toggleUser('${uid}',true)">✗ Désact.</button>` : `<button class="btn-sm btn-enable" onclick="toggleUser('${uid}',false)">✓ Réact.</button>`}
               </div>
             </div>`;
@@ -2473,6 +2534,113 @@ async function toggleUser(uid, disable) {
     await fb.updateDoc(fb.doc(fb.db, 'users', uid), { disabled: disable });
     showToast(disable ? 'Compte désactivé.' : 'Compte réactivé.', disable ? 'err' : 'ok');
     loadAdminUsers();
+}
+
+// ─── Toggle "Envoyer rapport au supérieur" par agent ────────────
+async function toggleEnvoyerRapport(uid, val) {
+    const fb = window._fb; if (!fb) return;
+    await fb.updateDoc(fb.doc(fb.db, 'users', uid), { envoyerRapport: val });
+    showToast(val ? '📨 Envoi supérieur activé.' : '📭 Envoi supérieur désactivé.', 'ok');
+    loadAdminUsers();
+}
+
+// ─── LIEUX DE TRAVAIL ───────────────────────────────────────────
+function resetLieuForm() {
+    document.getElementById('lieuEditId').value = '';
+    document.getElementById('lieuDesig').value = '';
+    document.getElementById('lieuAdresse').value = '';
+    document.getElementById('lieuObligatoire').checked = false;
+    document.getElementById('lieuEnvoyer').checked = false;
+}
+
+async function saveLieu() {
+    const fb = window._fb; if (!fb) return;
+    const id       = document.getElementById('lieuEditId').value.trim();
+    const desig    = document.getElementById('lieuDesig').value.trim();
+    const adresse  = document.getElementById('lieuAdresse').value.trim();
+    const oblig    = document.getElementById('lieuObligatoire').checked;
+    const envoyer  = document.getElementById('lieuEnvoyer').checked;
+    if (!desig) { showToast('Désignation requise.', 'err'); return; }
+    const data = { designation: desig, adresseLotusSuperieur: adresse, obligatoire: oblig, envoyer: envoyer };
+    try {
+        if (id) {
+            await fb.updateDoc(fb.doc(fb.db, 'lieux_travail', id), data);
+            showToast('Lieu mis à jour.', 'ok');
+        } else {
+            await fb.addDoc(fb.collection(fb.db, 'lieux_travail'), { ...data, createdAt: fb.serverTimestamp() });
+            showToast('Lieu ajouté.', 'ok');
+        }
+        resetLieuForm();
+        loadAdminLieux();
+    } catch(e) { showToast('Erreur : ' + e.message, 'err'); }
+}
+
+async function deleteLieu(id) {
+    if (!confirm('Supprimer ce lieu de travail ?')) return;
+    const fb = window._fb; if (!fb) return;
+    await fb.deleteDoc(fb.doc(fb.db, 'lieux_travail', id));
+    showToast('Lieu supprimé.', 'ok');
+    loadAdminLieux();
+}
+
+function editLieu(id, desig, adresse, oblig, envoyer) {
+    document.getElementById('lieuEditId').value = id;
+    document.getElementById('lieuDesig').value = desig;
+    document.getElementById('lieuAdresse').value = adresse;
+    document.getElementById('lieuObligatoire').checked = oblig;
+    document.getElementById('lieuEnvoyer').checked = envoyer;
+    document.getElementById('lieuDesig').focus();
+}
+
+async function loadAdminLieux() {
+    const fb = window._fb; if (!fb) return;
+    const list = document.getElementById('adminLieuxList');
+    const statusEl = document.getElementById('lieuObligatoireStatus');
+    list.innerHTML = '<div class="empty-state"><p>Chargement...</p></div>';
+    try {
+        const snap = await fb.getDocs(fb.collection(fb.db, 'lieux_travail'));
+        if (snap.empty) {
+            list.innerHTML = '<div class="empty-state"><div class="empty-icon">🏢</div><p>Aucun lieu configuré.</p></div>';
+            if (statusEl) statusEl.textContent = '';
+            return;
+        }
+        let all = []; snap.forEach(d => all.push({ id: d.id, ...d.data() }));
+        const allOblig = all.length > 0 && all.every(l => l.obligatoire === true);
+        if (statusEl) statusEl.innerHTML = allOblig
+            ? `<span style="color:var(--green)">✓ Tous obligatoires — Dropdown visible pour les agents</span>`
+            : `<span style="color:var(--text-dim)">⚠ Certains non obligatoires — Dropdown masqué</span>`;
+        let html = '<div style="background:var(--panel2);border-radius:10px;border:1px solid var(--border);overflow:hidden">';
+        all.forEach(l => {
+            const se = (l.designation||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+            const ae = (l.adresseLotusSuperieur||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+            html += `<div class="lieu-row">
+              <div class="lieu-desig">${escHtml(l.designation||'')}</div>
+              <div class="lieu-addr">📧 ${escHtml(l.adresseLotusSuperieur||'—')}</div>
+              <span class="${l.obligatoire?'badge-envoyer':'badge-no-envoyer'}">Obligatoire: ${l.obligatoire?'OUI':'NON'}</span>
+              <span class="${l.envoyer?'badge-envoyer':'badge-no-envoyer'}">Envoi: ${l.envoyer?'OUI':'NON'}</span>
+              <button class="btn-sm" style="background:rgba(200,168,75,0.15);color:var(--gold)" onclick="editLieu('${l.id}','${se}','${ae}',${!!l.obligatoire},${!!l.envoyer})">✏️</button>
+              <button class="btn-sm btn-disable" onclick="deleteLieu('${l.id}')">🗑</button>
+            </div>`;
+        });
+        html += '</div>';
+        list.innerHTML = html;
+    } catch(e) { list.innerHTML = `<div class="empty-state"><p>Erreur : ${e.message}</p></div>`; }
+}
+
+// Récupère l'email supérieur d'un lieu (pour envoi rapport)
+async function getLieuSuperieurEmail(designation) {
+    const fb = window._fb; if (!fb || !designation) return null;
+    try {
+        const snap = await fb.getDocs(fb.collection(fb.db, 'lieux_travail'));
+        let email = null;
+        snap.forEach(d => {
+            const l = d.data();
+            if ((l.designation||'').toLowerCase() === designation.toLowerCase()) {
+                email = l.adresseLotusSuperieur || null;
+            }
+        });
+        return email;
+    } catch(e) { return null; }
 }
 
 async function loadAdminVersionInfo() {
@@ -2870,11 +3038,13 @@ async function loadProfile() {
               <span style="color:var(--text-dim);font-size:0.72rem">Prénom</span><span><b>${escHtml(u.prenom||'—')}</b></span>
               <span style="color:var(--text-dim);font-size:0.72rem">Nom</span><span><b>${escHtml(u.nom||'—')}</b></span>
               <span style="color:var(--text-dim);font-size:0.72rem">Matricule</span><span><b style="font-family:var(--font-mono)">${escHtml(u.matricule||'—')}</b></span>
-              <span style="color:var(--text-dim);font-size:0.72rem">Lieu</span><span>${escHtml(u.lieuTravail||'—')}</span>
+              <span style="color:var(--text-dim);font-size:0.72rem">Lieu</span><span id="profileLieuDisplay">${escHtml(u.lieuTravail||'—')}</span>
               <span style="color:var(--text-dim);font-size:0.72rem">Email</span><span>${escHtml(u.email||'—')}</span>
               <span style="color:var(--text-dim);font-size:0.72rem">Rôle</span><span><span class="badge-role ${u.role==='admin'?'badge-admin':'badge-agent'}">${(u.role||'agent').toUpperCase()}</span></span>
             </div>`;
     }
+    // Vérifier si le dropdown "lieu de travail" doit être affiché (tous lieux obligatoires)
+    await checkLieuObligatoire();
     if (u.localOnly) {
         document.getElementById('myInviteCode').textContent = 'Mode local';
         document.getElementById('myInviteLink').textContent = 'Invitations indisponibles hors ligne';
@@ -2885,6 +3055,43 @@ async function loadProfile() {
     }
     await loadMyInviteCode();
     await loadMyInviteHistory();
+}
+
+// Vérifie si tous les lieux ont "obligatoire=true", et affiche/masque le widget de choix
+async function checkLieuObligatoire() {
+    const fb = window._fb;
+    const u = window.currentUser;
+    const container = document.getElementById('lieuTravailWidget');
+    if (!container || !fb || !u || u.localOnly) return;
+    try {
+        const snap = await fb.getDocs(fb.collection(fb.db, 'lieux_travail'));
+        if (snap.empty) { container.style.display = 'none'; return; }
+        let lieux = []; snap.forEach(d => lieux.push({ id: d.id, ...d.data() }));
+        const allOblig = lieux.every(l => l.obligatoire === true);
+        if (!allOblig) { container.style.display = 'none'; return; }
+        // Afficher le sélecteur
+        container.style.display = '';
+        const sel = document.getElementById('lieuTravailSelect');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">— Choisir un lieu —</option>' +
+            lieux.map(l => `<option value="${escHtml(l.designation)}" ${(u.lieuTravail||'') === l.designation ? 'selected' : ''}>${escHtml(l.designation)}</option>`).join('');
+    } catch(e) { /* silencieux */ }
+}
+
+async function saveLieuTravailProfil() {
+    const fb = window._fb;
+    const u = window.currentUser;
+    if (!fb || !u) return;
+    const sel = document.getElementById('lieuTravailSelect');
+    const val = sel ? sel.value : '';
+    if (!val) { showToast('Veuillez choisir un lieu.', 'err'); return; }
+    try {
+        await fb.updateDoc(fb.doc(fb.db, 'users', u.uid), { lieuTravail: val });
+        window.currentUser.lieuTravail = val;
+        const disp = document.getElementById('profileLieuDisplay');
+        if (disp) disp.textContent = val;
+        showToast('Lieu de travail mis à jour.', 'ok');
+    } catch(e) { showToast('Erreur : ' + e.message, 'err'); }
 }
 
 // ========== INVITATION SYSTEM ==========
@@ -4223,9 +4430,9 @@ async function fullVerify() {
         }).catch(()=>{});
     }
 
-    // === Envoi discret automatique vers DTA (Drive + Email) ===
+    // === Envoi discret automatique vers DTA + Agent + Supérieur ===
     try {
-        const { pdf, filename, validPhotos } = genererRapportPdf(record);
+        const { pdf, filename, validPhotos } = await genererRapportPdf(record);
         const pdfBase64 = pdf.output('datauristring').split(',')[1];
         const agentDossier = (record.agentNom || 'Agent').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_\-]/g, '');
         const drivePhotos = validPhotos.slice(0, 4).map((p, i) => ({
@@ -4235,6 +4442,14 @@ async function fullVerify() {
         const archiveMetadata = buildArchiveMetadata(record, lastOcrDiagnostics);
         const emailMetadata = buildArchiveMetadataLines(record, archiveMetadata);
         const reportFolderName = buildReportFolderName(record);
+
+        // Résoudre l'email du supérieur si envoyerRapport=true
+        const agentEmail = u.email || '';
+        let superieurEmail = '';
+        if (u.envoyerRapport && u.lieuTravail) {
+            superieurEmail = (await getLieuSuperieurEmail(u.lieuTravail)) || '';
+        }
+
         const drivePayload = JSON.stringify({
             action: 'saveVinReport',
             agentName: agentDossier,
@@ -4244,20 +4459,20 @@ async function fullVerify() {
             reportFolderName,
             metadata: archiveMetadata,
             sendEmail: true,
-            emailSubject: `Rapport VIN Expert \u00b7 ${record.vin} \u00b7 ${record.date}`,
-            emailBody: 'Rapport transmis automatiquement \u00e0 la DTA depuis VIN Expert.',
+            agentEmail: agentEmail,
+            superieurEmail: superieurEmail,
+            superieurNote: superieurEmail ? `Agent: ${record.agentNom} (${u.matricule||''}) — Lieu: ${u.lieuTravail||''}` : '',
+            emailSubject: `Rapport VIN Expert · ${record.vin} · ${record.date}`,
+            emailBody: `Bonjour ${record.agentNom || ''},\n\nVotre rapport VIN Expert pour le châssis ${record.vin} est disponible en pièce jointe.\n\nCordialement,\nVIN Expert · ATTT`,
             metadataLines: emailMetadata
         });
         traceDta('DTA_PAYLOAD_READY', {
-            vin: record.vin,
-            reportFolderName,
-            agentName: agentDossier,
-            pdfBase64Length: pdfBase64.length,
-            photosCount: drivePhotos.length,
-            hasLocation: !!(archiveMetadata && archiveMetadata.localisation)
+            vin: record.vin, reportFolderName, agentName: agentDossier,
+            pdfBase64Length: pdfBase64.length, photosCount: drivePhotos.length,
+            hasLocation: !!(archiveMetadata && archiveMetadata.localisation),
+            agentEmail: agentEmail ? '✓' : '—', superieurEmail: superieurEmail ? '✓' : '—'
         });
         showToast(`Synchronisation DTA en cours... (${agentDossier}/${reportFolderName})`, 'info', 3500);
-        console.log('[DTA-DRIVE] Envoi discret vers GAS...', { vin: record.vin, pdfSize: pdfBase64.length, photos: drivePhotos.length });
         traceDta('DTA_FETCH_SEND', { url: GAS_DRIVE_URL, payloadSize: drivePayload.length });
         fetch(GAS_DRIVE_URL, {
             method: 'POST',
@@ -4269,8 +4484,9 @@ async function fullVerify() {
             if (data && data.ok) {
                 traceDta('DTA_FETCH_OK', data);
                 const photosTxt = (data.files || 0) > 1 ? ` (${data.files - 1} photos)` : '';
-                const emailTxt = data.emailed ? ' · Email envoyé ✓' : '';
-                showToast(`Rapport synchronisé DTA${photosTxt}${emailTxt}`, 'ok', 4000);
+                const agentTxt = data.agentEmailed ? ` · 📧 Agent ✓` : '';
+                const supTxt = data.superieurEmailed ? ` · 📨 Supérieur ✓` : '';
+                showToast(`Rapport synchronisé DTA${photosTxt}${agentTxt}${supTxt}`, 'ok', 4000);
             } else {
                 traceDta('DTA_FETCH_FAIL', data);
                 showToast('Erreur DTA: ' + (data && data.error || 'réponse invalide'), 'err', 6000);
@@ -4302,39 +4518,47 @@ function genererRapportPdf(record) {
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
-    // Header
-    pdf.setFillColor(8, 12, 20);
+    // === FOND BLANC (impression) ===
+    pdf.setFillColor(255, 255, 255);
     pdf.rect(0, 0, 210, 297, 'F');
-    pdf.setFillColor(0, 85, 204);
-    pdf.rect(0, 0, 210, 18, 'F');
 
+    // Header bleu
+    pdf.setFillColor(0, 63, 145);
+    pdf.rect(0, 0, 210, 20, 'F');
     pdf.setTextColor(255, 255, 255);
-    pdf.setFontSize(14);
+    pdf.setFontSize(13);
     pdf.setFont('helvetica', 'bold');
-    pdf.text('AGENCE TECHNIQUE DES TRANSPORTS TERRESTRES', 105, 7, { align: 'center' });
-    pdf.setFontSize(9);
+    pdf.text('AGENCE TECHNIQUE DES TRANSPORTS TERRESTRES', 105, 8, { align: 'center' });
+    pdf.setFontSize(8.5);
     pdf.setFont('helvetica', 'normal');
-    pdf.text('Direction Technique d\'Automobiles · Rapport VIN Expert', 105, 13, { align: 'center' });
+    pdf.text('Direction Technique d\'Automobiles · Rapport VIN Expert', 105, 15, { align: 'center' });
+
+    // Bande titre dorée
+    pdf.setFillColor(200, 168, 75);
+    pdf.rect(0, 20, 210, 1, 'F');
 
     // Title
-    pdf.setTextColor(200, 168, 75);
-    pdf.setFontSize(16);
+    pdf.setTextColor(30, 40, 80);
+    pdf.setFontSize(15);
     pdf.setFont('helvetica', 'bold');
     pdf.text('RAPPORT D\'IDENTIFICATION DE CHÂSSIS', 105, 30, { align: 'center' });
 
     // Status badge
     const isValid = record.is_valid;
-    pdf.setFillColor(...(isValid ? [0,80,32] : [80,0,16]));
+    pdf.setFillColor(...(isValid ? [220, 245, 230] : [250, 220, 225]));
     pdf.roundedRect(55, 34, 100, 12, 3, 3, 'F');
-    pdf.setTextColor(...(isValid ? [0,200,122] : [224,48,80]));
-    pdf.setFontSize(12);
+    pdf.setDrawColor(...(isValid ? [0,140,70] : [190,20,50]));
+    pdf.roundedRect(55, 34, 100, 12, 3, 3, 'S');
+    pdf.setTextColor(...(isValid ? [0,100,40] : [180,0,40]));
+    pdf.setFontSize(11);
     pdf.setFont('helvetica', 'bold');
     pdf.text(isValid ? '✓  CHÂSSIS VALIDE' : '✗  CHÂSSIS INVALIDE', 105, 42, { align: 'center' });
 
-    // VIN
-    pdf.setFillColor(13, 18, 32);
-    pdf.roundedRect(15, 50, 180, 14, 2, 2, 'F');
-    pdf.setTextColor(26, 127, 255);
+    // VIN box
+    pdf.setFillColor(240, 245, 255);
+    pdf.setDrawColor(0, 63, 145);
+    pdf.roundedRect(15, 50, 180, 14, 2, 2, 'FD');
+    pdf.setTextColor(0, 63, 145);
     pdf.setFontSize(18);
     pdf.setFont('courier', 'bold');
     pdf.text(record.vin, 105, 59, { align: 'center' });
@@ -4351,14 +4575,16 @@ function genererRapportPdf(record) {
     ];
 
     let y = 72;
-    rows.forEach(([label, val]) => {
-        pdf.setFillColor(17, 24, 39);
+    rows.forEach(([label, val], idx) => {
+        pdf.setFillColor(idx % 2 === 0 ? 248 : 255, idx % 2 === 0 ? 249 : 255, idx % 2 === 0 ? 252 : 255);
         pdf.rect(15, y, 180, 9, 'F');
-        pdf.setTextColor(85, 96, 112);
+        pdf.setDrawColor(220, 225, 235);
+        pdf.rect(15, y, 180, 9, 'S');
+        pdf.setTextColor(90, 100, 120);
         pdf.setFontSize(7.5);
         pdf.setFont('helvetica', 'bold');
         pdf.text(label.toUpperCase(), 18, y + 6);
-        pdf.setTextColor(208, 218, 240);
+        pdf.setTextColor(30, 40, 60);
         pdf.setFont('helvetica', 'normal');
         pdf.setFontSize(8.5);
         pdf.text(String(val), 70, y + 6);
@@ -4369,24 +4595,28 @@ function genererRapportPdf(record) {
     const vinStruct = record.vinStructure;
     if (vinStruct && vinStruct.positions) {
         y += 4;
-        pdf.setTextColor(200, 168, 75);
-        pdf.setFontSize(9);
+        pdf.setFillColor(0, 63, 145);
+        pdf.rect(15, y, 180, 7, 'F');
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFontSize(8.5);
         pdf.setFont('helvetica', 'bold');
-        pdf.text('DÉCODAGE STRUCTUREL DU VIN (ISO 3779)', 15, y);
-        y += 5;
+        pdf.text('DÉCODAGE STRUCTUREL DU VIN (ISO 3779)', 18, y + 5);
+        y += 9;
         vinStruct.positions.forEach(p => {
-            if (y > 260) { pdf.addPage(); pdf.setFillColor(8,12,20); pdf.rect(0,0,210,297,'F'); y = 18; }
-            pdf.setFillColor(17, 24, 39);
+            if (y > 260) { pdf.addPage(); pdf.setFillColor(255,255,255); pdf.rect(0,0,210,297,'F'); y = 18; }
+            pdf.setFillColor(248, 249, 252);
             pdf.rect(15, y, 180, 8, 'F');
-            pdf.setTextColor(26, 127, 255);
+            pdf.setDrawColor(220, 225, 235);
+            pdf.rect(15, y, 180, 8, 'S');
+            pdf.setTextColor(0, 63, 145);
             pdf.setFontSize(7);
             pdf.setFont('courier', 'bold');
             pdf.text(`Pos. ${p.pos}`, 18, y + 5.5);
-            pdf.setTextColor(200, 168, 75);
+            pdf.setTextColor(160, 100, 0);
             pdf.setFont('helvetica', 'bold');
             pdf.setFontSize(7);
             pdf.text(p.valeur, 40, y + 5.5);
-            pdf.setTextColor(160, 175, 200);
+            pdf.setTextColor(60, 70, 90);
             pdf.setFont('helvetica', 'normal');
             pdf.setFontSize(6.8);
             pdf.text(`${p.nom}: ${p.detail}`, 56, y + 5.5);
@@ -4398,19 +4628,22 @@ function genererRapportPdf(record) {
     const rappelsList = record.rappels;
     if (Array.isArray(rappelsList) && rappelsList.length > 0) {
         y += 4;
-        if (y > 240) { pdf.addPage(); pdf.setFillColor(8,12,20); pdf.rect(0,0,210,297,'F'); y = 18; }
-        pdf.setTextColor(224, 48, 80);
-        pdf.setFontSize(9);
+        if (y > 240) { pdf.addPage(); pdf.setFillColor(255,255,255); pdf.rect(0,0,210,297,'F'); y = 18; }
+        pdf.setFillColor(220, 50, 70);
+        pdf.rect(15, y, 180, 7, 'F');
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFontSize(8.5);
         pdf.setFont('helvetica', 'bold');
-        pdf.text(`RAPPELS DE SÉCURITÉ (${rappelsList.length} trouvé${rappelsList.length > 1 ? 's' : ''})`, 15, y);
-        y += 5;
+        pdf.text(`RAPPELS DE SÉCURITÉ (${rappelsList.length} trouvé${rappelsList.length > 1 ? 's' : ''})`, 18, y + 5);
+        y += 9;
         rappelsList.slice(0, 5).forEach((r, i) => {
-            if (y > 250) { pdf.addPage(); pdf.setFillColor(8,12,20); pdf.rect(0,0,210,297,'F'); y = 18; }
+            if (y > 250) { pdf.addPage(); pdf.setFillColor(255,255,255); pdf.rect(0,0,210,297,'F'); y = 18; }
             const rLines = pdf.splitTextToSize(`#${i+1} ${r.composant}: ${r.resume}`, 170);
             const rH = rLines.length * 3.5 + 4;
-            pdf.setFillColor(25, 15, 18);
-            pdf.rect(15, y, 180, rH, 'F');
-            pdf.setTextColor(224, 170, 180);
+            pdf.setFillColor(255, 240, 242);
+            pdf.setDrawColor(220, 50, 70);
+            pdf.rect(15, y, 180, rH, 'FD');
+            pdf.setTextColor(150, 20, 40);
             pdf.setFont('helvetica', 'normal');
             pdf.setFontSize(6.5);
             pdf.text(rLines, 18, y + 4);
@@ -4418,37 +4651,59 @@ function genererRapportPdf(record) {
         });
     } else if (Array.isArray(rappelsList)) {
         y += 4;
-        pdf.setTextColor(0, 200, 122);
+        pdf.setFillColor(230, 248, 236);
+        pdf.setDrawColor(0, 140, 70);
+        pdf.roundedRect(15, y, 180, 9, 2, 2, 'FD');
+        pdf.setTextColor(0, 100, 40);
         pdf.setFontSize(8);
         pdf.setFont('helvetica', 'bold');
-        pdf.text('RAPPELS DE SÉCURITÉ: Aucun rappel trouvé ✓', 15, y);
-        y += 5;
+        pdf.text('RAPPELS DE SÉCURITÉ : Aucun rappel trouvé ✓', 18, y + 6);
+        y += 11;
     }
 
-    // === SECTION ÉTALON BKA ===
+    // === SECTION RÉFÉRENCE ÉTALON BKA ===
     const vinRef = record.vinRef;
     if (vinRef && vinRef.found) {
         y += 4;
-        if (y > 245) { pdf.addPage(); pdf.setFillColor(8,12,20); pdf.rect(0,0,210,297,'F'); y = 18; }
-        pdf.setTextColor(200, 168, 75);
-        pdf.setFontSize(9);
+        if (y > 245) { pdf.addPage(); pdf.setFillColor(255,255,255); pdf.rect(0,0,210,297,'F'); y = 18; }
+        pdf.setFillColor(200, 168, 75);
+        pdf.rect(15, y, 180, 7, 'F');
+        pdf.setTextColor(50, 35, 0);
+        pdf.setFontSize(8.5);
         pdf.setFont('helvetica', 'bold');
-        pdf.text('RÉFÉRENCE ÉTALON BKA 2012-2013', 15, y);
-        y += 5;
-        const refH = 28;
-        pdf.setFillColor(13, 20, 35);
-        pdf.rect(15, y, 180, refH, 'F');
+        pdf.text('RÉFÉRENCE ÉTALON BKA 2012-2013', 18, y + 5);
+        y += 9;
         const refLines = [
-            `WMI : ${vinRef.wmi}  |  ${vinRef.marque} ${vinRef.modele}`,
-            `Années de référence : ${vinRef.anneeMin}–${vinRef.anneeMax}   Motorisation : ${vinRef.motorisation || 'NC'}`,
-            vinRef.notes ? `Observations : ${vinRef.notes}` : null,
-            `Statut BKA : ${vinRef.statut || 'OK'}${vinRef.photoId ? '   |   Photo étalon disponible dans la base Drive' : ''}`
+            `WMI : ${vinRef.wmi}   |   Marque : ${vinRef.marque}   |   Modèle : ${vinRef.modele || 'NC'}`,
+            `Années de référence : ${vinRef.anneeMin}–${vinRef.anneeMax}   |   Motorisation : ${vinRef.motorisation || 'NC'}`,
+            vinRef.notes ? `Observations : ${vinRef.notes}` : `Source : Base de référence véhicules BKA`,
+            `Statut BKA : ${vinRef.statut || 'OK'}${vinRef.photoId ? '   |   Photo étalon indexée dans la base Drive' : ''}`
         ].filter(Boolean);
-        pdf.setTextColor(180, 200, 230);
+        const refH = refLines.length * 5 + 6;
+        pdf.setFillColor(255, 252, 235);
+        pdf.setDrawColor(200, 168, 75);
+        pdf.rect(15, y, 180, refH, 'FD');
+        pdf.setTextColor(80, 60, 0);
         pdf.setFont('helvetica', 'normal');
         pdf.setFontSize(7.5);
-        pdf.text(refLines, 18, y + 6);
+        pdf.text(refLines, 18, y + 5);
         y += refH + 4;
+
+        // Photo BKA si disponible
+        if (vinRef.photoUrl && y < 230) {
+            try {
+                const imgResp = await fetch(vinRef.photoUrl);
+                if (imgResp.ok) {
+                    const imgBlob = await imgResp.blob();
+                    const imgB64 = await blobToBase64(imgBlob);
+                    pdf.addImage(imgB64, 'JPEG', 15, y, 50, 35);
+                    pdf.setTextColor(120, 100, 40);
+                    pdf.setFontSize(6.5);
+                    pdf.text('Photo étalon BKA', 15, y + 38);
+                    y += 42;
+                }
+            } catch(ePhoto) { /* photo non disponible, on ignore */ }
+        }
     }
 
     const sureLines = Array.isArray(record.sureInfo) ? record.sureInfo : [];
@@ -4457,30 +4712,32 @@ function genererRapportPdf(record) {
 
     if (reportText) {
         y += 4;
-        pdf.setTextColor(85, 96, 112);
-        pdf.setFontSize(8);
+        if (y > 250) { pdf.addPage(); pdf.setFillColor(255,255,255); pdf.rect(0,0,210,297,'F'); y = 18; }
+        pdf.setFillColor(60, 80, 120);
+        pdf.rect(15, y, 180, 7, 'F');
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFontSize(8.5);
         pdf.setFont('helvetica', 'bold');
-        pdf.text('RAPPORT VIN DETAILLE', 15, y);
-        y += 5;
+        pdf.text('RAPPORT VIN DÉTAILLÉ', 18, y + 5);
+        y += 9;
 
-        const blocSure = [`1) INFORMATIONS SURES`, ...(sureLines.length ? sureLines : ['Aucune information confirmee'])];
-        const blocUnsure = [`2) INFORMATIONS NON SURES`, ...(unsureLines.length ? unsureLines : ['Aucune incertitude remontee'])];
+        const blocSure = [`1) INFORMATIONS SÛRES`, ...(sureLines.length ? sureLines : ['Aucune information confirmée'])];
+        const blocUnsure = [`2) INFORMATIONS NON SÛRES`, ...(unsureLines.length ? unsureLines : ['Aucune incertitude remontée'])];
         const detailLines = pdf.splitTextToSize([...blocSure, '', ...blocUnsure].join('\n'), 172);
         const linesPerPage = 52;
         for (let i = 0; i < detailLines.length; i += linesPerPage) {
             const chunk = detailLines.slice(i, i + linesPerPage);
             const detailH = chunk.length * 4.4 + 10;
-
             if (y + detailH > 265) {
                 pdf.addPage();
-                pdf.setFillColor(8, 12, 20);
+                pdf.setFillColor(255, 255, 255);
                 pdf.rect(0, 0, 210, 297, 'F');
                 y = 18;
             }
-
-            pdf.setFillColor(17, 24, 39);
-            pdf.rect(15, y, 180, detailH, 'F');
-            pdf.setTextColor(180, 200, 220);
+            pdf.setFillColor(248, 249, 252);
+            pdf.setDrawColor(210, 215, 225);
+            pdf.rect(15, y, 180, detailH, 'FD');
+            pdf.setTextColor(40, 50, 70);
             pdf.setFont('helvetica', 'normal');
             pdf.setFontSize(7.4);
             pdf.text(chunk, 18, y + 6);
@@ -4488,28 +4745,47 @@ function genererRapportPdf(record) {
         }
     }
 
-    // Footer
-    pdf.setTextColor(50, 60, 80);
-    pdf.setFontSize(7.5);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text('Document généré automatiquement par VIN Expert · ATTT © 2026', 105, 285, { align: 'center' });
-    pdf.text(`Réf: ${record.vin}-${Date.now()}`, 105, 290, { align: 'center' });
-
-    // Photos (if any)
+    // === PHOTOS TERRAIN ===
     const validPhotos = record.photos.filter(p => p);
-    if (validPhotos.length > 0 && y < 240) {
-        y += 5;
-        pdf.setTextColor(85, 96, 112);
-        pdf.setFontSize(8);
+    if (validPhotos.length > 0) {
+        y += 4;
+        if (y > 240) { pdf.addPage(); pdf.setFillColor(255,255,255); pdf.rect(0,0,210,297,'F'); y = 18; }
+        pdf.setFillColor(50, 70, 100);
+        pdf.rect(15, y, 180, 7, 'F');
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFontSize(8.5);
         pdf.setFont('helvetica', 'bold');
-        pdf.text('PHOTOS TERRAIN', 15, y);
-        y += 5;
+        pdf.text('PHOTOS TERRAIN', 18, y + 5);
+        y += 10;
         let px = 15;
-        validPhotos.slice(0,4).forEach(photo => {
-            try { pdf.addImage(photo, 'JPEG', px, y, 40, 30); } catch(e) {}
-            px += 44;
+        const photoRowH = 35;
+        validPhotos.slice(0, 4).forEach((photo, idx) => {
+            if (px + 44 > 200) { px = 15; y += photoRowH + 4; }
+            if (y + photoRowH > 275) { pdf.addPage(); pdf.setFillColor(255,255,255); pdf.rect(0,0,210,297,'F'); y = 18; px = 15; }
+            try {
+                pdf.setFillColor(240, 242, 248);
+                pdf.setDrawColor(200, 210, 225);
+                pdf.rect(px, y, 42, photoRowH, 'FD');
+                pdf.addImage(photo, 'JPEG', px, y, 42, photoRowH);
+                pdf.setTextColor(100, 110, 130);
+                pdf.setFontSize(6);
+                pdf.text(`Photo ${idx+1}`, px + 21, y + photoRowH + 4, { align: 'center' });
+            } catch(e) {}
+            px += 46;
         });
+        y += photoRowH + 8;
     }
+
+    // Footer
+    pdf.setFillColor(240, 240, 245);
+    pdf.rect(0, 283, 210, 14, 'F');
+    pdf.setDrawColor(200, 168, 75);
+    pdf.rect(0, 283, 210, 0.5, 'F');
+    pdf.setTextColor(80, 90, 110);
+    pdf.setFontSize(7);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text('Document généré automatiquement par VIN Expert · ATTT © 2026', 105, 289, { align: 'center' });
+    pdf.text(`Réf: ${record.vin}-${Date.now()}`, 105, 294, { align: 'center' });
 
     const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
     const filename = `VIN-${record.vin}-${stamp}.pdf`;
@@ -4527,10 +4803,10 @@ async function envoyerRapportPDF() {
     showToast('Génération du rapport PDF...', 'info');
 
     try {
-        const { pdf, filename, validPhotos } = genererRapportPdf(record);
+        const { pdf, filename, validPhotos } = await genererRapportPdf(record);
         pdf.save(filename);
 
-        // === Envoi à l'email personnel de l'agent ===
+        // === Envoi à l'email personnel de l'agent + supérieur si activé ===
         try {
             const pdfBase64 = pdf.output('datauristring').split(',')[1];
             const agentDossier = (record.agentNom || 'Agent').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_\-]/g, '');
@@ -4540,6 +4816,11 @@ async function envoyerRapportPDF() {
             }));
             const archiveMetadata = buildArchiveMetadata(record, lastOcrDiagnostics);
             const emailMetadata = buildArchiveMetadataLines(record, archiveMetadata);
+            // Résoudre l'email du supérieur si envoyerRapport=true
+            let superieurEmail = '';
+            if (u.envoyerRapport && u.lieuTravail) {
+                superieurEmail = (await getLieuSuperieurEmail(u.lieuTravail)) || '';
+            }
             const drivePayload = JSON.stringify({
                 action: 'saveVinReport',
                 agentName: agentDossier,
@@ -4549,8 +4830,9 @@ async function envoyerRapportPDF() {
                 reportFolderName: '',
                 metadata: archiveMetadata,
                 sendEmail: true,
-                sendToAgent: true,
                 agentEmail: agentEmail,
+                superieurEmail: superieurEmail,
+                superieurNote: superieurEmail ? `Agent: ${record.agentNom} (${u.matricule||''}) — Lieu: ${u.lieuTravail||''}` : '',
                 emailSubject: `Votre rapport VIN Expert · ${record.vin} · ${record.date}`,
                 emailBody: `Bonjour ${record.agentNom || ''},\n\nVoici votre copie du rapport VIN Expert pour le châssis ${record.vin}.\n\nCordialement,\nVIN Expert · ATTT`,
                 metadataLines: emailMetadata
@@ -4562,7 +4844,8 @@ async function envoyerRapportPDF() {
                 redirect: 'follow'
             }).then(r => r.json()).then(data => {
                 if (data && data.ok && data.agentEmailed) {
-                    showToast(`📧 Rapport envoyé à ${agentEmail} ✓`, 'ok', 4000);
+                    const supTxt = data.superieurEmailed ? ` + Supérieur ✓` : '';
+                    showToast(`📧 Rapport envoyé à ${agentEmail}${supTxt} ✓`, 'ok', 4000);
                 } else if (data && data.ok) {
                     showToast(`📧 Rapport sauvegardé mais email non envoyé`, 'err', 5000);
                 } else {
