@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.5.6";
+            window.APP_VERSION = "2.5.7";
 
             try {
                 const app = initializeApp(firebaseConfig);
@@ -1433,9 +1433,24 @@
             </div>
           </div>
           <!-- Liste des lieux -->
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-            <span style="font-size:0.8rem;color:var(--text-dim)" id="lieuObligatoireStatus"></span>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <label style="display:flex;align-items:center;gap:6px;font-size:0.8rem;cursor:pointer;padding:7px 10px;background:rgba(255,255,255,0.05);border-radius:8px;border:1px solid var(--border)">
+                <input type="checkbox" id="selectAllLieux" onchange="toggleSelectAllLieux(this.checked)" style="width:16px;height:16px;cursor:pointer;">
+                <span>Tout sélectionner</span>
+              </label>
+              <span style="font-size:0.8rem;color:var(--text-dim)" id="lieuObligatoireStatus"></span>
+            </div>
             <button class="btn-auth" style="padding:8px 14px;font-size:0.78rem;border-radius:8px;margin-top:0" onclick="loadAdminLieux()">🔄 Actualiser</button>
+          </div>
+          <div id="lieuBulkBar" style="display:none;margin-bottom:10px;padding:10px;background:rgba(0,120,220,0.1);border:1px solid rgba(0,120,220,0.3);border-radius:10px;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span id="lieuBulkCount" style="font-size:0.8rem;color:var(--text-dim);flex:1">0 sélectionné(s)</span>
+            <button class="btn-sm" style="background:rgba(0,200,122,0.2);color:var(--green);border:1px solid rgba(0,200,122,0.3)" onclick="bulkSetObligatoire(true)">✓ Obligatoire OUI</button>
+            <button class="btn-sm" style="background:rgba(90,100,120,0.15);color:var(--text-dim);border:1px solid var(--border)" onclick="bulkSetObligatoire(false)">✗ Obligatoire NON</button>
+            <button class="btn-sm" style="background:rgba(0,200,122,0.2);color:var(--green);border:1px solid rgba(0,200,122,0.3)" onclick="bulkSetEnvoyer(true)">📨 Envoi OUI</button>
+            <button class="btn-sm" style="background:rgba(90,100,120,0.15);color:var(--text-dim);border:1px solid var(--border)" onclick="bulkSetEnvoyer(false)">📭 Envoi NON</button>
+            <button class="btn-sm btn-disable" onclick="bulkDeleteLieux()">🗑 Supprimer</button>
+            <button class="btn-sm" style="background:rgba(224,48,80,0.15);color:#e03050;border:1px solid rgba(224,48,80,0.3)" onclick="deselectAllLieux()">✕ Désélectionner</button>
           </div>
           <div id="adminLieuxList"><div class="empty-state"><div class="empty-icon">🏢</div><p>Aucun lieu configuré</p></div></div>
         </div>
@@ -2669,6 +2684,11 @@ function editLieu(id, desig, adresse, oblig, envoyer) {
 
 async function loadAdminLieux() {
     const fb = window._fb; if (!fb) return;
+    // Reset sélection
+    const selAll = document.getElementById('selectAllLieux');
+    if (selAll) { selAll.checked = false; selAll.indeterminate = false; }
+    const bar = document.getElementById('lieuBulkBar');
+    if (bar) bar.style.display = 'none';
     const list = document.getElementById('adminLieuxList');
     const statusEl = document.getElementById('lieuObligatoireStatus');
     list.innerHTML = '<div class="empty-state"><p>Chargement...</p></div>';
@@ -2682,24 +2702,107 @@ async function loadAdminLieux() {
         let all = []; snap.forEach(d => all.push({ id: d.id, ...d.data() }));
         const allOblig = all.length > 0 && all.every(l => l.obligatoire === true);
         if (statusEl) statusEl.innerHTML = allOblig
-            ? `<span style="color:var(--green)">✓ Tous obligatoires — Dropdown visible pour les agents</span>`
+            ? `<span style="color:var(--green)">✓ Tous obligatoires — Dropdown visible</span>`
             : `<span style="color:var(--text-dim)">⚠ Certains non obligatoires — Dropdown masqué</span>`;
         let html = '<div style="background:var(--panel2);border-radius:10px;border:1px solid var(--border);overflow:hidden">';
         all.forEach(l => {
             const se = (l.designation||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
             const ae = (l.adresseLotusSuperieur||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
-            html += `<div class="lieu-row">
-              <div class="lieu-desig">${escHtml(l.designation||'')}</div>
-              <div class="lieu-addr">📧 ${escHtml(l.adresseLotusSuperieur||'—')}</div>
-              <span class="${l.obligatoire?'badge-envoyer':'badge-no-envoyer'}">Obligatoire: ${l.obligatoire?'OUI':'NON'}</span>
-              <span class="${l.envoyer?'badge-envoyer':'badge-no-envoyer'}">Envoi: ${l.envoyer?'OUI':'NON'}</span>
-              <button class="btn-sm" style="background:rgba(200,168,75,0.15);color:var(--gold)" onclick="editLieu('${l.id}','${se}','${ae}',${!!l.obligatoire},${!!l.envoyer})">✏️</button>
-              <button class="btn-sm btn-disable" onclick="deleteLieu('${l.id}')">🗑</button>
+            html += `<div class="lieu-row" style="display:flex;gap:8px;align-items:flex-start">
+              <label style="display:flex;align-items:center;padding-top:2px;cursor:pointer;flex-shrink:0">
+                <input type="checkbox" class="lieu-cb" data-id="${l.id}" onchange="updateLieuBulkBar()" style="width:16px;height:16px;cursor:pointer;accent-color:var(--blue)">
+              </label>
+              <div style="flex:1;min-width:0">
+                <div class="lieu-desig">${escHtml(l.designation||'')}</div>
+                <div class="lieu-addr">📧 ${escHtml(l.adresseLotusSuperieur||'-')}</div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
+                  <span class="${l.obligatoire?'badge-envoyer':'badge-no-envoyer'}">Obligatoire: ${l.obligatoire?'OUI':'NON'}</span>
+                  <span class="${l.envoyer?'badge-envoyer':'badge-no-envoyer'}">Envoi: ${l.envoyer?'OUI':'NON'}</span>
+                </div>
+              </div>
+              <div style="display:flex;gap:5px;flex-shrink:0">
+                <button class="btn-sm" style="background:rgba(200,168,75,0.15);color:var(--gold)" onclick="editLieu('${l.id}','${se}','${ae}',${!!l.obligatoire},${!!l.envoyer})">✏️</button>
+                <button class="btn-sm btn-disable" onclick="deleteLieu('${l.id}')">🗑</button>
+              </div>
             </div>`;
         });
         html += '</div>';
         list.innerHTML = html;
     } catch(e) { list.innerHTML = `<div class="empty-state"><p>Erreur : ${e.message}</p></div>`; }
+}
+
+function updateLieuBulkBar() {
+    const checked = document.querySelectorAll('.lieu-cb:checked');
+    const bar = document.getElementById('lieuBulkBar');
+    const count = document.getElementById('lieuBulkCount');
+    if (checked.length > 0) {
+        bar.style.display = 'flex';
+        count.textContent = `${checked.length} lieu(x) sélectionné(s)`;
+    } else {
+        bar.style.display = 'none';
+    }
+    const all = document.querySelectorAll('.lieu-cb');
+    const selAll = document.getElementById('selectAllLieux');
+    if (selAll) {
+        selAll.checked = all.length > 0 && checked.length === all.length;
+        selAll.indeterminate = checked.length > 0 && checked.length < all.length;
+    }
+}
+
+function toggleSelectAllLieux(checked) {
+    document.querySelectorAll('.lieu-cb').forEach(cb => { cb.checked = checked; });
+    updateLieuBulkBar();
+}
+
+function deselectAllLieux() {
+    document.querySelectorAll('.lieu-cb').forEach(cb => { cb.checked = false; });
+    const selAll = document.getElementById('selectAllLieux');
+    if (selAll) { selAll.checked = false; selAll.indeterminate = false; }
+    const bar = document.getElementById('lieuBulkBar');
+    if (bar) bar.style.display = 'none';
+}
+
+async function bulkSetObligatoire(val) {
+    const fb = window._fb; if (!fb) return;
+    const checked = document.querySelectorAll('.lieu-cb:checked');
+    if (checked.length === 0) return;
+    showToast(`Mise à jour de ${checked.length} lieu(x)...`, 'info', 2000);
+    try {
+        await Promise.all([...checked].map(cb =>
+            fb.updateDoc(fb.doc(fb.db, 'lieux_travail', cb.dataset.id), { obligatoire: val })
+        ));
+        showToast(`${checked.length} lieu(x) : Obligatoire ${val ? 'OUI' : 'NON'}.`, 'ok', 3000);
+    } catch(e) { showToast('Erreur : ' + e.message, 'err'); }
+    loadAdminLieux();
+}
+
+async function bulkSetEnvoyer(val) {
+    const fb = window._fb; if (!fb) return;
+    const checked = document.querySelectorAll('.lieu-cb:checked');
+    if (checked.length === 0) return;
+    showToast(`Mise à jour de ${checked.length} lieu(x)...`, 'info', 2000);
+    try {
+        await Promise.all([...checked].map(cb =>
+            fb.updateDoc(fb.doc(fb.db, 'lieux_travail', cb.dataset.id), { envoyer: val })
+        ));
+        showToast(`${checked.length} lieu(x) : Envoi ${val ? 'OUI' : 'NON'}.`, 'ok', 3000);
+    } catch(e) { showToast('Erreur : ' + e.message, 'err'); }
+    loadAdminLieux();
+}
+
+async function bulkDeleteLieux() {
+    const fb = window._fb; if (!fb) return;
+    const checked = document.querySelectorAll('.lieu-cb:checked');
+    if (checked.length === 0) return;
+    if (!confirm(`Supprimer ${checked.length} lieu(x) sélectionné(s) ?`)) return;
+    showToast(`Suppression de ${checked.length} lieu(x)...`, 'info', 2000);
+    try {
+        await Promise.all([...checked].map(cb =>
+            fb.deleteDoc(fb.doc(fb.db, 'lieux_travail', cb.dataset.id))
+        ));
+        showToast(`${checked.length} lieu(x) supprimé(s).`, 'ok', 3000);
+    } catch(e) { showToast('Erreur : ' + e.message, 'err'); }
+    loadAdminLieux();
 }
 
 // Récupère l'email supérieur d'un lieu (pour envoi rapport)
