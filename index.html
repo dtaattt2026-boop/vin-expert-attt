@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.5.0";
+            window.APP_VERSION = "2.5.3";
 
             try {
                 const app = initializeApp(firebaseConfig);
@@ -106,6 +106,8 @@
     
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
+        // Version définie tôt pour autoPurgeCache et SW
+        window.APP_VERSION = "2.5.3";
         // ══ Auto-purge cache si version différente OU force-update ══
         (async function autoPurgeCache() {
             try {
@@ -4514,7 +4516,7 @@ function blobToBase64(blob) {
     });
 }
 
-function genererRapportPdf(record) {
+async function genererRapportPdf(record) {
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
