@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.7.2";
+            window.APP_VERSION = "2.7.3";
             try {
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
@@ -5282,6 +5282,60 @@ async function genererRapportPdf(record) {
             .replace(/[^\x00-\xFF]/g, '?');
     };
 
+    const drawFooter = () => {
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        pdf.setFillColor(240, 240, 245);
+        pdf.rect(0, pageHeight - 14, pageWidth, 14, 'F');
+        pdf.setDrawColor(200, 168, 75);
+        pdf.rect(0, pageHeight - 14, pageWidth, 0.5, 'F');
+        pdf.setTextColor(80, 90, 110);
+        pdf.setFontSize(7);
+        pdf.setFont('helvetica', 'normal');
+        pdf.text('Document genere automatiquement par VIN Expert · ATTT © 2026', pageWidth / 2, pageHeight - 8, { align: 'center' });
+        pdf.text(`Ref: ${record.vin}-${Date.now()}`, pageWidth / 2, pageHeight - 3, { align: 'center' });
+    };
+
+    const getPdfImageFormat = (dataUrl) => /^data:image\/png/i.test(dataUrl || '') ? 'PNG' : 'JPEG';
+
+    const addFullPagePhoto = (photo, idx) => {
+        const props = pdf.getImageProperties(photo);
+        const orientation = props.width >= props.height ? 'landscape' : 'portrait';
+        const format = orientation === 'landscape' ? [297, 210] : [210, 297];
+
+        pdf.addPage(format, orientation);
+
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        const margin = 8;
+        const titleHeight = 9;
+        const captionHeight = 6;
+        const imageTop = margin + titleHeight + 4;
+        const availableWidth = pageWidth - (margin * 2);
+        const availableHeight = pageHeight - imageTop - margin - captionHeight;
+        const scale = Math.min(availableWidth / props.width, availableHeight / props.height);
+        const drawWidth = props.width * scale;
+        const drawHeight = props.height * scale;
+        const x = (pageWidth - drawWidth) / 2;
+        const y = imageTop + Math.max(0, (availableHeight - drawHeight) / 2);
+
+        pdf.setFillColor(255, 255, 255);
+        pdf.rect(0, 0, pageWidth, pageHeight, 'F');
+        pdf.setFillColor(50, 70, 100);
+        pdf.rect(margin, margin, pageWidth - (margin * 2), titleHeight, 'F');
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFontSize(8.5);
+        pdf.setFont('helvetica', 'bold');
+        pdf.text(`PHOTO TERRAIN ${idx + 1}`, margin + 3, margin + 6);
+
+        pdf.addImage(photo, getPdfImageFormat(photo), x, y, drawWidth, drawHeight, undefined, 'FAST');
+
+        pdf.setTextColor(100, 110, 130);
+        pdf.setFontSize(6.5);
+        pdf.setFont('helvetica', 'normal');
+        pdf.text(`Photo ${idx + 1}`, pageWidth / 2, pageHeight - margin, { align: 'center' });
+    };
+
     // === FOND BLANC (impression) ===
     pdf.setFillColor(255, 255, 255);
     pdf.rect(0, 0, 210, 297, 'F');
@@ -5558,46 +5612,17 @@ async function genererRapportPdf(record) {
     }
 
     // === PHOTOS TERRAIN ===
-    const validPhotos = record.photos.filter(p => p);
+    const validPhotos = (record.photos || []).filter(p => p);
     if (validPhotos.length > 0) {
-        y += 4;
-        if (y > 240) { pdf.addPage(); pdf.setFillColor(255,255,255); pdf.rect(0,0,210,297,'F'); y = 18; }
-        pdf.setFillColor(50, 70, 100);
-        pdf.rect(15, y, 180, 7, 'F');
-        pdf.setTextColor(255, 255, 255);
-        pdf.setFontSize(8.5);
-        pdf.setFont('helvetica', 'bold');
-        pdf.text('PHOTOS TERRAIN', 18, y + 5);
-        y += 10;
-        let px = 15;
-        const photoRowH = 35;
+        drawFooter();
         validPhotos.slice(0, 4).forEach((photo, idx) => {
-            if (px + 44 > 200) { px = 15; y += photoRowH + 4; }
-            if (y + photoRowH > 275) { pdf.addPage(); pdf.setFillColor(255,255,255); pdf.rect(0,0,210,297,'F'); y = 18; px = 15; }
             try {
-                pdf.setFillColor(240, 242, 248);
-                pdf.setDrawColor(200, 210, 225);
-                pdf.rect(px, y, 42, photoRowH, 'FD');
-                pdf.addImage(photo, 'JPEG', px, y, 42, photoRowH);
-                pdf.setTextColor(100, 110, 130);
-                pdf.setFontSize(6);
-                pdf.text(`Photo ${idx+1}`, px + 21, y + photoRowH + 4, { align: 'center' });
+                addFullPagePhoto(photo, idx);
             } catch(e) {}
-            px += 46;
         });
-        y += photoRowH + 8;
+    } else {
+        drawFooter();
     }
-
-    // Footer
-    pdf.setFillColor(240, 240, 245);
-    pdf.rect(0, 283, 210, 14, 'F');
-    pdf.setDrawColor(200, 168, 75);
-    pdf.rect(0, 283, 210, 0.5, 'F');
-    pdf.setTextColor(80, 90, 110);
-    pdf.setFontSize(7);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text('Document généré automatiquement par VIN Expert · ATTT © 2026', 105, 289, { align: 'center' });
-    pdf.text(`Réf: ${record.vin}-${Date.now()}`, 105, 294, { align: 'center' });
 
     const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
     const filename = `VIN-${record.vin}-${stamp}.pdf`;
