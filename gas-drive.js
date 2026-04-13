@@ -67,7 +67,7 @@ function doGet(e) {
           message: 'VIN Expert GAS Backend v1.0',
           deployed: true,
           timestamp: new Date().toISOString(),
-          capabilities: ['saveVinReport', 'sendEmail', 'Drive archival', 'lookupVinRef', 'lookupByMarque', 'initRefSheet', 'importBka']
+          capabilities: ['saveVinReport', 'sendEmail', 'Drive archival', 'lookupVinRef', 'lookupByMarque', 'initRefSheet', 'importBka', 'fetchVinExternal']
         }))
         .setMimeType(ContentService.MimeType.JSON);
     }
@@ -171,6 +171,19 @@ function doGet(e) {
           .createTextOutput(JSON.stringify({ ok: false, error: err.message }))
           .setMimeType(ContentService.MimeType.JSON);
       }
+    }
+
+    // ─── Proxy sources externes VIN (couleur, moteur, BV…) ──────
+    if (action === 'fetchVinExternal') {
+      var vin = (e.parameter.vin || '').replace(/[^A-HJ-NPR-Z0-9]/gi, '').toUpperCase();
+      if (!vin || vin.length !== 17) {
+        return ContentService
+          .createTextOutput(JSON.stringify({ ok: false, error: 'VIN invalide' }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      return ContentService
+        .createTextOutput(JSON.stringify(fetchVinExternalData(vin)))
+        .setMimeType(ContentService.MimeType.JSON);
     }
 
     return ContentService
@@ -1042,4 +1055,117 @@ function getMarqueWmiMap() {
     'geely'      : 'LSG', 'mg'         : 'SAJ', 'haval'      : 'LHG',
     'dfsk'       : 'LDF', 'jac'        : 'LH1'
   };
+}
+
+// ─── Proxy sources externes VIN ─────────────────────────────
+// Interroge carinfo.kiev.ua et sources complémentaires pour obtenir
+// couleur, numéro de moteur/BV et autres informations véhicule.
+function fetchVinExternalData(vin) {
+  var result = {
+    ok: false, found: false,
+    couleur: null, numeroMoteur: null, numeroBv: null,
+    autresInfos: [], source: null,
+    note: null
+  };
+
+  // ── Source 1 : carinfo.kiev.ua (registre ukrainien) ──────────
+  // Remarque : nécessite un CAPTCHA interactif pour afficher les données
+  // du registre — le scraping direct est bloqué. Les données seront présentes
+  // uniquement si le véhicule a été enregistré en Ukraine.
+  try {
+    var url1 = 'https://carinfo.kiev.ua/cars/vin?q=' + encodeURIComponent(vin);
+    var resp1 = UrlFetchApp.fetch(url1, {
+      muteHttpExceptions: true,
+      followRedirects: true,
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+    });
+    if (resp1.getResponseCode() === 200) {
+      var html1 = resp1.getContentText('UTF-8');
+      // Extraire couleur (plusieurs langues)
+      var colorMatch = html1.match(/(?:Колір|Цвет|Color|Kolor)[^\:]*:\s*<[^>]+>([^<]{2,40})</i)
+        || html1.match(/(?:Колір|Цвет|Color|Kolor)[^\:]*:[^\S\n]*([A-Za-zА-Яа-яÀ-ÿ ]{2,30})/i);
+      if (colorMatch && colorMatch[1].replace(/\s/g,'').length > 1) result.couleur = colorMatch[1].trim();
+      // Extraire numéro moteur
+      var motorMatch = html1.match(/(?:Двигун|Двигатель|Engine\s*(?:No|Number|#))[^\:]*:\s*<[^>]+>([^<]{3,30})</i)
+        || html1.match(/(?:motor|engine)\s*(?:no|number|serial|#)\s*[:\-]\s*([A-Z0-9\-]{3,25})/i);
+      if (motorMatch) result.numeroMoteur = motorMatch[1].trim();
+      // Extraire n° boîte vitesse
+      var bvMatch = html1.match(/(?:Коробка\s*передач|Gearbox\s*(?:No|Number)|Transmission\s*(?:No|Serial))[^\:]*:\s*<[^>]+>([^<]{3,30})</i)
+        || html1.match(/(?:gearbox|transmission)\s*(?:no|serial|#)\s*[:\-]\s*([A-Z0-9\-]{3,25})/i);
+      if (bvMatch) result.numeroBv = bvMatch[1].trim();
+      if (result.couleur || result.numeroMoteur || result.numeroBv) {
+        result.ok = true;
+        result.found = true;
+        result.source = 'carinfo.kiev.ua';
+      }
+    }
+  } catch(e1) { /* source 1 indisponible ou CAPTCHA */ }
+
+  // ── Source 2 : NHTSA vPIC + vehicledatabases.com (fallback) ─
+  // Double essai : NHTSA avec Referer en premier, puis vehicledatabases.com
+  // si NHTSA est bloqué depuis les IPs Google Apps Script.
+  if (!result.found) {
+    var vpiSources = [
+      {
+        url: 'https://vpic.nhtsa.dot.gov/api/vehicles/decodevinvalues/' + encodeURIComponent(vin) + '?format=json',
+        opts: { muteHttpExceptions: true, headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0',
+          'Accept': 'application/json',
+          'Referer': 'https://vpic.nhtsa.dot.gov/decoder/'
+        }},
+        label: 'NHTSA vPIC'
+      },
+      {
+        url: 'https://api.vehicledatabases.com/vin-summary/' + encodeURIComponent(vin),
+        opts: { muteHttpExceptions: true, headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          'Accept': 'application/json'
+        }},
+        label: 'VehicleDatabases'
+      }
+    ];
+    for (var si = 0; si < vpiSources.length && !result.found; si++) {
+      try {
+        var resp2 = UrlFetchApp.fetch(vpiSources[si].url, vpiSources[si].opts);
+        if (resp2.getResponseCode() === 200) {
+          var json2 = JSON.parse(resp2.getContentText('UTF-8'));
+          var r2 = Array.isArray(json2.Results) && json2.Results.length > 0 ? json2.Results[0] : {};
+          var notEmpty = function(v) { return v && v !== 'Not Applicable' && v !== '0' && v.trim() !== ''; };
+          var infos = [];
+          if (notEmpty(r2.EngineConfiguration))  infos.push('Configuration moteur: ' + r2.EngineConfiguration);
+          if (notEmpty(r2.EngineManufacturer))   infos.push('Fabricant moteur: ' + r2.EngineManufacturer);
+          if (notEmpty(r2.EngineModel))          infos.push('Code moteur: ' + r2.EngineModel);
+          if (notEmpty(r2.EngineCylinders))      infos.push('Cylindres: ' + r2.EngineCylinders);
+          if (notEmpty(r2.EngineHP))             infos.push('Puissance moteur: ' + r2.EngineHP + ' ch');
+          if (notEmpty(r2.DisplacementL))        infos.push('Cylindrée: ' + r2.DisplacementL + ' L');
+          if (notEmpty(r2.FuelTypePrimary))      infos.push('Carburant: ' + r2.FuelTypePrimary);
+          if (notEmpty(r2.Turbo) && r2.Turbo.toLowerCase() === 'yes') infos.push('Turbo: Oui');
+          if (notEmpty(r2.TransmissionStyle))    infos.push('Type BV: ' + r2.TransmissionStyle);
+          if (notEmpty(r2.TransmissionSpeeds))   infos.push('Rapports BV: ' + r2.TransmissionSpeeds);
+          if (notEmpty(r2.DriveType))            infos.push('Transmission: ' + r2.DriveType);
+          if (notEmpty(r2.BodyClass))            infos.push('Carrosserie: ' + r2.BodyClass);
+          if (notEmpty(r2.Doors))                infos.push('Portes: ' + r2.Doors);
+          if (notEmpty(r2.Series))               infos.push('Série: ' + r2.Series);
+          if (notEmpty(r2.Trim))                 infos.push('Finition: ' + r2.Trim);
+          if (notEmpty(r2.PlantCountry))         infos.push('Assemblé en: ' + r2.PlantCountry + (notEmpty(r2.PlantCity) ? ' / ' + r2.PlantCity : ''));
+          if (infos.length > 0) {
+            result.autresInfos = infos;
+            result.ok = true;
+            result.found = true;
+            result.source = vpiSources[si].label + ' (specs techniques)';
+          }
+        }
+      } catch(e2i) { /* source indisponible */ }
+    }
+  }
+
+  // ── Note importante ──────────────────────────────────────────
+  // La couleur réelle, le n° de série moteur et le n° de série BV
+  // sont des données physiques du véhicule non encodées dans le VIN.
+  // Ces informations se trouvent dans la carte grise ou les bases
+  // nationales (SIVAT/BDR Tunisie).
+  if (!result.couleur)     result.note = (result.note || '') + 'Couleur : disponible uniquement sur la carte grise. ';
+  if (!result.numeroMoteur) result.note = (result.note || '') + 'N° moteur/BV : données physiques non accessibles via API publique (voir carte grise). ';
+
+  return result;
 }
