@@ -281,16 +281,25 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',sans-serif;mi
           <button onclick="loadAgents()" style="background:transparent;color:var(--blue2);border:none;cursor:pointer;font-size:0.8rem;margin-left:auto">🔄 Actualiser</button>
         </div>
         <!-- Filtres avec compteurs -->
-        <div class="filter-bar" style="margin-bottom:10px">
-          <button class="filter-btn active" id="flt-all"      onclick="filterAgents('all',this)">Tous <span class="flt-cnt" id="cnt-all"></span></button>
-          <button class="filter-btn"        id="flt-pending"  onclick="filterAgents('pending',this)">⏳ En attente <span class="flt-cnt" id="cnt-pending"></span></button>
-          <button class="filter-btn"        id="flt-agent"    onclick="filterAgents('agent',this)">Agents <span class="flt-cnt" id="cnt-agent"></span></button>
-          <button class="filter-btn"        id="flt-admin"    onclick="filterAgents('admin',this)">★ Admins <span class="flt-cnt" id="cnt-admin"></span></button>
-          <button class="filter-btn"        id="flt-disabled" onclick="filterAgents('disabled',this)">Désactivés <span class="flt-cnt" id="cnt-disabled"></span></button>
+        <div class="filter-bar" style="margin-bottom:10px;flex-wrap:wrap;gap:6px">
+          <button class="filter-btn active" id="flt-all"        onclick="filterAgents('all',this)">Tous <span class="flt-cnt" id="cnt-all"></span></button>
+          <button class="filter-btn"        id="flt-pending"    onclick="filterAgents('pending',this)">⏳ En attente <span class="flt-cnt" id="cnt-pending"></span></button>
+          <button class="filter-btn"        id="flt-validated"  onclick="filterAgents('validated',this)">✅ Validés <span class="flt-cnt" id="cnt-validated"></span></button>
+          <button class="filter-btn"        id="flt-agent"      onclick="filterAgents('agent',this)">🧑 Agents <span class="flt-cnt" id="cnt-agent"></span></button>
+          <button class="filter-btn"        id="flt-admin"      onclick="filterAgents('admin',this)">★ Admins <span class="flt-cnt" id="cnt-admin"></span></button>
+          <button class="filter-btn"        id="flt-disabled"   onclick="filterAgents('disabled',this)">✗ Désactivés <span class="flt-cnt" id="cnt-disabled"></span></button>
         </div>
-        <!-- Barre de recherche -->
+        <!-- Filtre lieu de travail -->
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+          <label style="font-size:0.8rem;color:var(--dim);white-space:nowrap">📍 Lieu de travail :</label>
+          <select id="agentLieuFilter" onchange="filterByLieu(this.value)"
+            style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:7px 12px;color:var(--text);font-size:0.82rem;outline:none;flex:1;min-width:160px">
+            <option value="">— Tous les lieux —</option>
+          </select>
+        </div>
+        <!-- Barre de recherche (nom, prénom, matricule, email) -->
         <div style="position:relative;margin-bottom:12px">
-          <input type="text" id="agentSearch" placeholder="Rechercher par nom, matricule, lieu, email..." oninput="renderAgents()"
+          <input type="text" id="agentSearch" placeholder="Rechercher par nom, prénom, matricule, email..." oninput="renderAgents()"
             style="width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px 14px 10px 38px;color:var(--text);font-size:0.85rem;outline:none;box-sizing:border-box">
           <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--dim);pointer-events:none;font-size:0.9rem">🔍</span>
         </div>
@@ -853,6 +862,7 @@ async function loadDashboard() {
 // ══════════════════════════════════════════════
 let _agentsAll = [];
 let _agentsFilter = 'all';
+let _agentsLieuFilter = '';
 
 async function loadAgents() {
   const fb = window._fb; if (!fb) return;
@@ -861,6 +871,9 @@ async function loadAgents() {
     const snap = await fb.getDocs(fb.collection(fb.db, 'users'));
     _agentsAll = [];
     snap.forEach(d => _agentsAll.push({ id: d.id, ...d.data() }));
+    _agentsLieuFilter = '';
+    const lieuEl = document.getElementById('agentLieuFilter');
+    if (lieuEl) lieuEl.value = '';
     renderAgents();
   } catch(e) { toast('Erreur : ' + e.message, 'err'); }
 }
@@ -869,19 +882,28 @@ function filterAgents(f, btn) {
   _agentsFilter = f;
   document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
-  // Vider la recherche quand on change de filtre
+  // Vider la recherche et le filtre lieu quand on change de filtre
   const searchEl = document.getElementById('agentSearch');
   if (searchEl) searchEl.value = '';
+  _agentsLieuFilter = '';
+  const lieuEl = document.getElementById('agentLieuFilter');
+  if (lieuEl) lieuEl.value = '';
+  renderAgents();
+}
+
+function filterByLieu(val) {
+  _agentsLieuFilter = val;
   renderAgents();
 }
 
 function updateFilterCounts() {
   const counts = {
-    all:      _agentsAll.length,
-    pending:  _agentsAll.filter(u => u.role === 'pending' && !u.disabled).length,
-    agent:    _agentsAll.filter(u => u.role === 'agent'   && !u.disabled).length,
-    admin:    _agentsAll.filter(u => u.role === 'admin'   && !u.disabled).length,
-    disabled: _agentsAll.filter(u => u.disabled).length,
+    all:       _agentsAll.length,
+    pending:   _agentsAll.filter(u => u.role === 'pending' && !u.disabled).length,
+    validated: _agentsAll.filter(u => (u.role === 'agent' || u.role === 'admin') && !u.disabled).length,
+    agent:     _agentsAll.filter(u => u.role === 'agent'  && !u.disabled).length,
+    admin:     _agentsAll.filter(u => u.role === 'admin'  && !u.disabled).length,
+    disabled:  _agentsAll.filter(u => u.disabled).length,
   };
   Object.entries(counts).forEach(([k, v]) => {
     const el = document.getElementById('cnt-' + k);
@@ -889,19 +911,39 @@ function updateFilterCounts() {
   });
 }
 
+function updateLieuOptions() {
+  const lieuEl = document.getElementById('agentLieuFilter');
+  if (!lieuEl) return;
+  const lieux = [...new Set(_agentsAll.map(u => (u.lieuTravail || '').trim()).filter(Boolean))].sort();
+  const current = lieuEl.value;
+  lieuEl.innerHTML = '<option value="">— Tous les lieux —</option>' +
+    lieux.map(l => `<option value="${esc(l)}"${l === current ? ' selected' : ''}>${esc(l)}</option>`).join('');
+}
+
 function renderAgents() {
   updateFilterCounts();
+  updateLieuOptions();
   const q = (document.getElementById('agentSearch')?.value || '').toLowerCase().trim();
   let list = _agentsAll;
-  if (_agentsFilter === 'pending')  list = list.filter(u => u.role === 'pending' && !u.disabled);
-  if (_agentsFilter === 'agent')    list = list.filter(u => u.role === 'agent'   && !u.disabled);
-  if (_agentsFilter === 'admin')    list = list.filter(u => u.role === 'admin'   && !u.disabled);
-  if (_agentsFilter === 'disabled') list = list.filter(u => u.disabled);
 
-  // Filtrage par recherche texte
+  // Filtres statut
+  if (_agentsFilter === 'pending')   list = list.filter(u => u.role === 'pending' && !u.disabled);
+  if (_agentsFilter === 'validated') list = list.filter(u => (u.role === 'agent' || u.role === 'admin') && !u.disabled);
+  if (_agentsFilter === 'agent')     list = list.filter(u => u.role === 'agent'   && !u.disabled);
+  if (_agentsFilter === 'admin')     list = list.filter(u => u.role === 'admin'   && !u.disabled);
+  if (_agentsFilter === 'disabled')  list = list.filter(u => u.disabled);
+
+  // Filtre par lieu de travail
+  if (_agentsLieuFilter) {
+    list = list.filter(u => (u.lieuTravail || '').trim() === _agentsLieuFilter);
+  }
+
+  // Filtrage par recherche texte (nom, prénom, matricule, email)
   if (q) {
     list = list.filter(u =>
-      (u.prenom + ' ' + u.nom).toLowerCase().includes(q) ||
+      (u.prenom || '').toLowerCase().includes(q) ||
+      (u.nom || '').toLowerCase().includes(q) ||
+      ((u.prenom || '') + ' ' + (u.nom || '')).toLowerCase().includes(q) ||
       (u.matricule || '').toLowerCase().includes(q) ||
       (u.lieuTravail || '').toLowerCase().includes(q) ||
       (u.email || '').toLowerCase().includes(q)
@@ -912,13 +954,17 @@ function renderAgents() {
 
   const html = list.map(u => {
     const bClass = u.disabled ? 'b-disabled' : (u.role==='admin'?'b-admin':u.role==='pending'?'b-pending':'b-agent');
-    const bLabel = u.disabled ? 'DÉSACTIVÉ' : u.role.toUpperCase();
+    const bLabel = u.disabled ? 'DÉSACTIVÉ' : (u.role==='pending'?'EN ATTENTE':u.role==='admin'?'ADMIN':'AGENT');
     const safeEmail = (u.email||'').replace(/'/g,"\\'");
     const safeName  = esc(u.prenom+' '+u.nom);
+    const dateCreation = u.createdAt
+      ? new Date(u.createdAt).toLocaleString('fr-FR', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})
+      : '—';
     return `<div class="agent-row">
       <div class="agent-info">
         <div class="agent-name">${esc(u.prenom)} ${esc(u.nom)} <span class="badge ${bClass}">${bLabel}</span></div>
-        <div class="agent-meta">Mat: ${esc(u.matricule)} · ${esc(u.lieuTravail)} · ${esc(u.email)}</div>
+        <div class="agent-meta">🪪 Mat: <b>${esc(u.matricule)}</b> · 📍 ${esc(u.lieuTravail)} · ✉ ${esc(u.email)}</div>
+        <div class="agent-meta" style="color:var(--dim);font-size:0.72rem;margin-top:2px">🕒 Créé le : ${dateCreation}</div>
       </div>
       <div class="agent-actions">
         ${u.role==='pending'&&!u.disabled ? `<button class="btn-sm btn-approve" onclick="approveUser('${u.id}')">✓ Valider</button>` : ''}
