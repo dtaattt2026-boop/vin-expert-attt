@@ -1,5 +1,5 @@
 // ===== VIN EXPERT ATTT — Service Worker =====
-const CACHE_NAME = 'vin-expert-v2.6.7';
+const CACHE_NAME = 'vin-expert-v2.6.9';
 const ASSETS = [
   './',
   './index.html',
