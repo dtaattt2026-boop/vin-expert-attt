@@ -1261,15 +1261,22 @@ async function publier() {
   const minVer= document.getElementById('pubMinVer').value.trim() || '0.0.0';
   const doGh  = true; // Toujours synchroniser avec GitHub
 
-  // Si le champ est vide, utiliser automatiquement la version GitHub
+  // Si le champ est vide, incrémenter automatiquement le patch de la version actuelle
   if (!ver) {
-    const ghVer = document.getElementById('pubCurAppVer').textContent.trim();
-    if (ghVer && ghVer !== '?' && ghVer !== '(token requis)') {
-      ver = ghVer;
+    // Prendre la version de référence : Firestore en priorité, sinon GitHub
+    let baseVer = document.getElementById('pubCurVer').textContent.trim();
+    if (!baseVer || baseVer === '—' || baseVer === '?') {
+      baseVer = document.getElementById('pubCurAppVer').textContent.trim();
+    }
+    if (baseVer && /^\d+\.\d+(\.\d+)?$/.test(baseVer)) {
+      const parts = baseVer.split('.').map(Number);
+      while (parts.length < 3) parts.push(0);
+      parts[2] += 1; // incrémenter le patch
+      ver = parts.join('.');
       document.getElementById('pubVer').value = ver;
-      log(`Version pré-remplie depuis GitHub : ${ver}`, 'ok');
+      log(`Version auto-incrémentée : ${baseVer} → ${ver}`, 'ok');
     } else {
-      toast('Saisissez un numéro de version.', 'err');
+      toast('Impossible de déterminer la version actuelle. Saisissez-la manuellement.', 'err');
       return;
     }
   }
@@ -1323,21 +1330,19 @@ async function publier() {
           // ── Fichiers texte ──
           for (const file of textFiles) {
             try {
-              // Lire depuis GitHub (source de vérité) au lieu du cache local
+              // Lire depuis le disque local (source de vérité = fichiers modifiés localement)
               let content, sha = null;
+              const res = await fetch(`./${file}`, { cache: 'no-store' });
+              if (!res.ok) { log(`${file} — non trouvé en local, ignoré`, 'err'); continue; }
+              const buf = await res.arrayBuffer();
+              let bts = new Uint8Array(buf);
+              if (bts.length >= 3 && bts[0] === 0xEF && bts[1] === 0xBB && bts[2] === 0xBF) bts = bts.subarray(3);
+              content = new TextDecoder('utf-8').decode(bts);
+              // Récupérer le sha GitHub pour pouvoir mettre à jour le fichier existant
               try {
                 const gh = await ghGetFile(token, owner, repo, file);
-                content = gh.content;
                 sha = gh.sha;
-              } catch(e) {
-                // Fichier pas encore sur GitHub, lire en local
-                const res = await fetch(`./${file}`, { cache: 'no-store' });
-                if (!res.ok) { log(`${file} — non trouvé, ignoré`, 'err'); continue; }
-                const buf = await res.arrayBuffer();
-                let bts = new Uint8Array(buf);
-                if (bts.length >= 3 && bts[0] === 0xEF && bts[1] === 0xBB && bts[2] === 0xBF) bts = bts.subarray(3);
-                content = new TextDecoder('utf-8').decode(bts);
-              }
+              } catch(e) { /* fichier pas encore sur GitHub, sha reste null → création */ }
 
               // Mettre à jour la version dans index.html et sw.js
               if (file === 'index.html') {
@@ -1411,6 +1416,9 @@ async function publier() {
     log(`═══ VERSION ${verNorm} PUBLIÉE AVEC SUCCÈS ═══`, 'ok');
     log(force ? '⚠ Mise à jour OBLIGATOIRE activée' : '→ Mise à jour optionnelle', force ? 'err' : 'info');
     toast(`Version ${verNorm} publiée !`, 'ok', 5000);
+
+    // Vider le champ version pour que le prochain clic auto-incrémente
+    document.getElementById('pubVer').value = '';
 
     // Mettre à jour l'affichage
     await loadPubCurrentVersion();
