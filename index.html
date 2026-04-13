@@ -106,7 +106,7 @@
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
         // Version définie tôt pour autoPurgeCache et SW
-        window.APP_VERSION = "2.5.9"; // cache si version différente OU force-update
+        window.APP_VERSION = "2.6.0"; // cache si version différente OU force-update
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -1314,6 +1314,11 @@
                         <div class="result-label">Rapport complémentaire</div>
                         <div class="ai-report" id="resAiReport"></div>
                     </div>
+                    <!-- Sources externes (couleur, moteur, BV…) -->
+                    <div class="result-row" id="resExterneRow" style="display:none">
+                        <div class="result-label">🌐 Sources externes véhicule</div>
+                        <div id="resExterneContent" style="font-size:0.82rem;line-height:1.7"></div>
+                    </div>
                     <!-- Étalon BKA -->
                     <div class="result-row" id="resVinRefRow" style="display:none">
                         <div class="result-label">📸 Référence Étalon BKA</div>
@@ -1778,7 +1783,7 @@ function decoderVinStructurel(vin) {
         positions: [
             { pos: '1-3', nom: 'WMI (Identifiant mondial du constructeur)', valeur: wmi, detail: `${constructeur || 'Constructeur inconnu'} — ${pays}` },
             { pos: '4-8', nom: 'VDS (Descripteur du véhicule)', valeur: vds, detail: 'Caractéristiques : modèle, moteur, carrosserie (spécifique au constructeur)' },
-            { pos: '9', nom: 'Chiffre de contrôle (Check Digit)', valeur: vin[8], detail: `Calculé : ${calcCheckDigit(vin)} — ${calcCheckDigit(vin) === vin[8] ? 'Valide ✓' : 'Invalide ✗'}` },
+            { pos: '9', nom: 'Chiffre de contrôle (Check Digit)', valeur: vin[8], detail: getLibelleCheckDigit(vin, false).texte },
             { pos: '10', nom: 'Année modèle', valeur: codeAnnee, detail: annee ? `${annee}` : 'Code non reconnu' },
             { pos: '11', nom: 'Code usine d\'assemblage', valeur: codeUsine, detail: 'Identifiant de l\'usine de montage' },
             { pos: '12-17', nom: 'Numéro de série', valeur: numSerie, detail: `Séquentiel de production : ${numSerie}` }
@@ -4666,6 +4671,77 @@ function calcCheckDigit(vin) {
     return r === 10 ? 'X' : r.toString();
 }
 
+// ─── Check Digit : norme applicable selon région WMI ──────────────────────────
+// La norme FMVSS 115 (check-digit obligatoire) s'applique aux véhicules
+// fabriqués ou vendus en Amérique du Nord (WMI commençant par 1-5).
+// Les véhicules européens, asiatiques, africains, etc. ne sont PAS soumis
+// à cette obligation et peuvent avoir un check-digit non conforme.
+const WMI_CHECK_DIGIT_REGIONS = {
+    '1': { respecte: true,  region: 'Amérique du Nord (USA)',     norme: 'FMVSS 115' },
+    '2': { respecte: true,  region: 'Amérique du Nord (Canada)',  norme: 'FMVSS 115' },
+    '3': { respecte: true,  region: 'Amérique du Nord (Mexique)', norme: 'FMVSS 115' },
+    '4': { respecte: true,  region: 'Amérique du Nord (USA)',     norme: 'FMVSS 115' },
+    '5': { respecte: true,  region: 'Amérique du Nord (USA)',     norme: 'FMVSS 115' },
+    '6': { respecte: false, region: 'Océanie',                    norme: 'ISO 3779 (check-digit optionnel)' },
+    '7': { respecte: false, region: 'Océanie',                    norme: 'ISO 3779 (check-digit optionnel)' },
+    '8': { respecte: false, region: 'Amérique du Sud',            norme: 'ISO 3779 (check-digit optionnel)' },
+    '9': { respecte: false, region: 'Amérique du Sud (Brésil)',   norme: 'ISO 3779 (check-digit optionnel)' },
+    'A': { respecte: false, region: 'Afrique du Sud',             norme: 'ISO 3779 (check-digit optionnel)' },
+    'B': { respecte: false, region: 'Afrique (Angola/Éthiopie)',  norme: 'ISO 3779 (check-digit optionnel)' },
+    'C': { respecte: false, region: 'Afrique',                    norme: 'ISO 3779 (check-digit optionnel)' },
+    'D': { respecte: false, region: 'Afrique (Égypte)',           norme: 'ISO 3779 (check-digit optionnel)' },
+    'E': { respecte: false, region: 'Afrique (Éthiopie)',         norme: 'ISO 3779 (check-digit optionnel)' },
+    'F': { respecte: false, region: 'Afrique',                    norme: 'ISO 3779 (check-digit optionnel)' },
+    'G': { respecte: false, region: 'Afrique',                    norme: 'ISO 3779 (check-digit optionnel)' },
+    'H': { respecte: false, region: 'Afrique',                    norme: 'ISO 3779 (check-digit optionnel)' },
+    'J': { respecte: false, region: 'Asie (Japon)',               norme: 'ISO 3779 (check-digit optionnel)' },
+    'K': { respecte: false, region: 'Asie (Corée du Sud)',        norme: 'ISO 3779 (check-digit optionnel)' },
+    'L': { respecte: false, region: 'Asie (Chine)',               norme: 'ISO 3779 (check-digit optionnel)' },
+    'M': { respecte: false, region: 'Asie (Inde/Indonésie)',      norme: 'ISO 3779 (check-digit optionnel)' },
+    'N': { respecte: false, region: 'Asie (Iran/Turquie)',        norme: 'ISO 3779 (check-digit optionnel)' },
+    'P': { respecte: false, region: 'Asie (Philippines)',         norme: 'ISO 3779 (check-digit optionnel)' },
+    'R': { respecte: false, region: 'Asie (Taïwan/Émirats)',      norme: 'ISO 3779 (check-digit optionnel)' },
+    'S': { respecte: false, region: 'Europe (Royaume-Uni)',       norme: 'ISO 3779 (check-digit optionnel)' },
+    'T': { respecte: false, region: 'Europe (Suisse/Tchéquie)',   norme: 'ISO 3779 (check-digit optionnel)' },
+    'U': { respecte: false, region: 'Europe (Roumanie/Hongrie)',  norme: 'ISO 3779 (check-digit optionnel)' },
+    'V': { respecte: false, region: 'Europe (France/Espagne)',    norme: 'ISO 3779 (check-digit optionnel)' },
+    'W': { respecte: false, region: 'Europe (Allemagne)',         norme: 'ISO 3779 (check-digit optionnel)' },
+    'X': { respecte: false, region: 'Europe (Russie/Pays-Bas)',   norme: 'ISO 3779 (check-digit optionnel)' },
+    'Y': { respecte: false, region: 'Europe (Suède/Belgique)',    norme: 'ISO 3779 (check-digit optionnel)' },
+    'Z': { respecte: false, region: 'Europe (Italie/Slovénie)',   norme: 'ISO 3779 (check-digit optionnel)' },
+};
+
+function checkDigitObligatoire(vin) {
+    if (!vin || vin.length < 1) return null;
+    const info = WMI_CHECK_DIGIT_REGIONS[vin[0].toUpperCase()];
+    return info ? info.respecte : null;
+}
+
+function getInfoCheckDigitModele(vin) {
+    if (!vin || vin.length < 1) return { respecte: null, region: 'Inconnu', norme: 'ISO 3779' };
+    const info = WMI_CHECK_DIGIT_REGIONS[vin[0].toUpperCase()];
+    return info || { respecte: null, region: 'Région inconnue', norme: 'ISO 3779' };
+}
+
+// Retourne un libellé lisible sur le statut check-digit pour rapports et UI
+function getLibelleCheckDigit(vin, pourPdf) {
+    const cdInfo = getInfoCheckDigitModele(vin);
+    const computed = calcCheckDigit(vin);
+    const actual = vin.length >= 9 ? vin[8] : '?';
+    if (cdInfo.respecte === false) {
+        const msg = pourPdf
+            ? `Ce modele ne respecte pas le check-digit (${cdInfo.region} — ${cdInfo.norme})`
+            : `Ce modèle <b>ne respecte pas</b> le check-digit <small>(${cdInfo.region} — ${cdInfo.norme})</small>`;
+        return { respecte: false, texte: msg, computed, actual };
+    }
+    const isValid = computed === actual;
+    const statutLabel = isValid ? (pourPdf ? 'Valide' : '<b class="check-valid">Valide ✓</b>') : (pourPdf ? 'Non Valide' : '<b class="check-invalid">Non Valide ✗</b>');
+    const msg = pourPdf
+        ? `Ce modele respecte le check-digit (${cdInfo.region}) | Calcule: ${computed} | VIN pos.9: ${actual} | ${isValid ? 'Valide' : 'Non Valide'}`
+        : `Ce modèle <b>respecte</b> le check-digit <small>(${cdInfo.region})</small> &nbsp;|&nbsp; Calculé : <b class="${isValid ? 'check-valid' : 'check-invalid'}">${computed}</b> &nbsp;|&nbsp; Pos.9 : <b>${actual}</b> &nbsp; ${statutLabel}`;
+    return { respecte: true, texte: msg, computed, actual, isValid };
+}
+
 function handleVinInput() {
     const vin = document.getElementById('vinField').value.toUpperCase();
     document.getElementById('vinField').value = vin;
@@ -4714,6 +4790,8 @@ async function fullVerify() {
         collectCurrentLocation(),
         fetchVinRefData(vin.substring(0, 3))
     ]);
+    // Données sources externes (specs techniques + liens, synchrone)
+    const externalData = buildExternalVinData(vin, vinIntel);
     // Décodage structurel local (WMI, année, pays)
     const vinStructure = decoderVinStructurel(vin);
     // Enrichir les infos sûres avec le décodage local
@@ -4774,11 +4852,13 @@ async function fullVerify() {
     header.className = 'result-header ' + (isValid ? 'valid' : 'invalid');
     document.getElementById('resultIcon').textContent = isValid ? '✅' : '⚠️';
     document.getElementById('resultTitle').textContent = isValid ? 'CHÂSSIS VALIDE' : 'CHÂSSIS INVALIDE';
-    document.getElementById('resCheckDetail').innerHTML = `
-        Attendu (calculé) : <b class="${isValid ? 'check-valid' : 'check-invalid'}">${computed}</b> &nbsp;|&nbsp; 
-        Trouvé (pos.9) : <b>${actual}</b> &nbsp;
-        <span class="${isValid ? 'check-valid' : 'check-invalid'}">${isValid ? '✓ Concordance' : '✗ Discordance'}</span>
-    `;
+    const cdLibelle = getLibelleCheckDigit(vin, false);
+    if (cdLibelle.respecte === false) {
+        document.getElementById('resCheckDetail').innerHTML =
+            cdLibelle.texte;
+    } else {
+        document.getElementById('resCheckDetail').innerHTML = cdLibelle.texte;
+    }
     document.getElementById('resVehicle').innerHTML = `<b>${carInfo}</b>`;
     updateRapportBadges(vinIntel.sure, vinIntel.unsure);
 
@@ -4796,6 +4876,47 @@ async function fullVerify() {
     // Afficher la carte étalon BKA si trouvée (WMI ou fallback marque)
     displayVinRef(finalVinRef);
 
+    // ─── Afficher données sources externes ─────────────────────
+    const externeRow = document.getElementById('resExterneRow');
+    const externeContent = document.getElementById('resExterneContent');
+    if (externeRow && externeContent) {
+        externeRow.style.display = 'block';
+        let externeHtml = '';
+        if (externalData.ok && externalData.found) {
+            externeHtml += `<div style="color:var(--green);font-weight:600;margin-bottom:4px">✓ Données obtenues via ${escHtml(externalData.source || 'source externe')}</div>`;
+            if (externalData.couleur)      externeHtml += `<div>🎨 <b>Couleur :</b> ${escHtml(externalData.couleur)}</div>`;
+            if (externalData.numeroMoteur) externeHtml += `<div>🔩 <b>N° Moteur :</b> ${escHtml(externalData.numeroMoteur)}</div>`;
+            if (externalData.numeroBv)     externeHtml += `<div>⚙️ <b>N° Boîte vitesse :</b> ${escHtml(externalData.numeroBv)}</div>`;
+            if ((externalData.autresInfos || []).length > 0) {
+                externeHtml += `<div style="margin-top:4px;font-weight:600;font-size:0.78rem;color:var(--text-dim)">Informations techniques :</div>`;
+                (externalData.autresInfos || []).forEach(info => {
+                    externeHtml += `<div style="font-size:0.8rem">• ${escHtml(info)}</div>`;
+                });
+            }
+        } else {
+            if ((externalData.autresInfos || []).length > 0) {
+                externeHtml += `<div style="color:var(--green);font-weight:600;margin-bottom:4px">✓ Spécifications techniques (NHTSA)</div>`;
+                (externalData.autresInfos || []).forEach(info => {
+                    externeHtml += `<div style="font-size:0.8rem">• ${escHtml(info)}</div>`;
+                });
+            }
+            externeHtml += `<div style="background:rgba(200,168,75,0.12);border:1px solid rgba(200,168,75,0.4);border-radius:6px;padding:6px 10px;margin-top:6px;font-size:0.78rem;line-height:1.5">`;
+            externeHtml += `<b style="color:var(--gold)">ℹ️ Données physiques du véhicule</b><br>`;
+            externeHtml += `La <b>couleur réelle</b>, le <b>numéro de série moteur</b> et le <b>numéro de boîte vitesse</b> `;
+            externeHtml += `sont des données physiques <u>non encodées dans le VIN</u>. `;
+            externeHtml += `Elles figurent sur la <b>carte grise</b> ou dans les bases nationales (SIVAT/BDR Tunisie).<br>`;
+            externeHtml += `Consultez les sources ci-dessous pour vérification manuelle.`;
+            externeHtml += `</div>`;
+        }
+        externeHtml += `<div style="margin-top:8px;font-size:0.72rem;color:var(--text-dim);margin-bottom:3px">🔗 Sources à consulter manuellement :</div>`;
+        externeHtml += `<div style="display:flex;flex-wrap:wrap;gap:5px">`;
+        (externalData.liens || []).forEach(l => {
+            externeHtml += `<a href="${escHtml(l.url)}" target="_blank" rel="noopener noreferrer" style="font-size:0.73rem;background:rgba(0,85,204,0.12);color:var(--blue-light);border:1px solid var(--border);border-radius:4px;padding:3px 8px;text-decoration:none">${escHtml(l.label)}</a>`;
+        });
+        externeHtml += `</div>`;
+        externeContent.innerHTML = externeHtml;
+    }
+
     const u = window.currentUser || {};
     const statusMsg = isValid ? 'VALIDE' : 'INVALIDE';
     const record = {
@@ -4806,6 +4927,7 @@ async function fullVerify() {
         vinStructure: vinStructure,
         rappels: rappels,
         vinRef: finalVinRef || null,
+        externalData: externalData || null,
         locationInfo,
         locationSummary: formatLocationSummary(locationInfo),
         date: new Date().toLocaleString('fr-TN'),
@@ -4997,6 +5119,7 @@ async function genererRapportPdf(record) {
     pdf.text(record.vin, 105, 59, { align: 'center' });
 
     // Info table
+    const cdPdf = getLibelleCheckDigit(record.vin, true);
     const rows = [
         ['Agent', pdfSafe(record.agentNom) || '-'],
         ['Matricule', record.matricule || '-'],
@@ -5004,7 +5127,7 @@ async function genererRapportPdf(record) {
         ['Date et heure', record.date],
         ['Localisation', pdfSafe(record.locationSummary) || 'Non disponible'],
         ['Vehicule identifie', pdfSafe(record.info) || 'Non identifie'],
-        ['Check Digit (pos.9)', pdfSafe(`Calcule: ${calcCheckDigit(record.vin)} | VIN: ${record.vin[8]} | ${isValid ? 'Concordance' : 'Discordance'}`)],
+        ['Check Digit (pos.9)', pdfSafe(cdPdf.texte)],
     ];
 
     let y = 72;
@@ -5137,6 +5260,53 @@ async function genererRapportPdf(record) {
                 }
             } catch(ePhoto) { /* photo non disponible, on ignore */ }
         }
+    }
+
+    // === SECTION SOURCES EXTERNES (couleur, moteur, BV…) ===
+    const extData = record.externalData;
+    if (extData) {
+        y += 4;
+        if (y > 250) { pdf.addPage(); pdf.setFillColor(255,255,255); pdf.rect(0,0,210,297,'F'); y = 18; }
+        pdf.setFillColor(20, 100, 80);
+        pdf.rect(15, y, 180, 7, 'F');
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFontSize(8.5);
+        pdf.setFont('helvetica', 'bold');
+        pdf.text('DONNEES SOURCES EXTERNES', 18, y + 5);
+        y += 9;
+
+        const extRows = [];
+        if (extData.ok) {
+            if (extData.couleur)      extRows.push(['Couleur', pdfSafe(extData.couleur)]);
+            if (extData.numeroMoteur) extRows.push(['Numero moteur', pdfSafe(extData.numeroMoteur)]);
+            if (extData.numeroBv)     extRows.push(['Numero boite vitesse', pdfSafe(extData.numeroBv)]);
+            (extData.autresInfos || []).forEach((info, i) => {
+                extRows.push([`Info ${i+1}`, pdfSafe(info)]);
+            });
+        } else {
+            extRows.push(['Statut', 'Donnees non disponibles via APIs publiques']);
+        }
+        // Liens sources
+        const liensText = (extData.liens || []).map(l => l.label + ': ' + l.url).join('  |  ');
+        extRows.push(['Sources a consulter', pdfSafe(liensText)]);
+
+        extRows.forEach(([lbl, val], idx) => {
+            if (y > 260) { pdf.addPage(); pdf.setFillColor(255,255,255); pdf.rect(0,0,210,297,'F'); y = 18; }
+            pdf.setFillColor(idx % 2 === 0 ? 240 : 248, idx % 2 === 0 ? 250 : 252, idx % 2 === 0 ? 245 : 248);
+            pdf.rect(15, y, 180, 9, 'F');
+            pdf.setDrawColor(180, 210, 195);
+            pdf.rect(15, y, 180, 9, 'S');
+            pdf.setTextColor(20, 80, 60);
+            pdf.setFontSize(7);
+            pdf.setFont('helvetica', 'bold');
+            pdf.text(lbl.toUpperCase(), 18, y + 6);
+            pdf.setTextColor(30, 40, 60);
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(7);
+            const valLines = pdf.splitTextToSize(String(val), 120);
+            pdf.text(valLines[0] || '', 70, y + 6);
+            y += 10;
+        });
     }
 
     const sureLines = Array.isArray(record.sureInfo) ? record.sureInfo : [];
@@ -5465,6 +5635,42 @@ function construireTexteRapportVin(sure, unsure) {
     ].join('\n');
 }
 
+// ─── Sources externes de données véhicule (couleur, moteur, BV…) ────────────
+// Données complémentaires via proxy GAS → carinfo.kiev.ua et autres sources
+// ─── Sources externes de données véhicule ───────────────────
+// La couleur, le N° moteur et le N° BV sont des données physiques
+// non encodées dans le VIN — disponibles uniquement sur la carte grise.
+// Cette fonction retourne les liens de vérification manuelle + les specs
+// techniques extraites de vinIntel (déjà chargé via NHTSA).
+function buildExternalVinData(vin, vinIntel) {
+    // Extraire les specs techniques déjà présentes dans vinIntel.sure
+    const moteurLabels = ['Cylindrée (L)', 'Nombre cylindres', 'Configuration moteur',
+        'Fabricant moteur', 'Modèle moteur', 'Carburant principal', 'Carburant secondaire',
+        'Turbo', 'Boîte de vitesse', 'Nombre rapports BV', 'Transmission / Motricité'];
+    const autresInfos = [];
+    (vinIntel && vinIntel.sure || []).forEach(line => {
+        for (const lbl of moteurLabels) {
+            if (line.startsWith(lbl + ':')) { autresInfos.push(line); break; }
+        }
+    });
+    return {
+        couleur: null,
+        numeroMoteur: null,
+        numeroBv: null,
+        autresInfos,
+        liens: [
+            { label: 'CarInfo (Ukraine/Europe)', url: `https://carinfo.kiev.ua/cars/vin?q=${encodeURIComponent(vin)}` },
+            { label: 'AutoDNA',                  url: `https://www.autodna.com/vin/${encodeURIComponent(vin)}` },
+            { label: 'VINcheck.info',             url: `https://vincheck.info/check/vin.php?vin=${encodeURIComponent(vin)}` },
+            { label: 'Vindecoder.eu',             url: `https://vindecoder.eu/${encodeURIComponent(vin)}` },
+            { label: 'NHTSA (USA)',               url: `https://vpic.nhtsa.dot.gov/decoder/Decoder/SearchByVin/${encodeURIComponent(vin)}/` }
+        ],
+        source: autresInfos.length > 0 ? 'NHTSA (spécifications techniques)' : null,
+        ok: autresInfos.length > 0,
+        found: autresInfos.length > 0
+    };
+}
+
 async function apiDecodeDetailed(vin) {
     try {
         const res = await fetch(`https://vpic.nhtsa.dot.gov/api/vehicles/decodevin/${vin}?format=json`);
@@ -5482,8 +5688,14 @@ async function apiDecodeDetailed(vin) {
             ['Trim', 'Finition'],
             ['Displacement (L)', 'Cylindrée (L)'],
             ['Engine Number of Cylinders', 'Nombre cylindres'],
+            ['Engine Configuration', 'Configuration moteur'],
+            ['Engine Manufacturer', 'Fabricant moteur'],
+            ['Engine Model', 'Modèle moteur'],
+            ['Turbo', 'Turbo'],
             ['Fuel Type - Primary', 'Carburant principal'],
+            ['Fuel Type - Secondary', 'Carburant secondaire'],
             ['Transmission Style', 'Boîte de vitesse'],
+            ['Transmission Speeds', 'Nombre rapports BV'],
             ['Drive Type', 'Transmission / Motricité'],
             ['Brake System Type', 'Type freinage'],
             ['Plant Country', 'Pays usine'],
@@ -5599,7 +5811,8 @@ function showHistItem(idx) {
     header.className = 'result-header ' + (isValid ? 'valid' : 'invalid');
     document.getElementById('resultIcon').textContent = isValid ? '✅' : '⚠️';
     document.getElementById('resultTitle').textContent = isValid ? 'CHÂSSIS VALIDE' : 'CHÂSSIS INVALIDE';
-    document.getElementById('resCheckDetail').innerHTML = `Attendu (calculé) : <b class="${isValid ? 'check-valid' : 'check-invalid'}">${computed}</b> &nbsp;|&nbsp; Trouvé (pos.9) : <b>${actual}</b>`;
+    const cdLibelleHist = getLibelleCheckDigit(vin, false);
+    document.getElementById('resCheckDetail').innerHTML = cdLibelleHist.texte;
     document.getElementById('resVehicle').innerHTML = `<b>${escHtml(h.info || '')}</b>`;
     updateRapportBadges(h.sureInfo || [], h.unsureInfo || []);
     const aiRow = document.getElementById('resAiRow');
@@ -5609,6 +5822,23 @@ function showHistItem(idx) {
         document.getElementById('resAiReport').textContent = ((h.sureInfo && h.sureInfo.length) || (h.unsureInfo && h.unsureInfo.length)) ? texteRapport : h.ai;
     }
     else aiRow.style.display = 'none';
+    // Données externes historique (si disponibles)
+    const extRowHist = document.getElementById('resExterneRow');
+    if (extRowHist) {
+        if (h.externalData && (h.externalData.ok || (h.externalData.autresInfos && h.externalData.autresInfos.length))) {
+            extRowHist.style.display = 'block';
+            let extHtml = `<div style="color:var(--green);font-weight:600;margin-bottom:4px">✓ ${escHtml(h.externalData.source || 'Spécifications techniques')}</div>`;
+            if (h.externalData.couleur)      extHtml += `<div>🎨 <b>Couleur :</b> ${escHtml(h.externalData.couleur)}</div>`;
+            if (h.externalData.numeroMoteur) extHtml += `<div>🔩 <b>N° Moteur :</b> ${escHtml(h.externalData.numeroMoteur)}</div>`;
+            if (h.externalData.numeroBv)     extHtml += `<div>⚙️ <b>N° Boîte vitesse :</b> ${escHtml(h.externalData.numeroBv)}</div>`;
+            (h.externalData.autresInfos || []).forEach(info => {
+                extHtml += `<div style="font-size:0.8rem">• ${escHtml(info)}</div>`;
+            });
+            document.getElementById('resExterneContent').innerHTML = extHtml;
+        } else {
+            extRowHist.style.display = 'none';
+        }
+    }
     lastVerifyRecord = h;
     box.style.display = 'block';
     box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
