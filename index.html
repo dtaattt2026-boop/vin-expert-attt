@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.7.1";
+            window.APP_VERSION = "2.7.2";
             try {
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
@@ -106,7 +106,7 @@
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
         // Version définie tôt pour autoPurgeCache et SW
-        window.APP_VERSION = "2.6.0"; // cache si version différente OU force-update
+        window.APP_VERSION = "2.7.1"; // cache si version différente OU force-update
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -1045,7 +1045,34 @@
   </div>
 </div>
 
-<!-- MODAL ADMIN — Changer lieu d'un agent -->
+<!-- MODAL ADMIN — Modifier un agent -->
+<div id="adminEditAgentModal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,0.85);align-items:center;justify-content:center;padding:20px">
+  <div style="background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:400px;box-shadow:0 8px 40px rgba(0,0,0,0.6)">
+    <div style="font-size:1.4rem;margin-bottom:6px">✏️ Modifier l'agent</div>
+    <p id="adminEditAgentTitre" style="font-size:0.82rem;color:var(--text-dim);margin-bottom:16px"></p>
+    <input type="hidden" id="adminEditAgentUid">
+    <div class="form-group" style="margin-bottom:10px"><label style="font-size:0.78rem;color:var(--text-dim)">Prénom</label>
+      <input type="text" id="adminEditPrenom" style="width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:0.88rem;outline:none;box-sizing:border-box">
+    </div>
+    <div class="form-group" style="margin-bottom:10px"><label style="font-size:0.78rem;color:var(--text-dim)">Nom</label>
+      <input type="text" id="adminEditNom" style="width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:0.88rem;outline:none;box-sizing:border-box">
+    </div>
+    <div class="form-group" style="margin-bottom:10px"><label style="font-size:0.78rem;color:var(--text-dim)">Matricule</label>
+      <input type="text" id="adminEditMatricule" style="width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:0.88rem;outline:none;box-sizing:border-box">
+    </div>
+    <div class="form-group" style="margin-bottom:16px"><label style="font-size:0.78rem;color:var(--text-dim)">Lieu de travail</label>
+      <select id="adminEditLieuSelect" style="width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:0.88rem;outline:none">
+        <option value="">— Choisir un lieu —</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn-auth" style="flex:1;padding:11px;font-size:0.88rem;border-radius:10px;margin-top:0" onclick="confirmAdminEditAgent()">💾 Enregistrer</button>
+      <button class="btn-auth" style="flex:1;padding:11px;font-size:0.88rem;border-radius:10px;margin-top:0;background:rgba(90,100,120,0.2);color:var(--text-dim)" onclick="document.getElementById('adminEditAgentModal').style.display='none'">✕ Annuler</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ADMIN — Changer lieu d'un agent (gardé pour compatibilité) -->
 <div id="adminChangeLieuModal">
   <div class="lieu-force-card" style="max-width:380px">
     <div style="font-size:1.6rem;margin-bottom:10px">🏢</div>
@@ -1452,6 +1479,7 @@
               <input type="checkbox" id="selectAllAgents" onchange="toggleSelectAllAgents(this.checked)" style="width:16px;height:16px;cursor:pointer;">
               <span>Tout sélectionner</span>
             </label>
+            <button class="btn-sm" style="background:rgba(224,48,80,0.12);color:#e03050;border:1px solid rgba(224,48,80,0.3);font-size:0.72rem;padding:7px 10px;border-radius:8px" onclick="supprimerLieuxInvalides()">🧹 Nettoyer lieux invalides</button>
           </div>
           <!-- Filtres statut -->
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
@@ -2723,6 +2751,7 @@ function renderAdminUsers() {
             ${u.role === 'pending' && !u.disabled ? `<button class="btn-sm btn-approve" onclick="approveUser('${uid}')">✓ Valider</button>` : ''}
             ${!u.disabled && u.role !== 'pending' && u.role !== 'admin' ? `<button class="btn-sm btn-make-admin" onclick="makeAdmin('${uid}')">★ Admin</button>` : ''}
             <button class="btn-sm" style="background:rgba(0,63,145,0.2);color:var(--blue-light);border:1px solid rgba(0,63,145,0.3)" onclick="adminChangerLieu('${uid}','${safeLieu}','${safeNom}')">🏢 Lieu</button>
+            <button class="btn-sm" style="background:rgba(100,60,180,0.2);color:#b88fff;border:1px solid rgba(100,60,180,0.4)" onclick="adminEditerAgent('${uid}')">✏️ Modifier</button>
             <button class="btn-sm" style="background:rgba(200,168,75,0.15);color:var(--gold);border:1px solid rgba(200,168,75,0.3)" onclick="adminResetPassword('${safeEmail}','${safeNom}')">🔑 MDP</button>
             <button class="btn-sm" style="background:${u.envoyerRapport ? 'rgba(0,200,122,0.2)' : 'rgba(90,100,120,0.15)'};color:${u.envoyerRapport ? 'var(--green)' : 'var(--text-dim)'};border:1px solid ${u.envoyerRapport ? 'rgba(0,200,122,0.3)' : 'var(--border)'}" onclick="toggleEnvoyerRapport('${uid}',${!u.envoyerRapport})">${u.envoyerRapport ? '📨' : '📭'} Envoi</button>
             <button class="btn-sm" style="background:${u.obligatoireLieu ? 'rgba(0,200,122,0.2)' : 'rgba(90,100,120,0.15)'};color:${u.obligatoireLieu ? 'var(--green)' : 'var(--text-dim)'};border:1px solid ${u.obligatoireLieu ? 'rgba(0,200,122,0.3)' : 'var(--border)'}" onclick="toggleObligatoireLieu('${uid}',${!u.obligatoireLieu})">🏢 Oblig.</button>
@@ -3525,6 +3554,76 @@ async function saveLieuForce() {
 }
 
 // ===== ADMIN: Changer le lieu d'un agent =====
+async function adminEditerAgent(uid) {
+    const fb = window._fb; if (!fb) return;
+    // Trouver l'agent dans le cache local
+    const u = _adminUsersAll.find(x => x.id === uid);
+    if (!u) return;
+    // Charger les lieux
+    let lieux = [];
+    try {
+        const snap = await fb.getDocs(fb.collection(fb.db, 'lieux_travail'));
+        snap.forEach(d => lieux.push({ id: d.id, ...d.data() }));
+    } catch(e) {}
+
+    // Peupler le modal
+    document.getElementById('adminEditAgentUid').value = uid;
+    document.getElementById('adminEditAgentTitre').textContent = `${u.prenom || ''} ${u.nom || ''} — ${u.email || ''}`;
+    document.getElementById('adminEditPrenom').value = u.prenom || '';
+    document.getElementById('adminEditNom').value = u.nom || '';
+    document.getElementById('adminEditMatricule').value = u.matricule || '';
+    const sel = document.getElementById('adminEditLieuSelect');
+    sel.innerHTML = '<option value="">— Choisir un lieu —</option>' +
+        lieux.map(l => `<option value="${escHtml(l.designation)}"${l.designation === u.lieuTravail ? ' selected' : ''}>${escHtml(l.designation)}</option>`).join('');
+    document.getElementById('adminEditAgentModal').style.display = 'flex';
+}
+
+async function confirmAdminEditAgent() {
+    const fb = window._fb; if (!fb) return;
+    const uid      = document.getElementById('adminEditAgentUid').value;
+    const prenom   = document.getElementById('adminEditPrenom').value.trim();
+    const nom      = document.getElementById('adminEditNom').value.trim();
+    const matricule= document.getElementById('adminEditMatricule').value.trim();
+    const lieu     = document.getElementById('adminEditLieuSelect').value;
+    if (!prenom || !nom) { showToast('Prénom et nom obligatoires.', 'err'); return; }
+    const btn = document.querySelector('[onclick="confirmAdminEditAgent()"]');
+    if (btn) btn.disabled = true;
+    try {
+        const update = { prenom, nom, matricule };
+        if (lieu) update.lieuTravail = lieu;
+        await fb.updateDoc(fb.doc(fb.db, 'users', uid), update);
+        document.getElementById('adminEditAgentModal').style.display = 'none';
+        showToast('Agent mis à jour.', 'ok');
+        loadAdminUsers();
+    } catch(e) {
+        showToast('Erreur : ' + e.message, 'err');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+async function supprimerLieuxInvalides() {
+    const fb = window._fb; if (!fb) return;
+    if (!confirm('Supprimer tous les agents dont le lieu de travail ne correspond à aucun lieu de votre liste ?')) return;
+    let lieux = [];
+    try {
+        const snap = await fb.getDocs(fb.collection(fb.db, 'lieux_travail'));
+        snap.forEach(d => lieux.push((d.data().designation || '').trim().toLowerCase()));
+    } catch(e) { showToast('Erreur : ' + e.message, 'err'); return; }
+    let count = 0;
+    for (const u of _adminUsersAll) {
+        const lt = (u.lieuTravail || '').trim().toLowerCase();
+        if (lt && !lieux.includes(lt)) {
+            try {
+                await fb.updateDoc(fb.doc(fb.db, 'users', u.id), { lieuTravail: '' });
+                count++;
+            } catch(e) {}
+        }
+    }
+    showToast(`${count} agent(s) mis à jour (lieu réinitialisé).`, 'ok');
+    loadAdminUsers();
+}
+
 async function adminChangerLieu(uid, currentLieu, nomAgent) {
     const fb = window._fb; if (!fb) return;
     // Charger les lieux
