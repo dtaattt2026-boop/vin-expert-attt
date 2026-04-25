@@ -1067,6 +1067,7 @@ function renderAgents() {
         <button class="btn-sm" style="background:rgba(0,63,145,0.2);color:var(--blue2);border:1px solid var(--border)" onclick="openAgentLieuModal('${u.id}')">🏢 Lieu</button>
         <button class="btn-sm" style="background:rgba(122,78,214,0.18);color:#c7a4ff;border:1px solid rgba(160,110,255,0.35)" onclick="openAgentEditModal('${u.id}')">✏ Modifier</button>
         <button class="btn-sm btn-reset" onclick="resetPass('${safeEmail}','${safeName}')">🔑 Reset MDP</button>
+        <button class="btn-sm" style="background:rgba(0,85,204,0.16);color:var(--blue2);border:1px solid var(--border)" onclick="diagnoseResetPass('${u.id}')">🧪 Diagnostic</button>
         ${!u.disabled ? `<button class="btn-sm btn-disable" onclick="toggleUser('${u.id}',true)">✗ Désact.</button>`
                        : `<button class="btn-sm btn-enable"  onclick="toggleUser('${u.id}',false)">✓ Réact.</button>`}
       </div>
@@ -1128,6 +1129,53 @@ async function resetPass(email, nom) {
     };
     toast(msgs[e.code] || ('Erreur : ' + (e.message || e.code)), 'err');
   }
+}
+
+async function diagnoseResetPass(uid) {
+  const user = getAgentById(uid);
+  if (!user) { toast('Agent introuvable.', 'err'); return; }
+  if (!user.email) {
+    alert(`Diagnostic reset MDP\n\nAgent: ${(user.prenom || '') + ' ' + (user.nom || '')}\nRésultat: aucun email enregistré dans Firestore.`);
+    return;
+  }
+
+  const lines = [
+    'Diagnostic reset MDP',
+    '',
+    `Agent: ${((user.prenom || '') + ' ' + (user.nom || '')).trim()}`,
+    `Email Firestore: ${user.email}`,
+    `Matricule: ${user.matricule || '—'}`,
+    `Rôle: ${user.role || '—'}`,
+    `Compte désactivé: ${user.disabled ? 'OUI' : 'NON'}`,
+    ''
+  ];
+
+  const fb = window._fb;
+  if (!fb) {
+    lines.push('Firebase indisponible sur cette session.');
+    alert(lines.join('\n'));
+    return;
+  }
+
+  try {
+    await fb.sendPasswordResetEmail(fb.auth, user.email);
+    lines.push('Firebase a accepté la demande de réinitialisation pour cet email.');
+  } catch (e) {
+    const msgs = {
+      'auth/invalid-email': 'Email invalide côté Firebase.',
+      'auth/too-many-requests': 'Trop de tentatives, réessayez plus tard.'
+    };
+    lines.push(msgs[e.code] || ('Erreur Firebase: ' + (e.message || e.code)));
+    alert(lines.join('\n'));
+    return;
+  }
+
+  lines.push('Important: Firebase peut accepter la demande même si le compte Auth n\'existe pas (protection anti-énumération).');
+  lines.push('Si aucun mail n\'arrive:');
+  lines.push('1. vérifier Spam / Tous les messages');
+  lines.push('2. vérifier que l\'email existe bien dans Firebase Authentication > Users');
+  lines.push('3. vérifier les filtres Gmail et le délai de réception');
+  alert(lines.join('\n'));
 }
 
 function getAgentById(uid) {

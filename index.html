@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.7.7";
+            window.APP_VERSION = "2.7.8";
             try {
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
@@ -106,7 +106,7 @@
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
         // Version définie tôt pour autoPurgeCache et SW
-        window.APP_VERSION = "2.7.7"; // cache si version différente OU force-update
+        window.APP_VERSION = "2.7.8"; // cache si version différente OU force-update
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -2875,6 +2875,7 @@ function renderAdminUsers() {
             <button class="btn-sm" style="background:rgba(0,63,145,0.2);color:var(--blue-light);border:1px solid rgba(0,63,145,0.3)" onclick="adminChangerLieu('${uid}','${safeLieu}','${safeNom}')">🏢 Lieu</button>
             <button class="btn-sm" style="background:rgba(100,60,180,0.2);color:#b88fff;border:1px solid rgba(100,60,180,0.4)" onclick="adminEditerAgent('${uid}')">✏️ Modifier</button>
             <button class="btn-sm" style="background:rgba(200,168,75,0.15);color:var(--gold);border:1px solid rgba(200,168,75,0.3)" onclick="adminResetPassword('${safeEmail}','${safeNom}')">🔑 MDP</button>
+            <button class="btn-sm" style="background:rgba(0,85,204,0.16);color:var(--blue-light);border:1px solid rgba(0,85,204,0.3)" onclick="adminDiagnoseReset('${uid}')">🧪 Diag</button>
             <button class="btn-sm" style="background:${u.envoyerRapport ? 'rgba(0,200,122,0.2)' : 'rgba(90,100,120,0.15)'};color:${u.envoyerRapport ? 'var(--green)' : 'var(--text-dim)'};border:1px solid ${u.envoyerRapport ? 'rgba(0,200,122,0.3)' : 'var(--border)'}" onclick="toggleEnvoyerRapport('${uid}',${!u.envoyerRapport})">${u.envoyerRapport ? '📨' : '📭'} Envoi</button>
             <button class="btn-sm" style="background:${u.obligatoireLieu ? 'rgba(0,200,122,0.2)' : 'rgba(90,100,120,0.15)'};color:${u.obligatoireLieu ? 'var(--green)' : 'var(--text-dim)'};border:1px solid ${u.obligatoireLieu ? 'rgba(0,200,122,0.3)' : 'var(--border)'}" onclick="toggleObligatoireLieu('${uid}',${!u.obligatoireLieu})">🏢 Oblig.</button>
             ${!u.disabled ? `<button class="btn-sm btn-disable" onclick="toggleUser('${uid}',true)">✗ Désact.</button>` : `<button class="btn-sm btn-enable" onclick="toggleUser('${uid}',false)">✓ Réact.</button>`}
@@ -3512,6 +3513,50 @@ async function adminResetPassword(email, nomAgent) {
         }
         showToast('Erreur : ' + (e.message || e.code), 'err');
     }
+}
+
+async function adminDiagnoseReset(uid) {
+    const user = (_adminUsersAll || []).find(u => u.id === uid);
+    if (!user) { showToast('Agent introuvable dans le cache admin.', 'err'); return; }
+    if (!user.email) { alert(`Diagnostic reset MDP\n\nAgent: ${user.prenom || ''} ${user.nom || ''}\nRésultat: aucun email enregistré dans Firestore.`); return; }
+
+    const lines = [
+        'Diagnostic reset MDP',
+        '',
+        `Agent: ${(user.prenom || '') + ' ' + (user.nom || '')}`.trim(),
+        `Email Firestore: ${user.email}`,
+        `Matricule: ${user.matricule || '—'}`,
+        `Rôle: ${user.role || '—'}`,
+        `Compte désactivé: ${user.disabled ? 'OUI' : 'NON'}`,
+        ''
+    ];
+
+    const fb = window._fb;
+    if (!fb) {
+        lines.push('Firebase indisponible sur cette session.');
+        alert(lines.join('\n'));
+        return;
+    }
+
+    try {
+        await fb.sendPasswordResetEmail(fb.auth, user.email);
+        lines.push('Firebase a accepté la demande de réinitialisation pour cet email.');
+    } catch (e) {
+        const msgs = {
+            'auth/invalid-email': 'Email invalide côté Firebase.',
+            'auth/too-many-requests': 'Trop de tentatives, réessayez plus tard.'
+        };
+        lines.push(msgs[e.code] || ('Erreur Firebase: ' + (e.message || e.code)));
+        alert(lines.join('\n'));
+        return;
+    }
+
+    lines.push('Important: Firebase peut accepter la demande même si le compte Auth n\'existe pas (protection anti-énumération).');
+    lines.push('Si aucun mail n\'arrive:');
+    lines.push('1. vérifier Spam / Tous les messages');
+    lines.push('2. vérifier que l\'email existe bien dans Firebase Authentication > Users');
+    lines.push('3. vérifier les filtres Gmail et le délai de réception');
+    alert(lines.join('\n'));
 }
 
 // ========== CHANGE PASSWORD (self) ==========
