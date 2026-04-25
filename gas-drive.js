@@ -33,6 +33,8 @@
 
 var REPORT_EMAIL_TO = 'dta.attt.2026@gmail.com';
 var LOG_SHEET_ID = null;  // Optional: for logging (set in doPost if sheet exists)
+var FIREBASE_WEB_API_KEY = 'AIzaSyDna-johvghNyNdCpcyL5uI6BGbrrRDcX4';
+var REQUEST_PROP_PREFIX = 'vinReportRequest:';
 
 // ─── Base de référence VIN "BKA" — auto-gérée ───────────────
 // Aucune configuration manuelle requise :
@@ -53,6 +55,48 @@ function logEvent(action, details) {
   } catch(e) {
     // Silently fail if logging not available
   }
+}
+
+function authenticatePayload(payload) {
+  var token = String(payload && payload.authToken || '').trim();
+  if (!token) throw new Error('Authentification requise.');
+
+  var response = UrlFetchApp.fetch('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=' + FIREBASE_WEB_API_KEY, {
+    method: 'post',
+    contentType: 'application/json',
+    muteHttpExceptions: true,
+    payload: JSON.stringify({ idToken: token })
+  });
+
+  if (response.getResponseCode() !== 200) {
+    throw new Error('Jeton Firebase invalide ou expiré.');
+  }
+
+  var data = JSON.parse(response.getContentText() || '{}');
+  var user = data && data.users && data.users[0];
+  if (!user || !user.localId) throw new Error('Utilisateur Firebase introuvable.');
+  return user;
+}
+
+function getRequestPropertyKey(requestId) {
+  return REQUEST_PROP_PREFIX + String(requestId || '').trim();
+}
+
+function getSavedRequestResult(requestId) {
+  var key = getRequestPropertyKey(requestId);
+  if (!requestId) return null;
+  var raw = PropertiesService.getScriptProperties().getProperty(key);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    return { ok: true, duplicate: true };
+  }
+}
+
+function saveRequestResult(requestId, result) {
+  if (!requestId) return;
+  PropertiesService.getScriptProperties().setProperty(getRequestPropertyKey(requestId), JSON.stringify(result || { ok: true }));
 }
 
 // ─── Point d'entrée GET (pour tests/diagnostic) ──────────────
@@ -203,6 +247,10 @@ function doPost(e) {
     var payload = JSON.parse(e.postData.contents);
     logEvent('RECEIVED_POST', { action: payload.action, agentName: payload.agentName });
 
+    if (payload.action === 'saveVinReport' || payload.action === 'saveChatPhoto' || payload.action === 'saveProjectBackup' || payload.action === 'importBka' || payload.action === 'importBkaData' || payload.action === 'clearBkaData') {
+      payload._authUser = authenticatePayload(payload);
+    }
+
     if (payload.action === 'saveVinReport') {
       var result = saveVinReport(payload);
       logEvent('SAVE_VIN_REPORT_OK', result);
@@ -291,6 +339,12 @@ function doPost(e) {
 
 // ─── Sauvegarde VIN report ──────────────────────────────────
 function saveVinReport(payload) {
+  var existingResult = getSavedRequestResult(payload.requestId);
+  if (existingResult) {
+    existingResult.duplicate = true;
+    return existingResult;
+  }
+
   var agentName = (payload.agentName || 'Agent').replace(/[^a-zA-Z0-9_\- ]/g, '_');
   var pdfName   = payload.pdfName   || 'rapport.pdf';
   var pdfBase64 = payload.pdfBase64 || '';
@@ -303,6 +357,7 @@ function saveVinReport(payload) {
   var shouldEmail = payload.sendEmail !== false;
   var pdfBlobForMail = null;
   var photoBlobsForMail = [];
+  var emailErrors = [];
 
   // ── Dossier racine VIN_EXPERT ──
   var rootFolder = getOrCreateFolder('VIN_EXPERT', DriveApp.getRootFolder());
@@ -343,32 +398,40 @@ function saveVinReport(payload) {
 
   // Envoi email DTA (discret, automatique)
   if (shouldEmail && pdfBlobForMail && !payload.sendToAgent) {
-    sendVinReportEmail({
-      to: REPORT_EMAIL_TO,
-      subject: emailSubject,
-      body: emailBody,
-      metadataLines: metadataLines,
-      pdfBlob: pdfBlobForMail,
-      photoBlobs: photoBlobsForMail,
-      agentName: agentName,
-      pdfName: pdfName
-    });
+    try {
+      sendVinReportEmail({
+        to: REPORT_EMAIL_TO,
+        subject: emailSubject,
+        body: emailBody,
+        metadataLines: metadataLines,
+        pdfBlob: pdfBlobForMail,
+        photoBlobs: photoBlobsForMail,
+        agentName: agentName,
+        pdfName: pdfName
+      });
+    } catch (eMailDta) {
+      emailErrors.push('email DTA: ' + eMailDta.message);
+    }
   }
 
   // Envoi email à l'agent (auto après fullVerify ou bouton "Envoyer rapport PDF par email")
   var agentEmailed = false;
   if (payload.agentEmail && pdfBlobForMail) {
-    sendVinReportEmail({
-      to: payload.agentEmail,
-      subject: emailSubject,
-      body: payload.emailBody || ('Bonjour,\n\nVotre rapport VIN Expert est disponible en pièce jointe.\n\nCordialement,\nVIN Expert · ATTT'),
-      metadataLines: metadataLines,
-      pdfBlob: pdfBlobForMail.copyBlob(),
-      photoBlobs: photoBlobsForMail.map(function(b){ return b.copyBlob(); }),
-      agentName: agentName,
-      pdfName: pdfName
-    });
-    agentEmailed = true;
+    try {
+      sendVinReportEmail({
+        to: payload.agentEmail,
+        subject: emailSubject,
+        body: payload.emailBody || ('Bonjour,\n\nVotre rapport VIN Expert est disponible en pièce jointe.\n\nCordialement,\nVIN Expert · ATTT'),
+        metadataLines: metadataLines,
+        pdfBlob: pdfBlobForMail.copyBlob(),
+        photoBlobs: photoBlobsForMail.map(function(b){ return b.copyBlob(); }),
+        agentName: agentName,
+        pdfName: pdfName
+      });
+      agentEmailed = true;
+    } catch (eMailAgent) {
+      emailErrors.push('email agent: ' + eMailAgent.message);
+    }
   }
 
   // Envoi copie au supérieur hiérarchique (si demandé par l'admin)
@@ -388,10 +451,11 @@ function saveVinReport(payload) {
       superieurEmailed = true;
     } catch(eSup) {
       Logger.log('Erreur envoi supérieur: ' + eSup.message);
+      emailErrors.push('email supérieur: ' + eSup.message);
     }
   }
 
-  return {
+  var result = {
     ok: true,
     folder: agentFolder.getName(),
     reportFolder: reportFolder.getName(),
@@ -399,8 +463,14 @@ function saveVinReport(payload) {
     emailed: shouldEmail && !!pdfBlobForMail,
     emailTo: shouldEmail && pdfBlobForMail ? REPORT_EMAIL_TO : '',
     agentEmailed: agentEmailed,
-    superieurEmailed: superieurEmailed
+    superieurEmailed: superieurEmailed,
+    partial: emailErrors.length > 0,
+    warnings: emailErrors,
+    requestId: payload.requestId || '',
+    authUid: payload._authUser && payload._authUser.localId ? payload._authUser.localId : ''
   };
+  saveRequestResult(payload.requestId, result);
+  return result;
 }
 
 function saveMetadataFiles(folder, metadata, metadataLines) {

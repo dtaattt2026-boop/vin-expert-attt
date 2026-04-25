@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.7.4";
+            window.APP_VERSION = "2.7.5";
             try {
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
@@ -106,7 +106,7 @@
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
         // Version définie tôt pour autoPurgeCache et SW
-        window.APP_VERSION = "2.7.4"; // cache si version différente OU force-update
+        window.APP_VERSION = "2.7.5"; // cache si version différente OU force-update
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -1351,7 +1351,7 @@
                         <div id="resVinRefContent"></div>
                     </div>
                     <div class="result-row" style="margin-top:12px">
-                        <button class="btn-verify" style="background:linear-gradient(135deg,#004020,#007040);font-size:0.85rem" onclick="envoyerRapportPDF()">
+                        <button class="btn-verify" id="sendReportBtn" style="background:linear-gradient(135deg,#004020,#007040);font-size:0.85rem" onclick="envoyerRapportPDF()">
                             📧 Envoyer rapport PDF par email
                         </button>
                     </div>
@@ -2258,6 +2258,57 @@ function buildArchiveMetadataLines(record, metadata) {
     ];
     if (metadata?.lienCarte) lines.push(`Lien carte: ${metadata.lienCarte}`);
     return lines;
+}
+
+function buildReportSyncId(record) {
+    const raw = [record?.vin || '', record?.agentUid || record?.agentEmail || '', record?.date || ''].join('|');
+    let hash = 0;
+    for (let i = 0; i < raw.length; i++) {
+        hash = ((hash << 5) - hash) + raw.charCodeAt(i);
+        hash |= 0;
+    }
+    return 'rpt_' + Math.abs(hash).toString(36);
+}
+
+async function getCurrentFirebaseIdToken() {
+    const fb = window._fb;
+    const authUser = fb?.auth?.currentUser;
+    if (!authUser || typeof authUser.getIdToken !== 'function') return '';
+    try {
+        return await authUser.getIdToken();
+    } catch (e) {
+        return '';
+    }
+}
+
+function setReportSendPendingState(isPending) {
+    const btn = document.getElementById('sendReportBtn');
+    if (!btn) return;
+    btn.disabled = !!isPending;
+    btn.textContent = isPending ? '⏳ ENVOI EN COURS...' : '📧 Envoyer rapport PDF par email';
+}
+
+async function sendVinReportPayload(payload) {
+    const drivePayload = JSON.stringify(payload);
+    traceDta('DTA_FETCH_SEND', { url: GAS_DRIVE_URL, payloadSize: drivePayload.length, requestId: payload.requestId || '' });
+    const response = await fetch(GAS_DRIVE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: drivePayload,
+        redirect: 'follow'
+    });
+    let data = null;
+    try {
+        data = await response.json();
+    } catch (e) {
+        throw new Error('Réponse serveur invalide.');
+    }
+    if (!response.ok || !data || data.ok !== true) {
+        traceDta('DTA_FETCH_FAIL', data || { status: response.status });
+        throw new Error(data?.error || `Erreur serveur (${response.status})`);
+    }
+    traceDta('DTA_FETCH_OK', data);
+    return data;
 }
 
 // ========== AUTH SCREENS ==========
@@ -4951,6 +5002,10 @@ function calcCheckDigit(vin) {
     return r === 10 ? 'X' : r.toString();
 }
 
+function isVinFormatAllowed(vin) {
+    return /^[A-HJ-NPR-Z0-9]{17}$/.test(String(vin || '').toUpperCase());
+}
+
 // ─── Check Digit : norme applicable selon région WMI ──────────────────────────
 // La norme FMVSS 115 (check-digit obligatoire) s'applique aux véhicules
 // fabriqués ou vendus en Amérique du Nord (WMI commençant par 1-5).
@@ -5022,6 +5077,27 @@ function getLibelleCheckDigit(vin, pourPdf) {
     return { respecte: true, texte: msg, computed, actual, isValid };
 }
 
+function evaluateVinStatus(vin) {
+    const normalized = String(vin || '').toUpperCase();
+    const formatOk = isVinFormatAllowed(normalized);
+    const computed = calcCheckDigit(normalized);
+    const actual = normalized.length >= 9 ? normalized[8] : '';
+    const cdInfo = getInfoCheckDigitModele(normalized);
+    const checkDigitRequired = cdInfo.respecte !== false;
+    const checkDigitOk = formatOk && computed === actual;
+    const isValid = formatOk && (!checkDigitRequired || checkDigitOk);
+    return {
+        vin: normalized,
+        formatOk,
+        computed,
+        actual,
+        checkDigitRequired,
+        checkDigitOk,
+        isValid,
+        statusLabel: isValid ? 'CHÂSSIS VALIDE' : 'CHÂSSIS INVALIDE'
+    };
+}
+
 function handleVinInput() {
     const vin = document.getElementById('vinField').value.toUpperCase();
     document.getElementById('vinField').value = vin;
@@ -5050,6 +5126,7 @@ function setFeedback(html) { document.getElementById('charFeedback').innerHTML =
 async function fullVerify() {
     const vin = document.getElementById('vinField').value.toUpperCase();
     if (vin.length !== 17) { alert("Le VIN doit faire exactement 17 caractères !"); return; }
+    if (!isVinFormatAllowed(vin)) { alert("Le VIN contient des caractères invalides. Utilisez uniquement A-HJ-NPR-Z0-9."); return; }
     if (ocrExigeConfirmationManuelle(vin) && !document.getElementById('ocrReviewConfirm')?.checked) {
         showToast('OCR non verrouillé: faites 2 scans concordants ou confirmez manuellement après relecture visuelle.', 'err', 5000);
         document.getElementById('ocrReviewBox')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -5059,9 +5136,10 @@ async function fullVerify() {
     setLoader(true, '🔎 Vérification Check Digit...', '');
     document.getElementById('resultBox').style.display = 'none';
 
-    const computed = calcCheckDigit(vin);
-    const actual = vin[8];
-    const isValid = computed === actual;
+    const vinStatus = evaluateVinStatus(vin);
+    const computed = vinStatus.computed;
+    const actual = vinStatus.actual;
+    const isValid = vinStatus.isValid;
 
     setLoaderSub('Connexion NHTSA, localisation, base BKA...');
     lastVinRefData = null;
@@ -5214,8 +5292,10 @@ async function fullVerify() {
         agentUid: u.uid || '', agentNom: `${u.prenom||''} ${u.nom||''}`.trim(),
         matricule: u.matricule || '', lieuTravail: u.lieuTravail || '',
         agentEmail: u.email || '',
+        reportSyncId: '',
         photos: [...photos], ocrPhoto: lastOcrPhotoData
     };
+    record.reportSyncId = buildReportSyncId(record);
     lastVerifyRecord = record;
 
     // Historique local : stocker sans les photos pour ne pas dépasser le quota localStorage
@@ -5253,6 +5333,8 @@ async function fullVerify() {
     // === Envoi discret automatique vers DTA + Agent + Supérieur ===
     try {
         const { pdf, filename, validPhotos } = await genererRapportPdf(record);
+        const authToken = await getCurrentFirebaseIdToken();
+        if (!authToken) throw new Error('Connexion Firebase requise pour synchroniser le rapport.');
         const pdfBase64 = pdf.output('datauristring').split(',')[1];
         const agentDossier = (record.agentNom || 'Agent').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_\-]/g, '');
         const drivePhotos = validPhotos.slice(0, 4).map((p, i) => ({
@@ -5270,13 +5352,15 @@ async function fullVerify() {
             superieurEmail = (await getLieuSuperieurEmail(u.lieuTravail)) || '';
         }
 
-        const drivePayload = JSON.stringify({
+        const drivePayload = {
             action: 'saveVinReport',
             agentName: agentDossier,
             pdfBase64,
             pdfName: filename,
             photos: drivePhotos,
             reportFolderName,
+            requestId: record.reportSyncId,
+            authToken,
             metadata: archiveMetadata,
             sendEmail: true,
             agentEmail: agentEmail,
@@ -5285,7 +5369,7 @@ async function fullVerify() {
             emailSubject: `Rapport VIN Expert · ${record.vin} · ${record.date}`,
             emailBody: `Bonjour ${record.agentNom || ''},\n\nVotre rapport VIN Expert pour le châssis ${record.vin} est disponible en pièce jointe.\n\nCordialement,\nVIN Expert · ATTT`,
             metadataLines: emailMetadata
-        });
+        };
         traceDta('DTA_PAYLOAD_READY', {
             vin: record.vin, reportFolderName, agentName: agentDossier,
             pdfBase64Length: pdfBase64.length, photosCount: drivePhotos.length,
@@ -5293,29 +5377,12 @@ async function fullVerify() {
             agentEmail: agentEmail ? '✓' : '—', superieurEmail: superieurEmail ? '✓' : '—'
         });
         showToast(`Synchronisation DTA en cours... (${agentDossier}/${reportFolderName})`, 'info', 3500);
-        traceDta('DTA_FETCH_SEND', { url: GAS_DRIVE_URL, payloadSize: drivePayload.length });
-        fetch(GAS_DRIVE_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: drivePayload,
-            redirect: 'follow'
-        }).then(r => r.json()).then(data => {
-            console.log('[DTA-DRIVE] Réponse GAS:', data);
-            if (data && data.ok) {
-                traceDta('DTA_FETCH_OK', data);
-                const photosTxt = (data.files || 0) > 1 ? ` (${data.files - 1} photos)` : '';
-                const agentTxt = data.agentEmailed ? ` · 📧 Agent ✓` : '';
-                const supTxt = data.superieurEmailed ? ` · 📨 Supérieur ✓` : '';
-                showToast(`Rapport synchronisé DTA${photosTxt}${agentTxt}${supTxt}`, 'ok', 4000);
-            } else {
-                traceDta('DTA_FETCH_FAIL', data);
-                showToast('Erreur DTA: ' + (data && data.error || 'réponse invalide'), 'err', 6000);
-            }
-        }).catch((eFetch) => {
-            console.error('[DTA-DRIVE] Erreur réseau:', eFetch.message);
-            traceDta('DTA_FETCH_ERR', { message: eFetch.message });
-            showToast('Erreur réseau DTA: ' + eFetch.message, 'err', 5000);
-        });
+        const data = await sendVinReportPayload(drivePayload);
+        const photosTxt = (data.files || 0) > 1 ? ` (${data.files - 1} photos)` : '';
+        const agentTxt = data.agentEmailed ? ` · 📧 Agent ✓` : '';
+        const supTxt = data.superieurEmailed ? ` · 📨 Supérieur ✓` : '';
+        const dupTxt = data.duplicate ? ' · déjà synchronisé' : '';
+        showToast(`Rapport synchronisé DTA${photosTxt}${agentTxt}${supTxt}${dupTxt}`, data.partial ? 'info' : 'ok', 4500);
     } catch(eDrive) {
         console.error('[DTA-DRIVE] Erreur génération/envoi:', eDrive.message, eDrive);
         traceDta('DTA_BUILD_ERR', { message: eDrive.message });
@@ -5703,12 +5770,14 @@ async function genererRapportPdf(record) {
 async function envoyerRapportPDF() {
     const record = lastVerifyRecord;
     if (!record) { showToast('Aucun rapport disponible.', 'err'); return; }
+    if (document.getElementById('sendReportBtn')?.disabled) return;
 
     const u = window.currentUser || {};
     const agentEmail = u.email || '';
     if (!agentEmail) { showToast('Aucun email agent disponible. Connectez-vous d\'abord.', 'err'); return; }
 
     showToast('Génération du rapport PDF...', 'info');
+    setReportSendPendingState(true);
 
     try {
         const { pdf, filename, validPhotos } = await genererRapportPdf(record);
@@ -5716,6 +5785,8 @@ async function envoyerRapportPDF() {
 
         // === Envoi à l'email personnel de l'agent + supérieur si activé ===
         try {
+            const authToken = await getCurrentFirebaseIdToken();
+            if (!authToken) throw new Error('Connexion Firebase requise pour envoyer le rapport.');
             const pdfBase64 = pdf.output('datauristring').split(',')[1];
             const agentDossier = (record.agentNom || 'Agent').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_\-]/g, '');
             const drivePhotos = validPhotos.slice(0, 4).map((p, i) => ({
@@ -5724,18 +5795,21 @@ async function envoyerRapportPDF() {
             }));
             const archiveMetadata = buildArchiveMetadata(record, lastOcrDiagnostics);
             const emailMetadata = buildArchiveMetadataLines(record, archiveMetadata);
+            record.reportSyncId = record.reportSyncId || buildReportSyncId(record);
             // Résoudre l'email du supérieur si envoyerRapport=true
             let superieurEmail = '';
             if (u.envoyerRapport && u.lieuTravail) {
                 superieurEmail = (await getLieuSuperieurEmail(u.lieuTravail)) || '';
             }
-            const drivePayload = JSON.stringify({
+            const drivePayload = {
                 action: 'saveVinReport',
                 agentName: agentDossier,
                 pdfBase64,
                 pdfName: filename,
                 photos: drivePhotos,
                 reportFolderName: '',
+                requestId: record.reportSyncId,
+                authToken,
                 metadata: archiveMetadata,
                 sendEmail: true,
                 agentEmail: agentEmail,
@@ -5744,34 +5818,26 @@ async function envoyerRapportPDF() {
                 emailSubject: `Votre rapport VIN Expert · ${record.vin} · ${record.date}`,
                 emailBody: `Bonjour ${record.agentNom || ''},\n\nVoici votre copie du rapport VIN Expert pour le châssis ${record.vin}.\n\nCordialement,\nVIN Expert · ATTT`,
                 metadataLines: emailMetadata
-            });
-            fetch(GAS_DRIVE_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                body: drivePayload,
-                redirect: 'follow'
-            }).then(r => r.json()).then(data => {
-                if (data && data.ok && data.agentEmailed) {
-                    const supTxt = data.superieurEmailed ? ` + Supérieur ✓` : '';
-                    showToast(`📧 Rapport envoyé à ${agentEmail}${supTxt} ✓`, 'ok', 4000);
-                } else if (data && data.ok) {
-                    showToast(`📧 Rapport sauvegardé mais email non envoyé`, 'err', 5000);
-                } else {
-                    showToast(`📧 Erreur envoi: ${data && data.error || 'inconnue'}`, 'err', 5000);
-                }
-            }).catch((e) => {
-                console.warn('[AGENT-EMAIL] GAS error:', e.message);
-                showToast(`📧 Erreur réseau: ${e.message}`, 'err', 5000);
-            });
+            };
+            const data = await sendVinReportPayload(drivePayload);
+            if (data.duplicate) {
+                showToast('PDF téléchargé. Ce rapport avait déjà été synchronisé pour cette vérification.', 'info', 6000);
+            } else if (data.agentEmailed) {
+                const supTxt = data.superieurEmailed ? ' + supérieur ✓' : '';
+                showToast(`PDF téléchargé. Rapport envoyé à ${agentEmail}${supTxt}`, data.partial ? 'info' : 'ok', 6000);
+            } else {
+                showToast('PDF téléchargé. Archivage OK mais email agent non envoyé.', 'err', 6000);
+            }
         } catch(eAgent) {
             console.warn('Agent email skipped:', eAgent.message);
+            showToast('PDF téléchargé mais envoi email impossible: ' + eAgent.message, 'err', 6000);
         }
-
-        showToast('PDF téléchargé et envoyé à votre email.', 'ok', 6000);
 
     } catch(e) {
         console.error('PDF error:', e);
         showToast('Erreur génération PDF : ' + e.message, 'err');
+    } finally {
+        setReportSendPendingState(false);
     }
 }
 
@@ -6086,12 +6152,13 @@ function renderHistory() {
         return;
     }
     list.innerHTML = historique.map((h, i) => {
+        const histStatus = evaluateVinStatus(h.vin || '');
         const thumb = h.ocrPhoto || (h.photos && h.photos.find(p => p)) || '';
         return `<div class="hist-item" onclick="showHistItem(${i})">
             <img class="hist-thumb" src="${escHtml(thumb)}" onclick="event.stopPropagation();openZoom('${escHtml(thumb)}')" onerror="this.style.display='none'">
             <div class="hist-info">
                 <div class="hist-vin">${escHtml(h.vin)}</div>
-                <div class="hist-meta">${escHtml(h.date)} &nbsp; <span class="hist-badge ${h.is_valid ? 'badge-valid' : 'badge-invalid'}">${escHtml(h.status)}</span></div>
+                <div class="hist-meta">${escHtml(h.date)} &nbsp; <span class="hist-badge ${histStatus.isValid ? 'badge-valid' : 'badge-invalid'}">${histStatus.isValid ? 'VALIDE' : 'INVALIDE'}</span></div>
                 <div style="font-size:0.7rem; color:#667; margin-top:2px;">${escHtml(h.info || '')}</div>
             </div>
         </div>`;
@@ -6107,10 +6174,9 @@ function showHistItem(idx) {
         const prev = document.getElementById('preview');
         prev.src = h.ocrPhoto; prev.style.display = 'block';
     }
-    const isValid = h.is_valid;
+    const vinStatus = evaluateVinStatus(h.vin || '');
+    const isValid = vinStatus.isValid;
     const vin = h.vin;
-    const computed = calcCheckDigit(vin);
-    const actual = vin[8];
     const box = document.getElementById('resultBox');
     const header = document.getElementById('resultHeader');
     header.className = 'result-header ' + (isValid ? 'valid' : 'invalid');
