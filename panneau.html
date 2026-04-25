@@ -569,6 +569,14 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',sans-serif;mi
             <h3>Statistiques par lieu</h3>
             <div id="reportLieuStats"><div class="empty">Chargement...</div></div>
           </div>
+          <div class="guide-card">
+            <h3>Tendance mensuelle</h3>
+            <div id="reportMonthlyTrend"><div class="empty">Chargement...</div></div>
+          </div>
+          <div class="guide-card">
+            <h3>Classement agents</h3>
+            <div id="reportAgentRanking"><div class="empty">Chargement...</div></div>
+          </div>
         </div>
 
         <div id="reportList"><div class="empty">Chargement...</div></div>
@@ -2922,6 +2930,28 @@ function buildReportBreakdown(records, keyName) {
   return [...map.values()].sort((a, b) => (b.total - a.total) || a.label.localeCompare(b.label, 'fr', { sensitivity: 'base' }));
 }
 
+function buildMonthlyTrend(records) {
+  const map = new Map();
+  records.forEach((report) => {
+    const date = getReportCreatedAt(report);
+    if (!date) return;
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    const entry = map.get(key) || { key, total: 0, valid: 0, invalid: 0 };
+    entry.total += 1;
+    if (report.is_valid) entry.valid += 1;
+    else entry.invalid += 1;
+    map.set(key, entry);
+  });
+  return [...map.values()].sort((a, b) => a.key.localeCompare(b.key)).slice(-12);
+}
+
+function buildAgentRanking(records) {
+  return buildReportBreakdown(records, 'agentNom').map((row) => ({
+    ...row,
+    validRate: row.total > 0 ? (row.valid / row.total) * 100 : 0
+  })).sort((a, b) => (b.total - a.total) || (b.validRate - a.validRate) || a.label.localeCompare(b.label, 'fr', { sensitivity: 'base' }));
+}
+
 function sortReports(records) {
   const rows = [...records];
   const getStatusRank = (report) => report.is_valid ? 0 : 1;
@@ -2982,6 +3012,46 @@ function renderBreakdownList(containerId, rows, emptyLabel, filterType) {
         </div>
       </div>
       <div class="report-meta">✅ ${row.valid} · ⚠ ${row.invalid}</div>
+    </div>`).join('');
+}
+
+function renderMonthlyTrend(containerId, rows) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!rows.length) {
+    el.innerHTML = '<div class="empty">Aucune donnée mensuelle.</div>';
+    return;
+  }
+  const maxTotal = Math.max(...rows.map(row => row.total), 1);
+  el.innerHTML = rows.map((row) => {
+    const width = Math.max(8, Math.round((row.total / maxTotal) * 100));
+    return `<div style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;gap:8px;font-size:0.78rem;margin-bottom:4px">
+        <span style="color:var(--text)">${esc(row.key)}</span>
+        <span style="color:var(--blue2);font-family:var(--font-mono)">${row.total}</span>
+      </div>
+      <div style="height:8px;background:rgba(255,255,255,0.06);border-radius:999px;overflow:hidden">
+        <div style="width:${width}%;height:100%;background:linear-gradient(90deg,var(--blue),var(--blue2))"></div>
+      </div>
+      <div class="report-meta">✅ ${row.valid} · ⚠ ${row.invalid}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderAgentRanking(containerId, rows) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!rows.length) {
+    el.innerHTML = '<div class="empty">Aucun classement agent.</div>';
+    return;
+  }
+  el.innerHTML = rows.slice(0, 10).map((row, index) => `
+    <div class="report-row" style="padding:8px 10px;margin-bottom:8px;${row.value ? 'cursor:pointer;' : ''}" ${row.value ? `onclick="applyReportBreakdownFilter('agent','${encodeURIComponent(row.value)}')"` : ''}>
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+        <span style="font-weight:700;color:var(--text)">${index + 1}. ${esc(row.label)}</span>
+        <span style="font-family:var(--font-mono);color:var(--blue2)">${row.total}</span>
+      </div>
+      <div class="report-meta">Taux validité : ${formatPercent(row.validRate)} · ✅ ${row.valid} · ⚠ ${row.invalid}</div>
     </div>`).join('');
 }
 
@@ -3242,6 +3312,8 @@ function renderReports() {
 
   renderBreakdownList('reportAgentStats', buildReportBreakdown(filteredReports, 'agentNom'), 'Aucune statistique agent.', 'agent');
   renderBreakdownList('reportLieuStats', buildReportBreakdown(filteredReports, 'lieuTravail'), 'Aucune statistique lieu.', 'lieu');
+  renderMonthlyTrend('reportMonthlyTrend', buildMonthlyTrend(filteredReports));
+  renderAgentRanking('reportAgentRanking', buildAgentRanking(filteredReports));
 
   if (!filteredReports.length) {
     if (pageInfoEl) pageInfoEl.textContent = 'Page 1 / 1 · 0 résultat';

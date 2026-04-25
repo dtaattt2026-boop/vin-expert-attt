@@ -11,7 +11,7 @@
     <meta name="application-name" content="VIN Expert ATTT">
     <meta name="description" content="Identification VIN — ATTT Direction Technique d'Automobiles">
     <title>ATTT · VIN Identification</title>
-    <link rel="manifest" href="manifest.json?v=2.7.16">
+    <link rel="manifest" href="manifest.json?v=2.7.17">
     <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.7.16";
+            window.APP_VERSION = "2.7.17";
             try {
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
@@ -111,7 +111,7 @@
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
         // Version définie tôt pour autoPurgeCache et SW
-        window.APP_VERSION = "2.7.16"; // cache si version différente OU force-update
+        window.APP_VERSION = "2.7.17"; // cache si version différente OU force-update
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -1974,6 +1974,51 @@ function reloadForUpdate() {
     window.location.replace(buildForceUpdateUrl());
 }
 
+function getRememberedUpdateVersion() {
+    return sessionStorage.getItem('_vin_pending_update_version') || '';
+}
+
+function getRememberedUpdateAgeMs() {
+    const raw = Number(sessionStorage.getItem('_vin_pending_update_at') || '0');
+    if (!Number.isFinite(raw) || raw <= 0) return Number.POSITIVE_INFINITY;
+    return Date.now() - raw;
+}
+
+function rememberPendingUpdateVersion(version) {
+    if (!version) return;
+    sessionStorage.setItem('_vin_pending_update_version', version);
+    sessionStorage.setItem('_vin_pending_update_at', String(Date.now()));
+    window._pendingUpdateVersion = version;
+}
+
+function clearResolvedUpdateVersion() {
+    const remembered = getRememberedUpdateVersion();
+    if (!remembered) return;
+    if (compareVersions(window.APP_VERSION || '0.0.0', remembered) >= 0) {
+        sessionStorage.removeItem('_vin_pending_update_version');
+        sessionStorage.removeItem('_vin_pending_update_at');
+        window._pendingUpdateVersion = '';
+    }
+}
+
+function shouldThrottleSameUpdate(version) {
+    return getRememberedUpdateVersion() === version && getRememberedUpdateAgeMs() < 90000;
+}
+
+function triggerAppUpdate(version, source = 'auto') {
+    if (!version) return false;
+    clearResolvedUpdateVersion();
+    if (compareVersions(window.APP_VERSION || '0.0.0', version) >= 0) return false;
+    if (window._updateInProgress) return false;
+    if (shouldThrottleSameUpdate(version)) {
+        console.log('[UPDATE] Déclenchement ignoré (cooldown)', source, version);
+        return false;
+    }
+    rememberPendingUpdateVersion(version);
+    doUpdate(version, source);
+    return true;
+}
+
 function stopRealtimeVersionWatch() {
     if (typeof window._versionWatcherUnsub === 'function') {
         try { window._versionWatcherUnsub(); } catch(e) {}
@@ -1984,6 +2029,7 @@ function stopRealtimeVersionWatch() {
 function startRealtimeVersionWatch() {
     const fb = window._fb;
     if (!fb || !fb.onSnapshot || typeof window._versionWatcherUnsub === 'function') return;
+    clearResolvedUpdateVersion();
 
     try {
         const versionRef = fb.doc(fb.db, 'config', 'appVersion');
@@ -1995,7 +2041,7 @@ function startRealtimeVersionWatch() {
             updateVersionBadge(serverVer);
             if (window._updateInProgress) return;
             if (compareVersions(clientVer, serverVer) < 0) {
-                doUpdate(serverVer);
+                triggerAppUpdate(serverVer, 'realtime-listener');
             }
         }, (error) => {
             console.warn('[VERSION] Listener erreur:', error.message);
@@ -2101,6 +2147,7 @@ async function checkVersionFromFirestore() {
     try {
         if (window._updateInProgress) return;
         if (!window._fb || !window._firebaseAvailable) return;
+        clearResolvedUpdateVersion();
         // Si cette session a publié ou déjà traité une version, ne pas boucler
         const publishedVer = sessionStorage.getItem('_vin_just_published');
         if (publishedVer && compareVersions(publishedVer, window.APP_VERSION || '0') >= 0) {
@@ -2119,6 +2166,11 @@ async function checkVersionFromFirestore() {
                 showToast('Nouvelle version ' + serverVer + ' disponible. Relancez ATTT.bat pour synchroniser.', 'info', 8000);
                 return;
             }
+            if (shouldThrottleSameUpdate(serverVer)) {
+                console.log('[VERSION] Check Firestore ignoré (cooldown)', serverVer);
+                return;
+            }
+            rememberPendingUpdateVersion(serverVer);
             window._updateInProgress = true;
             console.log('[VERSION] Obsolète:', localVer, '→', serverVer, '— purge auto...');
             showUpdateProgress(15, 'Version obsolète détectée (' + localVer + ' → ' + serverVer + ')', '🔄 Mise à jour requise<br>Ne fermez pas l\'application.');
@@ -2714,6 +2766,7 @@ async function checkAppUpdate() {
         return;
     }
     if (window._updateInProgress) return;
+    clearResolvedUpdateVersion();
     const fb = window._fb;
     if (!fb) return;
     try {
@@ -2731,7 +2784,7 @@ async function checkAppUpdate() {
 
         if (needsUpdate) {
             // Mise à jour automatique sans interaction utilisateur
-            await doUpdate(serverVer);
+            triggerAppUpdate(serverVer, 'startup-check');
             return;
         }
     } catch(e) {}
@@ -2766,9 +2819,11 @@ function showUpdateProgress(percent, stepText, msgHTML) {
 }
 
 // Vide le cache SW et recharge la dernière version depuis le serveur
-async function doUpdate(targetVersion) {
+async function doUpdate(targetVersion, source = 'manual') {
     if (window._updateInProgress) return;
     window._updateInProgress = true;
+    if (targetVersion) rememberPendingUpdateVersion(targetVersion);
+    console.log('[UPDATE] Démarrage', source, targetVersion || '(version inconnue)');
     showUpdateProgress(10, 'Démarrage de la mise à jour...', '🔄 Mise à jour en cours<br>Ne fermez pas l\'application.');
 
     // Étape 1 : Forcer le nouveau SW à prendre le contrôle
