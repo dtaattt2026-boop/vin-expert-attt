@@ -502,26 +502,48 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',sans-serif;mi
         </div>
 
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
-          <input type="text" id="reportSearch" placeholder="🔍 VIN, agent, matricule, lieu..." oninput="renderReports()"
+          <input type="text" id="reportSearch" placeholder="🔍 VIN, agent, matricule, lieu..." oninput="onReportCriteriaChanged()"
             style="flex:2;min-width:200px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:0.83rem;outline:none">
-          <select id="reportAgentFilter" onchange="renderReports()"
+          <select id="reportAgentFilter" onchange="onReportCriteriaChanged()"
             style="flex:1;min-width:180px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:0.83rem;outline:none">
             <option value="">👤 Tous les agents</option>
           </select>
-          <select id="reportLieuFilter" onchange="renderReports()"
+          <select id="reportLieuFilter" onchange="onReportCriteriaChanged()"
             style="flex:1;min-width:180px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:0.83rem;outline:none">
             <option value="">📍 Tous les lieux</option>
           </select>
         </div>
 
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
-          <input type="date" id="reportDateStart" onchange="renderReports()"
+          <input type="date" id="reportDateStart" onchange="onReportCriteriaChanged()"
             style="min-width:170px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:0.83rem;outline:none">
-          <input type="date" id="reportDateEnd" onchange="renderReports()"
+          <input type="date" id="reportDateEnd" onchange="onReportCriteriaChanged()"
             style="min-width:170px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:0.83rem;outline:none">
           <button class="btn-save-cfg" onclick="resetReportFilters()">✕ Réinitialiser filtres</button>
           <button class="btn-save-cfg" onclick="exportReportsCsv()">📄 Export CSV</button>
           <button class="btn-save-cfg" onclick="exportReportsExcelCsv()">📊 Export Excel</button>
+        </div>
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+          <select id="reportSort" onchange="setReportSort(this.value)"
+            style="min-width:190px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:0.83rem;outline:none">
+            <option value="date_desc">🕒 Date décroissante</option>
+            <option value="date_asc">🕒 Date croissante</option>
+            <option value="agent_asc">👤 Agent A → Z</option>
+            <option value="lieu_asc">📍 Lieu A → Z</option>
+            <option value="status_desc">⚖ Statut</option>
+            <option value="vin_asc">🔢 VIN A → Z</option>
+          </select>
+          <select id="reportPageSize" onchange="setReportPageSize(this.value)"
+            style="min-width:150px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:0.83rem;outline:none">
+            <option value="25">25 / page</option>
+            <option value="50" selected>50 / page</option>
+            <option value="100">100 / page</option>
+            <option value="250">250 / page</option>
+          </select>
+          <span id="reportPageInfo" style="font-size:0.82rem;color:var(--dim);margin-left:auto">Page 1 / 1</span>
+          <button class="btn-save-cfg" onclick="changeReportPage(-1)">◀ Précédent</button>
+          <button class="btn-save-cfg" onclick="changeReportPage(1)">Suivant ▶</button>
         </div>
 
         <div class="guide-grid" style="margin-bottom:16px">
@@ -2598,6 +2620,9 @@ async function ghUpdateFile(token, owner, repo, path, content, sha, message) {
 // ══════════════════════════════════════════════
 let _reportsAll = [];
 let _reportStatusFilter = 'all';
+let _reportSortKey = 'date_desc';
+let _reportPage = 1;
+let _reportPageSize = 50;
 
 function getReportCreatedAt(report) {
   const raw = report?.createdAt;
@@ -2669,8 +2694,32 @@ function updateReportFilterOptions() {
 
 function setReportStatusFilter(filter, btn) {
   _reportStatusFilter = filter;
+  _reportPage = 1;
   document.querySelectorAll('#sec-rapports .filter-btn').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
+  renderReports();
+}
+
+function onReportCriteriaChanged() {
+  _reportPage = 1;
+  renderReports();
+}
+
+function setReportSort(value) {
+  _reportSortKey = value || 'date_desc';
+  _reportPage = 1;
+  renderReports();
+}
+
+function setReportPageSize(value) {
+  const parsed = Number(value);
+  _reportPageSize = Number.isFinite(parsed) && parsed > 0 ? parsed : 50;
+  _reportPage = 1;
+  renderReports();
+}
+
+function changeReportPage(delta) {
+  _reportPage = Math.max(1, _reportPage + Number(delta || 0));
   renderReports();
 }
 
@@ -2686,6 +2735,11 @@ function resetReportFilters() {
   if (start) start.value = '';
   if (end) end.value = '';
   _reportStatusFilter = 'all';
+  _reportSortKey = 'date_desc';
+  _reportPage = 1;
+  _reportPageSize = Number(document.getElementById('reportPageSize')?.value || 50) || 50;
+  const sort = document.getElementById('reportSort');
+  if (sort) sort.value = 'date_desc';
   document.querySelectorAll('#sec-rapports .filter-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('rflt-all')?.classList.add('active');
   renderReports();
@@ -2733,6 +2787,38 @@ function buildReportBreakdown(records, keyName) {
     map.set(label, entry);
   });
   return [...map.values()].sort((a, b) => (b.total - a.total) || a.label.localeCompare(b.label, 'fr', { sensitivity: 'base' }));
+}
+
+function sortReports(records) {
+  const rows = [...records];
+  const getStatusRank = (report) => report.is_valid ? 0 : 1;
+  rows.sort((a, b) => {
+    switch (_reportSortKey) {
+      case 'date_asc': {
+        const av = getReportCreatedAt(a)?.getTime?.() || 0;
+        const bv = getReportCreatedAt(b)?.getTime?.() || 0;
+        return av - bv;
+      }
+      case 'agent_asc':
+        return String(a.agentNom || '').localeCompare(String(b.agentNom || ''), 'fr', { sensitivity: 'base' })
+          || String(a.vin || '').localeCompare(String(b.vin || ''), 'fr', { sensitivity: 'base' });
+      case 'lieu_asc':
+        return String(a.lieuTravail || '').localeCompare(String(b.lieuTravail || ''), 'fr', { sensitivity: 'base' })
+          || String(a.agentNom || '').localeCompare(String(b.agentNom || ''), 'fr', { sensitivity: 'base' });
+      case 'status_desc':
+        return getStatusRank(a) - getStatusRank(b)
+          || (getReportCreatedAt(b)?.getTime?.() || 0) - (getReportCreatedAt(a)?.getTime?.() || 0);
+      case 'vin_asc':
+        return String(a.vin || '').localeCompare(String(b.vin || ''), 'fr', { sensitivity: 'base' });
+      case 'date_desc':
+      default: {
+        const av = getReportCreatedAt(a)?.getTime?.() || 0;
+        const bv = getReportCreatedAt(b)?.getTime?.() || 0;
+        return bv - av;
+      }
+    }
+  });
+  return rows;
 }
 
 function renderBreakdownList(containerId, rows, emptyLabel) {
@@ -2855,33 +2941,41 @@ function renderReports() {
   const list = document.getElementById('reportList');
   if (!list) return;
 
-  const reports = getFilteredReports();
-  const validCount = reports.filter(r => !!r.is_valid).length;
-  const invalidCount = reports.length - validCount;
-  const locationCount = reports.filter(reportHasLocation).length;
-  const archivedCount = reports.filter(r => getReportArchiveState(r) === 'archived' || getReportArchiveState(r) === 'partial').length;
+  const filteredReports = getFilteredReports();
+  const reports = sortReports(filteredReports);
+  const validCount = filteredReports.filter(r => !!r.is_valid).length;
+  const invalidCount = filteredReports.length - validCount;
+  const locationCount = filteredReports.filter(reportHasLocation).length;
+  const archivedCount = filteredReports.filter(r => getReportArchiveState(r) === 'archived' || getReportArchiveState(r) === 'partial').length;
+  const totalPages = Math.max(1, Math.ceil(reports.length / _reportPageSize));
+  _reportPage = Math.min(_reportPage, totalPages);
+  _reportPage = Math.max(1, _reportPage);
+  const pageStart = (_reportPage - 1) * _reportPageSize;
+  const pagedReports = reports.slice(pageStart, pageStart + _reportPageSize);
 
   const totalEl = document.getElementById('rpt-total');
   const validEl = document.getElementById('rpt-valid');
   const invalidEl = document.getElementById('rpt-invalid');
   const locationEl = document.getElementById('rpt-location');
   const archivedEl = document.getElementById('rpt-archived');
-  if (totalEl) totalEl.textContent = reports.length;
+  if (totalEl) totalEl.textContent = filteredReports.length;
   if (validEl) validEl.textContent = validCount;
   if (invalidEl) invalidEl.textContent = invalidCount;
   if (locationEl) locationEl.textContent = locationCount;
   if (archivedEl) archivedEl.textContent = archivedCount;
+  const pageInfoEl = document.getElementById('reportPageInfo');
+  if (pageInfoEl) pageInfoEl.textContent = `Page ${_reportPage} / ${totalPages} · ${filteredReports.length} résultat(s)`;
 
-  renderBreakdownList('reportAgentStats', buildReportBreakdown(reports, 'agentNom'), 'Aucune statistique agent.');
-  renderBreakdownList('reportLieuStats', buildReportBreakdown(reports, 'lieuTravail'), 'Aucune statistique lieu.');
+  renderBreakdownList('reportAgentStats', buildReportBreakdown(filteredReports, 'agentNom'), 'Aucune statistique agent.');
+  renderBreakdownList('reportLieuStats', buildReportBreakdown(filteredReports, 'lieuTravail'), 'Aucune statistique lieu.');
 
-  if (!reports.length) {
+  if (!filteredReports.length) {
     list.innerHTML = '<div class="empty">Aucune identification ne correspond aux filtres.</div>';
     return;
   }
 
   let html = '';
-  reports.forEach((report) => {
+  pagedReports.forEach((report) => {
     const date = getReportCreatedAt(report);
     const dateLabel = date ? date.toLocaleString('fr-FR') : '—';
     const isValid = !!report.is_valid;
