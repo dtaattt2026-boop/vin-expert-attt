@@ -514,6 +514,16 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',sans-serif;mi
           </select>
         </div>
 
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+          <input type="date" id="reportDateStart" onchange="renderReports()"
+            style="min-width:170px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:0.83rem;outline:none">
+          <input type="date" id="reportDateEnd" onchange="renderReports()"
+            style="min-width:170px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:0.83rem;outline:none">
+          <button class="btn-save-cfg" onclick="resetReportFilters()">✕ Réinitialiser filtres</button>
+          <button class="btn-save-cfg" onclick="exportReportsCsv()">📄 Export CSV</button>
+          <button class="btn-save-cfg" onclick="exportReportsExcelCsv()">📊 Export Excel</button>
+        </div>
+
         <div class="guide-grid" style="margin-bottom:16px">
           <div class="guide-card">
             <h3>Statistiques par agent</h3>
@@ -2610,6 +2620,14 @@ function getReportCreatedAt(report) {
   return null;
 }
 
+function toLocalDateKey(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 function getReportInfoLabel(report) {
   const info = report?.info;
   if (typeof info === 'string') return info;
@@ -2656,16 +2674,39 @@ function setReportStatusFilter(filter, btn) {
   renderReports();
 }
 
+function resetReportFilters() {
+  const search = document.getElementById('reportSearch');
+  const agent = document.getElementById('reportAgentFilter');
+  const lieu = document.getElementById('reportLieuFilter');
+  const start = document.getElementById('reportDateStart');
+  const end = document.getElementById('reportDateEnd');
+  if (search) search.value = '';
+  if (agent) agent.value = '';
+  if (lieu) lieu.value = '';
+  if (start) start.value = '';
+  if (end) end.value = '';
+  _reportStatusFilter = 'all';
+  document.querySelectorAll('#sec-rapports .filter-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('rflt-all')?.classList.add('active');
+  renderReports();
+}
+
 function getFilteredReports() {
   const search = (document.getElementById('reportSearch')?.value || '').trim().toLowerCase();
   const agent = document.getElementById('reportAgentFilter')?.value || '';
   const lieu = document.getElementById('reportLieuFilter')?.value || '';
+  const startDate = document.getElementById('reportDateStart')?.value || '';
+  const endDate = document.getElementById('reportDateEnd')?.value || '';
 
   return _reportsAll.filter((report) => {
     if (_reportStatusFilter === 'valid' && !report.is_valid) return false;
     if (_reportStatusFilter === 'invalid' && report.is_valid) return false;
     if (agent && (report.agentNom || '') !== agent) return false;
     if (lieu && (report.lieuTravail || '') !== lieu) return false;
+    const createdAt = getReportCreatedAt(report);
+    const dateKey = toLocalDateKey(createdAt);
+    if (startDate && (!dateKey || dateKey < startDate)) return false;
+    if (endDate && (!dateKey || dateKey > endDate)) return false;
     if (search) {
       const haystack = [
         report.vin || '',
@@ -2709,6 +2750,105 @@ function renderBreakdownList(containerId, rows, emptyLabel) {
       </div>
       <div class="report-meta">✅ ${row.valid} · ⚠ ${row.invalid}</div>
     </div>`).join('');
+}
+
+function getReportArchiveLabel(report) {
+  const state = getReportArchiveState(report);
+  if (state === 'archived') return 'Drive';
+  if (state === 'partial') return 'Drive partiel';
+  if (state === 'pending') return 'Synchronisation en attente';
+  if (state === 'error') return 'Erreur archive';
+  return 'Inconnu';
+}
+
+function escapeCsvValue(value, separator) {
+  const text = String(value ?? '');
+  const normalized = text.replace(/\r?\n/g, ' ');
+  if (normalized.includes('"') || normalized.includes(separator) || /\s/.test(normalized)) {
+    return '"' + normalized.replace(/"/g, '""') + '"';
+  }
+  return normalized;
+}
+
+function downloadTextFile(fileName, content, mimeType = 'text/plain;charset=utf-8') {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function buildReportExportRows() {
+  return getFilteredReports().map((report) => {
+    const date = getReportCreatedAt(report);
+    return {
+      createdAt: date ? date.toLocaleString('fr-FR') : '—',
+      dateKey: toLocalDateKey(date),
+      vin: report.vin || '',
+      statut: report.status || (report.is_valid ? 'VALIDE' : 'INVALIDE'),
+      valide: report.is_valid ? 'Oui' : 'Non',
+      agent: report.agentNom || '',
+      matricule: report.matricule || '',
+      lieu: report.lieuTravail || '',
+      vehicule: getReportInfoLabel(report),
+      localisation: reportHasLocation(report) ? 'Oui' : 'Non',
+      archive: getReportArchiveLabel(report),
+      archiveDrive: report.archivedToDrive ? 'Oui' : 'Non',
+      archivePhotoCount: Number(report.archivePhotoCount) || 0,
+      archiveEstimateBytes: Number(report.archiveEstimateBytes) || 0,
+      syncStatus: report.archiveSyncStatus || '',
+      reportId: report.id || ''
+    };
+  });
+}
+
+function exportReportsDelimited(separator, fileLabel) {
+  const rows = buildReportExportRows();
+  if (!rows.length) {
+    toast('Aucune identification à exporter avec les filtres actuels.', 'info');
+    return;
+  }
+  const headers = [
+    'Date', 'Jour', 'VIN', 'Statut', 'Valide', 'Agent', 'Matricule', 'Lieu de travail',
+    'Véhicule', 'Avec localisation', 'Archive', 'Archivé Drive', 'Photos archivées',
+    'Taille archive estimée (octets)', 'État synchro', 'ID rapport'
+  ];
+  const lines = [headers.map(h => escapeCsvValue(h, separator)).join(separator)];
+  rows.forEach((row) => {
+    lines.push([
+      row.createdAt,
+      row.dateKey,
+      row.vin,
+      row.statut,
+      row.valide,
+      row.agent,
+      row.matricule,
+      row.lieu,
+      row.vehicule,
+      row.localisation,
+      row.archive,
+      row.archiveDrive,
+      row.archivePhotoCount,
+      row.archiveEstimateBytes,
+      row.syncStatus,
+      row.reportId
+    ].map(value => escapeCsvValue(value, separator)).join(separator));
+  });
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  downloadTextFile(`identifications-vin-${fileLabel}-${stamp}.csv`, '\uFEFF' + lines.join('\r\n'), 'text/csv;charset=utf-8');
+  toast(`Export ${fileLabel.toUpperCase()} généré (${rows.length} ligne(s)).`, 'ok');
+}
+
+function exportReportsCsv() {
+  exportReportsDelimited(',', 'csv');
+}
+
+function exportReportsExcelCsv() {
+  exportReportsDelimited(';', 'excel');
 }
 
 function renderReports() {
@@ -2779,7 +2919,7 @@ async function loadReports() {
   const fb = window._fb; if (!fb) return;
   document.getElementById('reportList').innerHTML = '<div class="empty">Chargement...</div>';
   try {
-    const q = fb.query(fb.collection(fb.db,'reports'), fb.orderBy('createdAt','desc'), fb.limit(500));
+    const q = fb.query(fb.collection(fb.db,'reports'), fb.orderBy('createdAt','desc'), fb.limit(1000));
     const snap = await fb.getDocs(q);
     _reportsAll = [];
     snap.forEach(d => _reportsAll.push({ id: d.id, ...d.data() }));
