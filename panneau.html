@@ -520,8 +520,22 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',sans-serif;mi
           <input type="date" id="reportDateEnd" onchange="onReportCriteriaChanged()"
             style="min-width:170px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:0.83rem;outline:none">
           <button class="btn-save-cfg" onclick="resetReportFilters()">✕ Réinitialiser filtres</button>
+          <button class="btn-save-cfg" onclick="printReportsSummary()">🖨 Imprimer / PDF</button>
           <button class="btn-save-cfg" onclick="exportReportsCsv()">📄 Export CSV</button>
           <button class="btn-save-cfg" onclick="exportReportsExcelCsv()">📊 Export Excel</button>
+        </div>
+
+        <div class="card" style="padding:14px;margin-bottom:16px;background:var(--panel2)">
+          <div class="card-title">📈 Comparaison de période</div>
+          <div class="stats-grid" style="margin-bottom:10px">
+            <div class="stat"><div class="stat-val" id="cmp-current-total">—</div><div class="stat-label">Période actuelle</div></div>
+            <div class="stat"><div class="stat-val" id="cmp-previous-total">—</div><div class="stat-label">Période précédente</div></div>
+            <div class="stat"><div class="stat-val" id="cmp-delta-total">—</div><div class="stat-label">Delta total</div></div>
+            <div class="stat"><div class="stat-val" id="cmp-current-valid-rate" style="font-size:1.1rem">—</div><div class="stat-label">Taux validité actuel</div></div>
+            <div class="stat"><div class="stat-val" id="cmp-previous-valid-rate" style="font-size:1.1rem">—</div><div class="stat-label">Taux validité précédent</div></div>
+            <div class="stat"><div class="stat-val" id="cmp-delta-valid-rate" style="font-size:1.1rem">—</div><div class="stat-label">Delta validité</div></div>
+          </div>
+          <div id="reportComparisonNote" style="font-size:0.82rem;color:var(--dim);line-height:1.7">Chargement comparaison...</div>
         </div>
 
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
@@ -2745,35 +2759,153 @@ function resetReportFilters() {
   renderReports();
 }
 
-function getFilteredReports() {
-  const search = (document.getElementById('reportSearch')?.value || '').trim().toLowerCase();
-  const agent = document.getElementById('reportAgentFilter')?.value || '';
-  const lieu = document.getElementById('reportLieuFilter')?.value || '';
-  const startDate = document.getElementById('reportDateStart')?.value || '';
-  const endDate = document.getElementById('reportDateEnd')?.value || '';
+function getActiveReportCriteria(overrides = {}) {
+  return {
+    search: overrides.search !== undefined ? overrides.search : (document.getElementById('reportSearch')?.value || '').trim().toLowerCase(),
+    agent: overrides.agent !== undefined ? overrides.agent : (document.getElementById('reportAgentFilter')?.value || ''),
+    lieu: overrides.lieu !== undefined ? overrides.lieu : (document.getElementById('reportLieuFilter')?.value || ''),
+    startDate: overrides.startDate !== undefined ? overrides.startDate : (document.getElementById('reportDateStart')?.value || ''),
+    endDate: overrides.endDate !== undefined ? overrides.endDate : (document.getElementById('reportDateEnd')?.value || ''),
+    statusFilter: overrides.statusFilter !== undefined ? overrides.statusFilter : _reportStatusFilter
+  };
+}
 
-  return _reportsAll.filter((report) => {
-    if (_reportStatusFilter === 'valid' && !report.is_valid) return false;
-    if (_reportStatusFilter === 'invalid' && report.is_valid) return false;
-    if (agent && (report.agentNom || '') !== agent) return false;
-    if (lieu && (report.lieuTravail || '') !== lieu) return false;
-    const createdAt = getReportCreatedAt(report);
-    const dateKey = toLocalDateKey(createdAt);
-    if (startDate && (!dateKey || dateKey < startDate)) return false;
-    if (endDate && (!dateKey || dateKey > endDate)) return false;
-    if (search) {
-      const haystack = [
-        report.vin || '',
-        report.agentNom || '',
-        report.matricule || '',
-        report.lieuTravail || '',
-        getReportInfoLabel(report) || '',
-        report.status || ''
-      ].join(' ').toLowerCase();
-      if (!haystack.includes(search)) return false;
-    }
-    return true;
-  });
+function reportMatchesCriteria(report, criteria) {
+  if (criteria.statusFilter === 'valid' && !report.is_valid) return false;
+  if (criteria.statusFilter === 'invalid' && report.is_valid) return false;
+  if (criteria.agent && (report.agentNom || '') !== criteria.agent) return false;
+  if (criteria.lieu && (report.lieuTravail || '') !== criteria.lieu) return false;
+
+  const createdAt = getReportCreatedAt(report);
+  const dateKey = toLocalDateKey(createdAt);
+  if (criteria.startDate && (!dateKey || dateKey < criteria.startDate)) return false;
+  if (criteria.endDate && (!dateKey || dateKey > criteria.endDate)) return false;
+
+  if (criteria.search) {
+    const haystack = [
+      report.vin || '',
+      report.agentNom || '',
+      report.matricule || '',
+      report.lieuTravail || '',
+      getReportInfoLabel(report) || '',
+      report.status || ''
+    ].join(' ').toLowerCase();
+    if (!haystack.includes(criteria.search)) return false;
+  }
+  return true;
+}
+
+function parseLocalDateInput(value) {
+  if (!value) return null;
+  const parts = String(value).split('-').map(Number);
+  if (parts.length !== 3 || parts.some(n => !Number.isFinite(n))) return null;
+  const date = new Date(parts[0], parts[1] - 1, parts[2]);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function shiftDate(date, days) {
+  const shifted = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  shifted.setDate(shifted.getDate() + days);
+  return shifted;
+}
+
+function formatPercent(value) {
+  if (!Number.isFinite(value)) return '—';
+  return `${value.toFixed(1)}%`;
+}
+
+function formatSignedValue(value, suffix = '') {
+  if (!Number.isFinite(value)) return '—';
+  const sign = value > 0 ? '+' : '';
+  return `${sign}${value}${suffix}`;
+}
+
+function computeRangeStats(reports) {
+  const total = reports.length;
+  const valid = reports.filter(r => !!r.is_valid).length;
+  const invalid = total - valid;
+  const validRate = total > 0 ? (valid / total) * 100 : 0;
+  return { total, valid, invalid, validRate };
+}
+
+function getComparisonDateRange() {
+  const criteria = getActiveReportCriteria();
+  let currentStart = parseLocalDateInput(criteria.startDate);
+  let currentEnd = parseLocalDateInput(criteria.endDate);
+
+  if (currentStart && !currentEnd) currentEnd = new Date(currentStart);
+  if (!currentStart && currentEnd) currentStart = new Date(currentEnd);
+
+  if (!currentStart && !currentEnd) {
+    const now = new Date();
+    currentStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    currentEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  }
+
+  if (currentStart > currentEnd) {
+    const tmp = currentStart;
+    currentStart = currentEnd;
+    currentEnd = tmp;
+  }
+
+  const durationDays = Math.max(1, Math.round((currentEnd - currentStart) / 86400000) + 1);
+  const previousEnd = shiftDate(currentStart, -1);
+  const previousStart = shiftDate(previousEnd, -(durationDays - 1));
+
+  return {
+    currentStart,
+    currentEnd,
+    previousStart,
+    previousEnd,
+    durationDays,
+    currentLabel: `${toLocalDateKey(currentStart)} → ${toLocalDateKey(currentEnd)}`,
+    previousLabel: `${toLocalDateKey(previousStart)} → ${toLocalDateKey(previousEnd)}`
+  };
+}
+
+function updateReportComparison() {
+  const comparison = getComparisonDateRange();
+  const baseCriteria = getActiveReportCriteria({ startDate: '', endDate: '' });
+  const currentCriteria = {
+    ...baseCriteria,
+    startDate: toLocalDateKey(comparison.currentStart),
+    endDate: toLocalDateKey(comparison.currentEnd)
+  };
+  const previousCriteria = {
+    ...baseCriteria,
+    startDate: toLocalDateKey(comparison.previousStart),
+    endDate: toLocalDateKey(comparison.previousEnd)
+  };
+
+  const currentStats = computeRangeStats(_reportsAll.filter(report => reportMatchesCriteria(report, currentCriteria)));
+  const previousStats = computeRangeStats(_reportsAll.filter(report => reportMatchesCriteria(report, previousCriteria)));
+  const deltaTotal = currentStats.total - previousStats.total;
+  const deltaValidRate = currentStats.validRate - previousStats.validRate;
+
+  const currentTotalEl = document.getElementById('cmp-current-total');
+  const previousTotalEl = document.getElementById('cmp-previous-total');
+  const deltaTotalEl = document.getElementById('cmp-delta-total');
+  const currentRateEl = document.getElementById('cmp-current-valid-rate');
+  const previousRateEl = document.getElementById('cmp-previous-valid-rate');
+  const deltaRateEl = document.getElementById('cmp-delta-valid-rate');
+  const noteEl = document.getElementById('reportComparisonNote');
+
+  if (currentTotalEl) currentTotalEl.textContent = currentStats.total;
+  if (previousTotalEl) previousTotalEl.textContent = previousStats.total;
+  if (deltaTotalEl) deltaTotalEl.textContent = formatSignedValue(deltaTotal);
+  if (currentRateEl) currentRateEl.textContent = formatPercent(currentStats.validRate);
+  if (previousRateEl) previousRateEl.textContent = formatPercent(previousStats.validRate);
+  if (deltaRateEl) deltaRateEl.textContent = formatSignedValue(Number(deltaValidRate.toFixed(1)), ' pts');
+  if (noteEl) {
+    noteEl.innerHTML =
+      `Période actuelle : <b>${comparison.currentLabel}</b> · période précédente : <b>${comparison.previousLabel}</b>.<br>` +
+      `Comparaison calculée avec les mêmes filtres agent/lieu/statut/recherche. Seule la fenêtre de dates change.`;
+  }
+}
+
+function getFilteredReports() {
+  const criteria = getActiveReportCriteria();
+  return _reportsAll.filter((report) => reportMatchesCriteria(report, criteria));
 }
 
 function buildReportBreakdown(records, keyName) {
@@ -2952,11 +3084,138 @@ function exportReportsExcelCsv() {
   exportReportsDelimited(';', 'excel');
 }
 
+function buildReportsPrintHtml() {
+  const reports = sortReports(getFilteredReports());
+  const currentStats = computeRangeStats(reports);
+  const agentRows = buildReportBreakdown(reports, 'agentNom');
+  const lieuRows = buildReportBreakdown(reports, 'lieuTravail');
+  const comparison = getComparisonDateRange();
+  const baseCriteria = getActiveReportCriteria({ startDate: '', endDate: '' });
+  const previousStats = computeRangeStats(_reportsAll.filter((report) => reportMatchesCriteria(report, {
+    ...baseCriteria,
+    startDate: toLocalDateKey(comparison.previousStart),
+    endDate: toLocalDateKey(comparison.previousEnd)
+  })));
+
+  const filters = [
+    `Statut: ${_reportStatusFilter === 'all' ? 'Tous' : _reportStatusFilter === 'valid' ? 'Valides' : 'Invalides'}`,
+    `Agent: ${document.getElementById('reportAgentFilter')?.value || 'Tous'}`,
+    `Lieu: ${document.getElementById('reportLieuFilter')?.value || 'Tous'}`,
+    `Recherche: ${document.getElementById('reportSearch')?.value || 'Aucune'}`,
+    `Période: ${document.getElementById('reportDateStart')?.value || comparison.currentLabel.split(' → ')[0]} → ${document.getElementById('reportDateEnd')?.value || comparison.currentLabel.split(' → ')[1]}`,
+    `Tri: ${document.getElementById('reportSort')?.selectedOptions?.[0]?.textContent || 'Date décroissante'}`
+  ];
+
+  const rowsHtml = reports.map((report) => {
+    const date = getReportCreatedAt(report);
+    const infoLabel = getReportInfoLabel(report) || '—';
+    return `<tr>
+      <td>${esc(date ? date.toLocaleString('fr-FR') : '—')}</td>
+      <td>${esc(report.vin || '—')}</td>
+      <td>${esc(report.agentNom || '—')}</td>
+      <td>${esc(report.matricule || '—')}</td>
+      <td>${esc(report.lieuTravail || '—')}</td>
+      <td>${esc(report.is_valid ? 'Valide' : 'Invalide')}</td>
+      <td>${esc(infoLabel)}</td>
+      <td>${esc(reportHasLocation(report) ? 'Oui' : 'Non')}</td>
+      <td>${esc(getReportArchiveLabel(report))}</td>
+    </tr>`;
+  }).join('');
+
+  const breakdownHtml = (title, rows) => `
+    <div class="block">
+      <h3>${title}</h3>
+      <table>
+        <thead><tr><th>Libellé</th><th>Total</th><th>Valides</th><th>Invalides</th></tr></thead>
+        <tbody>${rows.map((row) => `<tr><td>${esc(row.label)}</td><td>${row.total}</td><td>${row.valid}</td><td>${row.invalid}</td></tr>`).join('')}</tbody>
+      </table>
+    </div>`;
+
+  return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>ATTT - Rapport admin identifications</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; color: #111; }
+    h1, h2, h3 { margin: 0 0 12px; }
+    .muted { color: #555; font-size: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+    .card { border: 1px solid #ccc; border-radius: 8px; padding: 12px; }
+    .value { font-size: 24px; font-weight: 700; margin-top: 4px; }
+    .block { margin-top: 18px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    th, td { border: 1px solid #ccc; padding: 6px 8px; font-size: 12px; text-align: left; vertical-align: top; }
+    th { background: #f2f4f8; }
+    ul { margin: 8px 0 0 18px; }
+    .breakdowns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    @media print { body { margin: 12mm; } }
+  </style>
+</head>
+<body>
+  <h1>ATTT · Consultation des identifications VIN</h1>
+  <div class="muted">Généré le ${esc(new Date().toLocaleString('fr-FR'))}</div>
+  <div class="block">
+    <h3>Filtres appliqués</h3>
+    <ul>${filters.map(item => `<li>${esc(item)}</li>`).join('')}</ul>
+  </div>
+  <div class="grid">
+    <div class="card"><div class="muted">Résultats filtrés</div><div class="value">${reports.length}</div></div>
+    <div class="card"><div class="muted">Valides</div><div class="value">${currentStats.valid}</div></div>
+    <div class="card"><div class="muted">Invalides</div><div class="value">${currentStats.invalid}</div></div>
+    <div class="card"><div class="muted">Taux validité actuel</div><div class="value">${formatPercent(currentStats.validRate)}</div></div>
+    <div class="card"><div class="muted">Période précédente</div><div class="value">${previousStats.total}</div></div>
+    <div class="card"><div class="muted">Delta total</div><div class="value">${formatSignedValue(currentStats.total - previousStats.total)}</div></div>
+  </div>
+  <div class="block">
+    <h3>Comparaison de période</h3>
+    <div class="muted">Actuelle : ${esc(comparison.currentLabel)} | Précédente : ${esc(comparison.previousLabel)}</div>
+  </div>
+  <div class="breakdowns">
+    ${breakdownHtml('Statistiques par agent', agentRows)}
+    ${breakdownHtml('Statistiques par lieu', lieuRows)}
+  </div>
+  <div class="block">
+    <h3>Détail des identifications</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th><th>VIN</th><th>Agent</th><th>Matricule</th><th>Lieu</th><th>Statut</th><th>Véhicule</th><th>Localisation</th><th>Archive</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHtml || '<tr><td colspan="9">Aucune identification à imprimer.</td></tr>'}</tbody>
+    </table>
+  </div>
+</body>
+</html>`;
+}
+
+function printReportsSummary() {
+  const reports = getFilteredReports();
+  if (!reports.length) {
+    toast('Aucune identification à imprimer avec les filtres actuels.', 'info');
+    return;
+  }
+  const popup = window.open('', '_blank', 'noopener,noreferrer,width=1200,height=900');
+  if (!popup) {
+    toast('La fenêtre d’impression a été bloquée par le navigateur.', 'err');
+    return;
+  }
+  popup.document.open();
+  popup.document.write(buildReportsPrintHtml());
+  popup.document.close();
+  popup.focus();
+  setTimeout(() => {
+    popup.print();
+  }, 250);
+}
+
 function renderReports() {
   const list = document.getElementById('reportList');
   if (!list) return;
 
   const filteredReports = getFilteredReports();
+  updateReportComparison();
   const reports = sortReports(filteredReports);
   const validCount = filteredReports.filter(r => !!r.is_valid).length;
   const invalidCount = filteredReports.length - validCount;
@@ -2985,6 +3244,7 @@ function renderReports() {
   renderBreakdownList('reportLieuStats', buildReportBreakdown(filteredReports, 'lieuTravail'), 'Aucune statistique lieu.', 'lieu');
 
   if (!filteredReports.length) {
+    if (pageInfoEl) pageInfoEl.textContent = 'Page 1 / 1 · 0 résultat';
     list.innerHTML = '<div class="empty">Aucune identification ne correspond aux filtres.</div>';
     return;
   }
