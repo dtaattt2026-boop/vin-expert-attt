@@ -484,9 +484,47 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',sans-serif;mi
     <!-- ══ RAPPORTS ══ -->
     <div class="section" id="sec-rapports">
       <div class="card">
-        <div class="card-title">📋 Dernières identifications VIN
+        <div class="card-title">📋 Consultation des identifications VIN
           <button onclick="loadReports()" style="background:transparent;color:var(--blue2);border:none;cursor:pointer;font-size:0.8rem;margin-left:auto">🔄 Actualiser</button>
         </div>
+        <div class="stats-grid" style="margin-bottom:16px">
+          <div class="stat"><div class="stat-val" id="rpt-total">—</div><div class="stat-label">Résultats affichés</div></div>
+          <div class="stat"><div class="stat-val" id="rpt-valid">—</div><div class="stat-label">Valides</div></div>
+          <div class="stat"><div class="stat-val" id="rpt-invalid">—</div><div class="stat-label">Invalides</div></div>
+          <div class="stat"><div class="stat-val" id="rpt-location">—</div><div class="stat-label">Avec localisation</div></div>
+          <div class="stat"><div class="stat-val" id="rpt-archived">—</div><div class="stat-label">Archivés Drive</div></div>
+        </div>
+
+        <div class="filter-bar" style="margin-bottom:10px">
+          <button class="filter-btn active" id="rflt-all" onclick="setReportStatusFilter('all',this)">Tous</button>
+          <button class="filter-btn" id="rflt-valid" onclick="setReportStatusFilter('valid',this)">✅ Valides</button>
+          <button class="filter-btn" id="rflt-invalid" onclick="setReportStatusFilter('invalid',this)">⚠ Invalides</button>
+        </div>
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+          <input type="text" id="reportSearch" placeholder="🔍 VIN, agent, matricule, lieu..." oninput="renderReports()"
+            style="flex:2;min-width:200px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:0.83rem;outline:none">
+          <select id="reportAgentFilter" onchange="renderReports()"
+            style="flex:1;min-width:180px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:0.83rem;outline:none">
+            <option value="">👤 Tous les agents</option>
+          </select>
+          <select id="reportLieuFilter" onchange="renderReports()"
+            style="flex:1;min-width:180px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:0.83rem;outline:none">
+            <option value="">📍 Tous les lieux</option>
+          </select>
+        </div>
+
+        <div class="guide-grid" style="margin-bottom:16px">
+          <div class="guide-card">
+            <h3>Statistiques par agent</h3>
+            <div id="reportAgentStats"><div class="empty">Chargement...</div></div>
+          </div>
+          <div class="guide-card">
+            <h3>Statistiques par lieu</h3>
+            <div id="reportLieuStats"><div class="empty">Chargement...</div></div>
+          </div>
+        </div>
+
         <div id="reportList"><div class="empty">Chargement...</div></div>
       </div>
     </div>
@@ -2548,26 +2586,210 @@ async function ghUpdateFile(token, owner, repo, path, content, sha, message) {
 // ══════════════════════════════════════════════
 //  RAPPORTS
 // ══════════════════════════════════════════════
+let _reportsAll = [];
+let _reportStatusFilter = 'all';
+
+function getReportCreatedAt(report) {
+  const raw = report?.createdAt;
+  if (raw?.toDate) {
+    const date = raw.toDate();
+    return Number.isNaN(date?.getTime?.()) ? null : date;
+  }
+  if (raw?.seconds) {
+    const date = new Date(raw.seconds * 1000);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  if (raw) {
+    const date = new Date(raw);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  if (report?.date) {
+    const date = new Date(report.date);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  return null;
+}
+
+function getReportInfoLabel(report) {
+  const info = report?.info;
+  if (typeof info === 'string') return info;
+  if (info && typeof info === 'object') {
+    return [info.Make, info.Model, info.ModelYear].filter(Boolean).join(' ');
+  }
+  return '';
+}
+
+function reportHasLocation(report) {
+  if (report?.hasLocation === true) return true;
+  const summary = String(report?.locationSummary || '').trim();
+  return !!summary && !/^non disponible/i.test(summary);
+}
+
+function getReportArchiveState(report) {
+  if (report?.archivedToDrive === true) return 'archived';
+  if (report?.archiveSyncStatus === 'error') return 'error';
+  if (report?.archiveSyncStatus === 'pending') return 'pending';
+  if (report?.archiveSyncStatus === 'partial') return 'partial';
+  return 'unknown';
+}
+
+function updateReportFilterOptions() {
+  const agentSelect = document.getElementById('reportAgentFilter');
+  const lieuSelect = document.getElementById('reportLieuFilter');
+  if (!agentSelect || !lieuSelect) return;
+
+  const currentAgent = agentSelect.value;
+  const currentLieu = lieuSelect.value;
+  const agents = [...new Set(_reportsAll.map(r => String(r.agentNom || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
+  const lieux = [...new Set(_reportsAll.map(r => String(r.lieuTravail || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
+
+  agentSelect.innerHTML = '<option value="">👤 Tous les agents</option>' + agents.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
+  lieuSelect.innerHTML = '<option value="">📍 Tous les lieux</option>' + lieux.map(l => `<option value="${esc(l)}">${esc(l)}</option>`).join('');
+  agentSelect.value = agents.includes(currentAgent) ? currentAgent : '';
+  lieuSelect.value = lieux.includes(currentLieu) ? currentLieu : '';
+}
+
+function setReportStatusFilter(filter, btn) {
+  _reportStatusFilter = filter;
+  document.querySelectorAll('#sec-rapports .filter-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  renderReports();
+}
+
+function getFilteredReports() {
+  const search = (document.getElementById('reportSearch')?.value || '').trim().toLowerCase();
+  const agent = document.getElementById('reportAgentFilter')?.value || '';
+  const lieu = document.getElementById('reportLieuFilter')?.value || '';
+
+  return _reportsAll.filter((report) => {
+    if (_reportStatusFilter === 'valid' && !report.is_valid) return false;
+    if (_reportStatusFilter === 'invalid' && report.is_valid) return false;
+    if (agent && (report.agentNom || '') !== agent) return false;
+    if (lieu && (report.lieuTravail || '') !== lieu) return false;
+    if (search) {
+      const haystack = [
+        report.vin || '',
+        report.agentNom || '',
+        report.matricule || '',
+        report.lieuTravail || '',
+        getReportInfoLabel(report) || '',
+        report.status || ''
+      ].join(' ').toLowerCase();
+      if (!haystack.includes(search)) return false;
+    }
+    return true;
+  });
+}
+
+function buildReportBreakdown(records, keyName) {
+  const map = new Map();
+  records.forEach((report) => {
+    const label = String(report[keyName] || '').trim() || 'Non renseigné';
+    const entry = map.get(label) || { label, total: 0, valid: 0, invalid: 0 };
+    entry.total += 1;
+    if (report.is_valid) entry.valid += 1;
+    else entry.invalid += 1;
+    map.set(label, entry);
+  });
+  return [...map.values()].sort((a, b) => (b.total - a.total) || a.label.localeCompare(b.label, 'fr', { sensitivity: 'base' }));
+}
+
+function renderBreakdownList(containerId, rows, emptyLabel) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!rows.length) {
+    el.innerHTML = `<div class="empty">${emptyLabel}</div>`;
+    return;
+  }
+  el.innerHTML = rows.slice(0, 8).map((row) => `
+    <div class="report-row" style="padding:8px 10px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+        <span style="font-weight:700;color:var(--text)">${esc(row.label)}</span>
+        <span style="font-family:var(--font-mono);color:var(--blue2)">${row.total}</span>
+      </div>
+      <div class="report-meta">✅ ${row.valid} · ⚠ ${row.invalid}</div>
+    </div>`).join('');
+}
+
+function renderReports() {
+  const list = document.getElementById('reportList');
+  if (!list) return;
+
+  const reports = getFilteredReports();
+  const validCount = reports.filter(r => !!r.is_valid).length;
+  const invalidCount = reports.length - validCount;
+  const locationCount = reports.filter(reportHasLocation).length;
+  const archivedCount = reports.filter(r => getReportArchiveState(r) === 'archived' || getReportArchiveState(r) === 'partial').length;
+
+  const totalEl = document.getElementById('rpt-total');
+  const validEl = document.getElementById('rpt-valid');
+  const invalidEl = document.getElementById('rpt-invalid');
+  const locationEl = document.getElementById('rpt-location');
+  const archivedEl = document.getElementById('rpt-archived');
+  if (totalEl) totalEl.textContent = reports.length;
+  if (validEl) validEl.textContent = validCount;
+  if (invalidEl) invalidEl.textContent = invalidCount;
+  if (locationEl) locationEl.textContent = locationCount;
+  if (archivedEl) archivedEl.textContent = archivedCount;
+
+  renderBreakdownList('reportAgentStats', buildReportBreakdown(reports, 'agentNom'), 'Aucune statistique agent.');
+  renderBreakdownList('reportLieuStats', buildReportBreakdown(reports, 'lieuTravail'), 'Aucune statistique lieu.');
+
+  if (!reports.length) {
+    list.innerHTML = '<div class="empty">Aucune identification ne correspond aux filtres.</div>';
+    return;
+  }
+
+  let html = '';
+  reports.forEach((report) => {
+    const date = getReportCreatedAt(report);
+    const dateLabel = date ? date.toLocaleString('fr-FR') : '—';
+    const isValid = !!report.is_valid;
+    const infoLabel = getReportInfoLabel(report);
+    const archiveState = getReportArchiveState(report);
+    const archivedBadge = archiveState === 'archived'
+      ? '<span style="color:var(--green);font-size:0.75rem">💾 Drive</span>'
+      : archiveState === 'partial'
+        ? '<span style="color:var(--orange);font-size:0.75rem">💾 Drive partiel</span>'
+        : archiveState === 'pending'
+          ? '<span style="color:var(--orange);font-size:0.75rem">⏳ Sync</span>'
+          : archiveState === 'error'
+            ? '<span style="color:var(--red);font-size:0.75rem">✗ Archive</span>'
+            : '<span style="color:var(--dim);font-size:0.75rem">— Archive inconnue</span>';
+    const locationBadge = reportHasLocation(report)
+      ? '<span style="color:var(--blue2);font-size:0.75rem">📍 Localisé</span>'
+      : '<span style="color:var(--dim);font-size:0.75rem">📍 Sans position</span>';
+    html += `<div class="report-row">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <span class="report-vin">${esc(report.vin || '—')}</span>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <span class="${isValid ? 'report-valid' : 'report-invalid'}" style="font-size:0.8rem">${isValid ? '✓ Valide' : '✗ Invalide'}</span>
+          ${archivedBadge}
+          ${locationBadge}
+        </div>
+      </div>
+      <div class="report-meta">${esc(report.agentNom || '—')} · ${esc(report.matricule || '—')} · ${esc(report.lieuTravail || '—')} · ${dateLabel}</div>
+      ${infoLabel ? `<div style="font-size:0.78rem;color:var(--dim);margin-top:3px">${esc(infoLabel)}</div>` : ''}
+    </div>`;
+  });
+  list.innerHTML = html;
+}
+
 async function loadReports() {
   const fb = window._fb; if (!fb) return;
   document.getElementById('reportList').innerHTML = '<div class="empty">Chargement...</div>';
   try {
-    const q = fb.query(fb.collection(fb.db,'reports'), fb.orderBy('createdAt','desc'), fb.limit(60));
+    const q = fb.query(fb.collection(fb.db,'reports'), fb.orderBy('createdAt','desc'), fb.limit(500));
     const snap = await fb.getDocs(q);
-    if (snap.empty) { document.getElementById('reportList').innerHTML = '<div class="empty">Aucun rapport.</div>'; return; }
-    let html = '';
-    snap.forEach(d => {
-      const r = d.data();
-      const isValid = r.is_valid;
-      const date = r.createdAt ? new Date(r.createdAt.seconds ? r.createdAt.seconds*1000 : r.createdAt).toLocaleString('fr-FR') : '—';
-      html += `<div class="report-row">
-        <span class="report-vin">${esc(r.vin||'—')}</span>
-        <span class="${isValid?'report-valid':'report-invalid'}" style="margin-left:10px;font-size:0.8rem">${isValid?'✓ Valide':'✗ Invalide'}</span>
-        <div class="report-meta">${esc(r.agentNom||'—')} · ${esc(r.lieuTravail||'—')} · ${date}</div>
-        ${r.info?.Make ? `<div style="font-size:0.78rem;color:var(--dim);margin-top:2px">${esc(r.info.Make)} ${esc(r.info.Model||'')} ${esc(r.info.ModelYear||'')}</div>` : ''}
-      </div>`;
-    });
-    document.getElementById('reportList').innerHTML = html;
+    _reportsAll = [];
+    snap.forEach(d => _reportsAll.push({ id: d.id, ...d.data() }));
+    if (!_reportsAll.length) {
+      updateReportFilterOptions();
+      renderReports();
+      return;
+    }
+    updateReportFilterOptions();
+    renderReports();
   } catch(e) { document.getElementById('reportList').innerHTML = `<div class="empty">Erreur : ${e.message}</div>`; }
 }
 
