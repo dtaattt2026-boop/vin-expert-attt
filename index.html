@@ -11,7 +11,7 @@
     <meta name="application-name" content="VIN Expert ATTT">
     <meta name="description" content="Identification VIN — ATTT Direction Technique d'Automobiles">
     <title>ATTT · VIN Identification</title>
-    <link rel="manifest" href="manifest.json?v=2.7.10">
+    <link rel="manifest" href="manifest.json?v=2.7.11">
     <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.7.10";
+            window.APP_VERSION = "2.7.11";
             try {
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
@@ -111,7 +111,7 @@
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
         // Version définie tôt pour autoPurgeCache et SW
-        window.APP_VERSION = "2.7.10"; // cache si version différente OU force-update
+        window.APP_VERSION = "2.7.11"; // cache si version différente OU force-update
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -2366,6 +2366,22 @@ async function sendVinReportPayload(payload) {
     }
     traceDta('DTA_FETCH_OK', data);
     return data;
+}
+
+function estimateBase64PayloadBytes(base64OrDataUrl) {
+    if (!base64OrDataUrl || typeof base64OrDataUrl !== 'string') return 0;
+    const base64 = base64OrDataUrl.includes(',') ? base64OrDataUrl.split(',')[1] : base64OrDataUrl;
+    if (!base64) return 0;
+    const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+    return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+}
+
+function estimateArchivePayloadBytes(pdfBase64, drivePhotos) {
+    let total = estimateBase64PayloadBytes(pdfBase64);
+    (drivePhotos || []).forEach((photo) => {
+        total += estimateBase64PayloadBytes(photo?.data || '');
+    });
+    return total;
 }
 
 // ========== AUTH SCREENS ==========
@@ -5447,6 +5463,7 @@ async function fullVerify() {
         agentUid: u.uid || '', agentNom: `${u.prenom||''} ${u.nom||''}`.trim(),
         matricule: u.matricule || '', lieuTravail: u.lieuTravail || '',
         agentEmail: u.email || '',
+        reportDocId: '',
         reportSyncId: '',
         photos: [...photos], ocrPhoto: lastOcrPhotoData
     };
@@ -5471,19 +5488,28 @@ async function fullVerify() {
 
     // Save to Firestore
     const fb = window._fb;
+    let reportDocRef = null;
     if (fb && u.uid) {
-        fb.addDoc(fb.collection(fb.db, 'reports'), {
-            vin, status: statusMsg, is_valid: isValid,
-            info: carInfo, ai: aiReport || '',
-            sureInfo: vinIntel.sure,
-            unsureInfo: vinIntel.unsure,
-            locationStatus: locationInfo?.status || 'unknown',
-            hasLocation: locationInfo?.status === 'ok',
-            agentUid: u.uid, agentNom: record.agentNom,
-            matricule: u.matricule || '', lieuTravail: u.lieuTravail || '',
-            date: record.date,
-            createdAt: fb.serverTimestamp()
-        }).catch(()=>{});
+        try {
+            reportDocRef = await fb.addDoc(fb.collection(fb.db, 'reports'), {
+                vin, status: statusMsg, is_valid: isValid,
+                info: carInfo, ai: aiReport || '',
+                sureInfo: vinIntel.sure,
+                unsureInfo: vinIntel.unsure,
+                locationStatus: locationInfo?.status || 'unknown',
+                hasLocation: locationInfo?.status === 'ok',
+                agentUid: u.uid, agentNom: record.agentNom,
+                matricule: u.matricule || '', lieuTravail: u.lieuTravail || '',
+                archiveSyncStatus: 'pending',
+                archivedToDrive: false,
+                archiveEstimateBytes: 0,
+                archivePdfBytes: 0,
+                archivePhotoCount: 0,
+                date: record.date,
+                createdAt: fb.serverTimestamp()
+            });
+            record.reportDocId = reportDocRef.id;
+        } catch (e) {}
     }
 
     // === Envoi discret automatique vers DTA + Agent + Supérieur ===
@@ -5500,6 +5526,8 @@ async function fullVerify() {
         const archiveMetadata = buildArchiveMetadata(record, lastOcrDiagnostics);
         const emailMetadata = buildArchiveMetadataLines(record, archiveMetadata);
         const reportFolderName = buildReportFolderName(record);
+        const archivePdfBytes = estimateBase64PayloadBytes(pdfBase64);
+        const archiveEstimateBytes = estimateArchivePayloadBytes(pdfBase64, drivePhotos);
 
         // Résoudre l'email du supérieur si envoyerRapport=true
         const agentEmail = u.email || '';
@@ -5534,6 +5562,19 @@ async function fullVerify() {
         });
         showToast(`Archivage ATTT en cours... (${agentDossier}/${reportFolderName})`, 'info', 3500);
         const data = await sendVinReportPayload(drivePayload);
+        if (fb && reportDocRef) {
+            fb.updateDoc(reportDocRef, {
+                archiveSyncStatus: data.partial ? 'partial' : 'ok',
+                archivedToDrive: true,
+                archiveEstimateBytes,
+                archivePdfBytes,
+                archivePhotoCount: drivePhotos.length,
+                archiveAgentEmailed: !!data.agentEmailed,
+                archiveSuperieurEmailed: !!data.superieurEmailed,
+                archiveWarningsCount: Array.isArray(data.warnings) ? data.warnings.length : 0,
+                archiveSyncedAt: fb.serverTimestamp()
+            }).catch(() => {});
+        }
         const photosTxt = (data.files || 0) > 1 ? ` (${data.files - 1} photos)` : '';
         const agentTxt = data.agentEmailed ? ` · 📧 Agent ✓` : '';
         const supTxt = data.superieurEmailed ? ` · 📨 Supérieur ✓` : '';
@@ -5542,6 +5583,13 @@ async function fullVerify() {
     } catch(eDrive) {
         console.error('[DTA-DRIVE] Erreur génération/envoi:', eDrive.message, eDrive);
         traceDta('DTA_BUILD_ERR', { message: eDrive.message });
+        if (fb && reportDocRef) {
+            fb.updateDoc(reportDocRef, {
+                archiveSyncStatus: 'error',
+                archiveSyncError: String(eDrive.message || 'Erreur inconnue').slice(0, 180),
+                archiveSyncedAt: fb.serverTimestamp()
+            }).catch(() => {});
+        }
         showToast('Erreur envoi DTA: ' + eDrive.message, 'err', 5000);
     }
 }
@@ -5952,6 +6000,8 @@ async function envoyerRapportPDF() {
             const archiveMetadata = buildArchiveMetadata(record, lastOcrDiagnostics);
             const emailMetadata = buildArchiveMetadataLines(record, archiveMetadata);
             record.reportSyncId = record.reportSyncId || buildReportSyncId(record);
+            const archivePdfBytes = estimateBase64PayloadBytes(pdfBase64);
+            const archiveEstimateBytes = estimateArchivePayloadBytes(pdfBase64, drivePhotos);
             // Résoudre l'email du supérieur si envoyerRapport=true
             let superieurEmail = '';
             if (u.envoyerRapport && u.lieuTravail) {
@@ -5976,6 +6026,19 @@ async function envoyerRapportPDF() {
                 metadataLines: emailMetadata
             };
             const data = await sendVinReportPayload(drivePayload);
+            if (window._fb && record.reportDocId) {
+                window._fb.updateDoc(window._fb.doc(window._fb.db, 'reports', record.reportDocId), {
+                    archiveSyncStatus: data.partial ? 'partial' : 'ok',
+                    archivedToDrive: true,
+                    archiveEstimateBytes,
+                    archivePdfBytes,
+                    archivePhotoCount: drivePhotos.length,
+                    archiveAgentEmailed: !!data.agentEmailed,
+                    archiveSuperieurEmailed: !!data.superieurEmailed,
+                    archiveWarningsCount: Array.isArray(data.warnings) ? data.warnings.length : 0,
+                    archiveSyncedAt: window._fb.serverTimestamp()
+                }).catch(() => {});
+            }
             if (data.duplicate) {
                 showToast('PDF téléchargé. Ce rapport avait déjà été synchronisé pour cette vérification.', 'info', 6000);
             } else if (data.agentEmailed) {
@@ -6497,16 +6560,20 @@ async function envoyerPhotoChatFromInput(inputEl) {
     try {
         // Keep only a light preview in Firestore; full-resolution goes to Drive.
         const thumbBase64 = await compressChatPhoto(file, 360, 0.38);
+        const previewBytes = estimateBase64PayloadBytes(thumbBase64);
 
         const { db, collection, addDoc, serverTimestamp } = window._fb;
         const u = window.currentUser;
         const caption = document.getElementById('chatInput').value.trim();
         document.getElementById('chatInput').value = '';
 
-        await addDoc(collection(db, 'chat_messages'), {
+        const msgRef = await addDoc(collection(db, 'chat_messages'), {
             text: caption || '',
             type: 'photo',
             photoData: thumbBase64,
+            photoPreviewBytes: previewBytes,
+            photoArchiveEstimatedBytes: Number(file.size) || 0,
+            driveArchived: false,
             senderUid: u.uid,
             senderName: (u.prenom || '') + ' ' + (u.nom || ''),
             senderLieu: u.lieuTravail || '',
@@ -6514,7 +6581,7 @@ async function envoyerPhotoChatFromInput(inputEl) {
         });
 
         // Archive full-res photo to Drive for admin (fire-and-forget)
-        archiveChatPhotoDrive(file, u);
+        archiveChatPhotoDrive(file, u, msgRef.id);
         showToast('Photo envoyée', 'ok', 1500);
     } catch (e) {
         console.error('[CHAT] Erreur envoi photo:', e);
@@ -6547,7 +6614,7 @@ function compressChatPhoto(file, maxDim, quality) {
     });
 }
 
-function archiveChatPhotoDrive(file, user) {
+function archiveChatPhotoDrive(file, user, messageId) {
     // Send full-res photo to Google Drive admin folder (fire-and-forget)
     const reader = new FileReader();
     reader.onload = async (ev) => {
@@ -6572,7 +6639,15 @@ function archiveChatPhotoDrive(file, user) {
                 body: payload,
                 redirect: 'follow'
             }).then(r => r.json()).then(data => {
-                if (data && data.ok) console.log('[CHAT-DRIVE] Photo archivée ✓');
+                if (data && data.ok) {
+                    console.log('[CHAT-DRIVE] Photo archivée ✓');
+                    if (window._fb && messageId) {
+                        window._fb.updateDoc(window._fb.doc(window._fb.db, 'chat_messages', messageId), {
+                            driveArchived: true,
+                            driveArchivedAt: window._fb.serverTimestamp()
+                        }).catch(() => {});
+                    }
+                }
                 else console.warn('[CHAT-DRIVE] Erreur:', data && data.error);
             }).catch(e => console.warn('[CHAT-DRIVE] Archive error:', e.message));
         } catch (e) {

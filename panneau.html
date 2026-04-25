@@ -275,12 +275,15 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',sans-serif;mi
           <div class="stat"><div class="stat-val" id="st-chat-msgs">—</div><div class="stat-label">Messages chat</div></div>
           <div class="stat"><div class="stat-val" id="st-chat-previews">—</div><div class="stat-label">Aperçus actifs</div></div>
           <div class="stat"><div class="stat-val" id="st-chat-preview-size" style="font-size:1.15rem">—</div><div class="stat-label">Poids aperçus</div></div>
-          <div class="stat"><div class="stat-val" id="st-retention-days">—</div><div class="stat-label">Rétention jours</div></div>
+          <div class="stat"><div class="stat-val" id="st-drive-estimate" style="font-size:1.1rem">—</div><div class="stat-label">Drive estimé</div></div>
+          <div class="stat"><div class="stat-val" id="st-retention-days">—</div><div class="stat-label">Rétention chat</div></div>
+          <div class="stat"><div class="stat-val" id="st-report-retention-days">—</div><div class="stat-label">Rétention rapports</div></div>
         </div>
         <div id="storageMaintenanceNote" style="font-size:0.82rem;color:var(--dim);line-height:1.7;margin-bottom:12px">Chargement de la politique de stockage...</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
           <button class="btn-save-cfg" onclick="loadDashboard()">🔄 Actualiser</button>
-          <button class="btn-save-cfg" onclick="runChatPreviewCleanup(true, true)">🧹 Nettoyer maintenant</button>
+          <button class="btn-save-cfg" onclick="runChatPreviewCleanup(true, true)">🧹 Nettoyer aperçus</button>
+          <button class="btn-save-cfg" onclick="runReportRetentionCleanup(true, true)">🗑 Nettoyer rapports</button>
         </div>
       </div>
       <div class="card">
@@ -529,18 +532,23 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',sans-serif;mi
       </div>
 
       <div class="card">
-        <div class="card-title">🧹 Rétention des aperçus photo chat</div>
+        <div class="card-title">🧹 Rétention stockage Firestore</div>
         <div class="info-box">
           <b>Mode équilibré</b> : Firestore conserve seulement un <b>aperçu léger temporaire</b> des photos du chat.<br>
-          L'original pleine résolution reste archivé côté ATTT sur Google Drive. Au-delà de la durée ci-dessous, seul l'aperçu Firestore est purgé.
+          L'original pleine résolution reste archivé côté ATTT sur Google Drive. Les rapports Firestore sont aussi purgés après rétention, sans toucher aux archives Drive/email.
         </div>
         <div class="config-row">
           <div class="field">
             <label>Conserver l'aperçu (jours)</label>
             <input type="number" id="cfgChatPreviewRetentionDays" min="1" max="365" step="1" placeholder="30">
           </div>
+          <div class="field">
+            <label>Conserver les rapports Firestore (jours)</label>
+            <input type="number" id="cfgReportRetentionDays" min="1" max="365" step="1" placeholder="180">
+          </div>
           <button class="btn-save-cfg" onclick="saveStoragePolicy()">💾 Sauvegarder</button>
-          <button class="btn-save-cfg" onclick="runChatPreviewCleanup(true, true)">🧹 Nettoyer maintenant</button>
+          <button class="btn-save-cfg" onclick="runChatPreviewCleanup(true, true)">🧹 Nettoyer aperçus</button>
+          <button class="btn-save-cfg" onclick="runReportRetentionCleanup(true, true)">🗑 Nettoyer rapports</button>
         </div>
         <div id="storagePolicyStatus" style="margin-top:10px;font-size:0.82rem;color:var(--dim);line-height:1.7">Chargement...</div>
       </div>
@@ -846,26 +854,33 @@ async function showPanel() {
   await loadGhConfigFromFirestore();
   await loadStoragePolicy(true);
   await runChatPreviewCleanup(false, false);
+  await runReportRetentionCleanup(false, false);
   await loadDashboard();
   checkTokenStatus();
 }
 
 const DEFAULT_STORAGE_POLICY = {
   chatPreviewRetentionDays: 30,
+  reportRetentionDays: 180,
   chatPreviewMaxDimension: 360,
   chatPreviewQuality: 0.38,
   lastChatCleanupAt: '',
   lastChatCleanupBy: '',
   lastChatCleanupCount: 0,
   lastChatCleanupScanned: 0,
-  lastChatCleanupRetentionDays: 30
+  lastChatCleanupRetentionDays: 30,
+  lastReportCleanupAt: '',
+  lastReportCleanupBy: '',
+  lastReportCleanupCount: 0,
+  lastReportCleanupScanned: 0,
+  lastReportCleanupRetentionDays: 180
 };
 
 let _storagePolicyCache = null;
 
-function clampRetentionDays(value) {
+function clampRetentionDays(value, fallback = DEFAULT_STORAGE_POLICY.chatPreviewRetentionDays) {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return DEFAULT_STORAGE_POLICY.chatPreviewRetentionDays;
+  if (!Number.isFinite(parsed)) return fallback;
   return Math.min(365, Math.max(1, Math.round(parsed)));
 }
 
@@ -893,27 +908,39 @@ function estimateDataUrlBytes(dataUrl) {
 
 function normalizeStoragePolicy(data = {}) {
   return {
-    chatPreviewRetentionDays: clampRetentionDays(data.chatPreviewRetentionDays),
+    chatPreviewRetentionDays: clampRetentionDays(data.chatPreviewRetentionDays, DEFAULT_STORAGE_POLICY.chatPreviewRetentionDays),
+    reportRetentionDays: clampRetentionDays(data.reportRetentionDays, DEFAULT_STORAGE_POLICY.reportRetentionDays),
     chatPreviewMaxDimension: Number(data.chatPreviewMaxDimension) || DEFAULT_STORAGE_POLICY.chatPreviewMaxDimension,
     chatPreviewQuality: Number(data.chatPreviewQuality) || DEFAULT_STORAGE_POLICY.chatPreviewQuality,
     lastChatCleanupAt: data.lastChatCleanupAt || '',
     lastChatCleanupBy: data.lastChatCleanupBy || '',
     lastChatCleanupCount: Number(data.lastChatCleanupCount) || 0,
     lastChatCleanupScanned: Number(data.lastChatCleanupScanned) || 0,
-    lastChatCleanupRetentionDays: clampRetentionDays(data.lastChatCleanupRetentionDays || data.chatPreviewRetentionDays || DEFAULT_STORAGE_POLICY.chatPreviewRetentionDays)
+    lastChatCleanupRetentionDays: clampRetentionDays(data.lastChatCleanupRetentionDays || data.chatPreviewRetentionDays, DEFAULT_STORAGE_POLICY.chatPreviewRetentionDays),
+    lastReportCleanupAt: data.lastReportCleanupAt || '',
+    lastReportCleanupBy: data.lastReportCleanupBy || '',
+    lastReportCleanupCount: Number(data.lastReportCleanupCount) || 0,
+    lastReportCleanupScanned: Number(data.lastReportCleanupScanned) || 0,
+    lastReportCleanupRetentionDays: clampRetentionDays(data.lastReportCleanupRetentionDays || data.reportRetentionDays, DEFAULT_STORAGE_POLICY.reportRetentionDays)
   };
 }
 
 function renderStoragePolicyStatus(policy) {
   const input = document.getElementById('cfgChatPreviewRetentionDays');
   if (input) input.value = String(policy.chatPreviewRetentionDays);
+  const reportInput = document.getElementById('cfgReportRetentionDays');
+  if (reportInput) reportInput.value = String(policy.reportRetentionDays);
   const status = document.getElementById('storagePolicyStatus');
   if (!status) return;
   const lastBy = policy.lastChatCleanupBy ? ` par <b>${esc(policy.lastChatCleanupBy)}</b>` : '';
+  const lastReportBy = policy.lastReportCleanupBy ? ` par <b>${esc(policy.lastReportCleanupBy)}</b>` : '';
   status.innerHTML =
     `Aperçu Firestore conservé <b>${policy.chatPreviewRetentionDays} jour(s)</b>.<br>` +
-    `Dernier nettoyage : <b>${formatDateTime(policy.lastChatCleanupAt)}</b>${lastBy}` +
-    ` — ${policy.lastChatCleanupCount} aperçu(x) purgé(s) sur ${policy.lastChatCleanupScanned} message(s) scanné(s).`;
+    `Dernier nettoyage aperçus : <b>${formatDateTime(policy.lastChatCleanupAt)}</b>${lastBy}` +
+    ` — ${policy.lastChatCleanupCount} aperçu(x) purgé(s) sur ${policy.lastChatCleanupScanned} message(s) scanné(s).<br>` +
+    `Rapports Firestore conservés <b>${policy.reportRetentionDays} jour(s)</b>.<br>` +
+    `Dernier nettoyage rapports : <b>${formatDateTime(policy.lastReportCleanupAt)}</b>${lastReportBy}` +
+    ` — ${policy.lastReportCleanupCount} rapport(s) supprimé(s) sur ${policy.lastReportCleanupScanned} document(s) scanné(s).`;
 }
 
 async function loadStoragePolicy(forceRefresh = false) {
@@ -944,11 +971,13 @@ async function loadStoragePolicy(forceRefresh = false) {
 
 async function saveStoragePolicy() {
   const fb = window._fb; if (!fb) return;
-  const retentionDays = clampRetentionDays(document.getElementById('cfgChatPreviewRetentionDays')?.value);
+  const retentionDays = clampRetentionDays(document.getElementById('cfgChatPreviewRetentionDays')?.value, DEFAULT_STORAGE_POLICY.chatPreviewRetentionDays);
+  const reportRetentionDays = clampRetentionDays(document.getElementById('cfgReportRetentionDays')?.value, DEFAULT_STORAGE_POLICY.reportRetentionDays);
   const previous = await loadStoragePolicy(true);
   const policy = {
     ...previous,
     chatPreviewRetentionDays: retentionDays,
+    reportRetentionDays: reportRetentionDays,
     chatPreviewMaxDimension: DEFAULT_STORAGE_POLICY.chatPreviewMaxDimension,
     chatPreviewQuality: DEFAULT_STORAGE_POLICY.chatPreviewQuality,
     updatedAt: new Date().toISOString(),
@@ -972,6 +1001,8 @@ async function collectChatStorageStats() {
   let photoMessages = 0;
   let previewCount = 0;
   let previewBytes = 0;
+  let archiveBytes = 0;
+  let driveArchivedCount = 0;
   snap.forEach((docSnap) => {
     totalMessages++;
     const msg = docSnap.data() || {};
@@ -979,8 +1010,10 @@ async function collectChatStorageStats() {
     photoMessages++;
     if (msg.photoData) {
       previewCount++;
-      previewBytes += estimateDataUrlBytes(msg.photoData);
+      previewBytes += Number(msg.photoPreviewBytes) || estimateDataUrlBytes(msg.photoData);
     }
+    archiveBytes += Number(msg.photoArchiveEstimatedBytes) || 0;
+    if (msg.driveArchived) driveArchivedCount++;
   });
   return {
     policy,
@@ -988,7 +1021,43 @@ async function collectChatStorageStats() {
     photoMessages,
     previewCount,
     previewBytes,
+    archiveBytes,
+    driveArchivedCount,
     prunedPhotoMessages: Math.max(0, photoMessages - previewCount)
+  };
+}
+
+async function collectReportArchiveStats() {
+  const fb = window._fb; if (!fb) return null;
+  const policy = await loadStoragePolicy();
+  const snap = await fb.getDocs(fb.collection(fb.db, 'reports'));
+  let totalReports = 0;
+  let archivedReports = 0;
+  let reportsWithEstimate = 0;
+  let archiveBytes = 0;
+  let archivePhotoCount = 0;
+  let reportsWithLocation = 0;
+  snap.forEach((docSnap) => {
+    totalReports++;
+    const report = docSnap.data() || {};
+    if (report.archivedToDrive) archivedReports++;
+    if (report.hasLocation) reportsWithLocation++;
+    const estimate = Number(report.archiveEstimateBytes) || 0;
+    if (estimate > 0) {
+      reportsWithEstimate++;
+      archiveBytes += estimate;
+    }
+    archivePhotoCount += Number(report.archivePhotoCount) || 0;
+  });
+  return {
+    policy,
+    totalReports,
+    archivedReports,
+    reportsWithEstimate,
+    archiveBytes,
+    archivePhotoCount,
+    reportsWithLocation,
+    reportsWithoutEstimate: Math.max(0, totalReports - reportsWithEstimate)
   };
 }
 
@@ -1062,6 +1131,80 @@ async function runChatPreviewCleanup(showFeedback = false, forceRun = false) {
     const label = cleaned > 0
       ? `${cleaned} aperçu(x) chat purgé(s) après ${policy.chatPreviewRetentionDays} jour(s).`
       : `Aucun aperçu chat à purger (rétention ${policy.chatPreviewRetentionDays} jour(s)).`;
+    toast(label, cleaned > 0 ? 'ok' : 'info', 5000);
+  }
+  if (showFeedback || forceRun) {
+    await loadDashboard();
+    if (document.getElementById('sec-hosting')?.classList.contains('active')) {
+      await loadHostingInfo();
+    }
+  }
+  return { cleaned, scanned, policy: _storagePolicyCache };
+}
+
+async function runReportRetentionCleanup(showFeedback = false, forceRun = false) {
+  const fb = window._fb; if (!fb) return { skipped: true, reason: 'no-firebase' };
+  const policy = await loadStoragePolicy(true);
+  const now = Date.now();
+  const lastRun = policy.lastReportCleanupAt ? new Date(policy.lastReportCleanupAt).getTime() : 0;
+  const due = !lastRun || Number.isNaN(lastRun) || (now - lastRun) >= 24 * 60 * 60 * 1000;
+  if (!forceRun && !due) {
+    return { skipped: true, reason: 'not-due', policy };
+  }
+
+  const cutoffMs = now - (policy.reportRetentionDays * 24 * 60 * 60 * 1000);
+  let cursor = null;
+  let scanned = 0;
+  let cleaned = 0;
+  let stop = false;
+
+  while (!stop) {
+    const constraints = [fb.orderBy('createdAt', 'asc')];
+    if (cursor) constraints.push(fb.startAfter(cursor));
+    constraints.push(fb.limit(100));
+    const q = fb.query(fb.collection(fb.db, 'reports'), ...constraints);
+    const snap = await fb.getDocs(q);
+    if (snap.empty) break;
+
+    const batch = fb.writeBatch(fb.db);
+    let batchChanges = 0;
+    const docs = snap.docs || [];
+    for (const docSnap of docs) {
+      cursor = docSnap;
+      const data = docSnap.data() || {};
+      const tsValue = data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt ? new Date(data.createdAt) : null);
+      if (tsValue && !Number.isNaN(tsValue.getTime()) && tsValue.getTime() >= cutoffMs) {
+        stop = true;
+        break;
+      }
+      scanned++;
+      batch.delete(fb.doc(fb.db, 'reports', docSnap.id));
+      batchChanges++;
+      cleaned++;
+    }
+
+    if (batchChanges > 0) {
+      await batch.commit();
+    }
+    if (stop || docs.length < 100) break;
+  }
+
+  const updatedPolicy = {
+    ...policy,
+    lastReportCleanupAt: new Date().toISOString(),
+    lastReportCleanupBy: `${window._admin?.prenom||''} ${window._admin?.nom||''}`.trim() || (window._admin?.email || 'admin'),
+    lastReportCleanupCount: cleaned,
+    lastReportCleanupScanned: scanned,
+    lastReportCleanupRetentionDays: policy.reportRetentionDays
+  };
+  await fb.setDoc(fb.doc(fb.db, 'config', 'storagePolicy'), updatedPolicy);
+  _storagePolicyCache = normalizeStoragePolicy(updatedPolicy);
+  renderStoragePolicyStatus(_storagePolicyCache);
+
+  if (showFeedback) {
+    const label = cleaned > 0
+      ? `${cleaned} rapport(s) Firestore supprimé(s) après ${policy.reportRetentionDays} jour(s).`
+      : `Aucun rapport Firestore à supprimer (rétention ${policy.reportRetentionDays} jour(s)).`;
     toast(label, cleaned > 0 ? 'ok' : 'info', 5000);
   }
   if (showFeedback || forceRun) {
@@ -1159,18 +1302,23 @@ async function loadDashboard() {
     // Storage dashboard
     try {
       const storageStats = await collectChatStorageStats();
+      const reportStats = await collectReportArchiveStats();
       if (storageStats) {
         document.getElementById('st-chat-msgs').textContent = storageStats.totalMessages;
         document.getElementById('st-chat-previews').textContent = `${storageStats.previewCount}/${storageStats.photoMessages}`;
         document.getElementById('st-chat-preview-size').textContent = formatBytes(storageStats.previewBytes);
         document.getElementById('st-retention-days').textContent = storageStats.policy.chatPreviewRetentionDays;
-        const note = document.getElementById('storageMaintenanceNote');
-        if (note) {
-          note.innerHTML =
-            `Mode équilibré : les originaux photo restent archivés sur Google Drive ATTT. Firestore ne garde que les aperçus chat temporaires.<br>` +
-            `Aperçus purgés au-delà de <b>${storageStats.policy.chatPreviewRetentionDays} jour(s)</b>. ` +
-            `Actifs : <b>${storageStats.previewCount}</b> · purgés : <b>${storageStats.prunedPhotoMessages}</b> · dernier nettoyage : <b>${formatDateTime(storageStats.policy.lastChatCleanupAt)}</b>.`;
-        }
+      }
+      if (reportStats) {
+        document.getElementById('st-drive-estimate').textContent = formatBytes((reportStats.archiveBytes || 0) + (storageStats?.archiveBytes || 0));
+        document.getElementById('st-report-retention-days').textContent = reportStats.policy.reportRetentionDays;
+      }
+      const note = document.getElementById('storageMaintenanceNote');
+      if (note && storageStats && reportStats) {
+        note.innerHTML =
+          `Mode équilibré : les originaux photo et rapports restent archivés sur Google Drive ATTT. Firestore ne garde que des données légères et temporaires.<br>` +
+          `Aperçus chat actifs : <b>${storageStats.previewCount}</b> (${formatBytes(storageStats.previewBytes)}) · purgés : <b>${storageStats.prunedPhotoMessages}</b>.<br>` +
+          `Rapports Firestore : <b>${reportStats.totalReports}</b> · archives Drive estimées : <b>${formatBytes((reportStats.archiveBytes || 0) + (storageStats.archiveBytes || 0))}</b> (${formatBytes(reportStats.archiveBytes || 0)} rapports + ${formatBytes(storageStats.archiveBytes || 0)} chat).`;
       }
     } catch (storageError) {
       const note = document.getElementById('storageMaintenanceNote');
@@ -2667,6 +2815,7 @@ async function loadHostingInfo() {
   // 2b) Détail stockage chat Firestore
   try {
     const storageStats = await collectChatStorageStats();
+    const reportStats = await collectReportArchiveStats();
     if (storageStats) {
       html += `<div style="margin-bottom:20px">
         <h3 style="color:var(--blue2);font-size:0.85rem;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px">💬 Stockage chat Firestore</h3>
@@ -2675,11 +2824,29 @@ async function loadHostingInfo() {
           <div class="stat"><div class="stat-val" style="font-size:1.3rem">${storageStats.photoMessages}</div><div class="stat-label">Messages photo</div></div>
           <div class="stat"><div class="stat-val" style="font-size:1.3rem">${storageStats.previewCount}</div><div class="stat-label">Aperçus actifs</div></div>
           <div class="stat"><div class="stat-val" style="font-size:1.1rem">${formatBytes(storageStats.previewBytes)}</div><div class="stat-label">Poids aperçu</div></div>
+          <div class="stat"><div class="stat-val" style="font-size:1.1rem">${formatBytes(storageStats.archiveBytes)}</div><div class="stat-label">Drive chat estimé</div></div>
+          <div class="stat"><div class="stat-val" style="font-size:1.3rem">${storageStats.driveArchivedCount}</div><div class="stat-label">Photos archivées</div></div>
         </div>
         <div style="font-size:0.82rem;color:var(--dim);line-height:1.7;margin-top:10px">
           Rétention active : <b>${storageStats.policy.chatPreviewRetentionDays} jour(s)</b>.<br>
           Aperçus déjà purgés : <b>${storageStats.prunedPhotoMessages}</b>.<br>
           Dernier nettoyage : <b>${formatDateTime(storageStats.policy.lastChatCleanupAt)}</b>.
+        </div>
+      </div>`;
+    }
+    if (reportStats) {
+      html += `<div style="margin-bottom:20px">
+        <h3 style="color:var(--blue2);font-size:0.85rem;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px">📁 Archives Drive estimées</h3>
+        <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+          <div class="stat"><div class="stat-val" style="font-size:1.2rem">${formatBytes(reportStats.archiveBytes)}</div><div class="stat-label">Volume estimé</div></div>
+          <div class="stat"><div class="stat-val" style="font-size:1.3rem">${reportStats.reportsWithEstimate}</div><div class="stat-label">Rapports mesurés</div></div>
+          <div class="stat"><div class="stat-val" style="font-size:1.3rem">${reportStats.archivePhotoCount}</div><div class="stat-label">Photos mesurées</div></div>
+          <div class="stat"><div class="stat-val" style="font-size:1.3rem">${reportStats.policy.reportRetentionDays}</div><div class="stat-label">Rétention rapports</div></div>
+        </div>
+        <div style="font-size:0.82rem;color:var(--dim);line-height:1.7;margin-top:10px">
+          Les archives Drive sont estimées à partir des rapports synchronisés qui enregistrent leur taille dans Firestore.<br>
+          Rapports sans métrique : <b>${reportStats.reportsWithoutEstimate}</b>. Dernier nettoyage Firestore : <b>${formatDateTime(reportStats.policy.lastReportCleanupAt)}</b>.<br>
+          Estimation Drive globale (rapports + chat) : <b>${formatBytes((reportStats.archiveBytes || 0) + (storageStats.archiveBytes || 0))}</b>.
         </div>
       </div>`;
     }
