@@ -11,7 +11,7 @@
     <meta name="application-name" content="VIN Expert ATTT">
     <meta name="description" content="Identification VIN — ATTT Direction Technique d'Automobiles">
     <title>ATTT · VIN Identification</title>
-    <link rel="manifest" href="manifest.json">
+    <link rel="manifest" href="manifest.json?v=2.7.9">
     <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.7.8";
+            window.APP_VERSION = "2.7.9";
             try {
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
@@ -58,6 +58,8 @@
           const isRescue = (user.email === "rescue@attt.internal");
           if (isRescue) {
             window.currentUser = { uid: user.uid, email: user.email, nom: "Admin", prenom: "Secours", matricule: "RESCUE", lieuTravail: "DTA", role: "admin" };
+            startRealtimeVersionWatch();
+            await checkAppUpdate();
             showApp();
             return;
           }
@@ -71,12 +73,14 @@
               // Afficher version
               const vBadge = document.getElementById('appVerBadge');
               if (vBadge) vBadge.textContent = 'v' + (window.APP_VERSION || '1.0.0');
+              startRealtimeVersionWatch();
               // Check update
               await checkAppUpdate();
               showApp();
             } else {
               // Profile not yet created (edge case)
               window.currentUser = { uid: user.uid, email: user.email, nom: "", prenom: "", matricule: "", lieuTravail: "", role: "agent" };
+              startRealtimeVersionWatch();
               await checkAppUpdate();
               showApp();
             }
@@ -85,6 +89,7 @@
             showAuthScreen('login');
           }
         } else {
+          stopRealtimeVersionWatch();
           window.currentUser = null;
           // Si lien d'invitation dans l'URL → aller directement sur l'écran d'inscription
           const inviteParam = new URLSearchParams(window.location.search).get('invite');
@@ -106,7 +111,7 @@
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
         // Version définie tôt pour autoPurgeCache et SW
-        window.APP_VERSION = "2.7.8"; // cache si version différente OU force-update
+        window.APP_VERSION = "2.7.9"; // cache si version différente OU force-update
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -1952,6 +1957,50 @@ function showToast(msg, type = 'info', duration = 3500) {
     setTimeout(() => t.remove(), duration);
 }
 
+function buildForceUpdateUrl() {
+    const url = new URL(window.location.origin + window.location.pathname);
+    url.searchParams.set('force-update', Date.now().toString());
+    return url.toString();
+}
+
+function reloadForUpdate() {
+    sessionStorage.setItem('_skipUpdateCheck', '1');
+    window.location.replace(buildForceUpdateUrl());
+}
+
+function stopRealtimeVersionWatch() {
+    if (typeof window._versionWatcherUnsub === 'function') {
+        try { window._versionWatcherUnsub(); } catch(e) {}
+    }
+    window._versionWatcherUnsub = null;
+}
+
+function startRealtimeVersionWatch() {
+    const fb = window._fb;
+    if (!fb || !fb.onSnapshot || typeof window._versionWatcherUnsub === 'function') return;
+
+    try {
+        const versionRef = fb.doc(fb.db, 'config', 'appVersion');
+        window._versionWatcherUnsub = fb.onSnapshot(versionRef, (snap) => {
+            if (!snap.exists()) return;
+            const cfg = snap.data() || {};
+            const serverVer = cfg.version || '0.0.0';
+            const clientVer = window.APP_VERSION || '0.0.0';
+            updateVersionBadge(serverVer);
+            if (window._updateInProgress) return;
+            if (compareVersions(clientVer, serverVer) < 0) {
+                doUpdate(serverVer);
+            }
+        }, (error) => {
+            console.warn('[VERSION] Listener erreur:', error.message);
+            stopRealtimeVersionWatch();
+        });
+    } catch(e) {
+        console.warn('[VERSION] Listener indisponible:', e.message);
+        stopRealtimeVersionWatch();
+    }
+}
+
 function updateVersionBadge(serverVersion) {
     const vBadge = document.getElementById('appVerBadge');
     if (!vBadge) return;
@@ -2037,13 +2086,14 @@ function setupServiceWorkerAutoUpdate() {
         reloaded = true;
         console.log('[SW] Nouveau SW actif, rechargement...');
         showUpdateProgress(100, 'Redémarrage de l\'application...', '✅ Mise à jour installée !');
-        setTimeout(() => location.reload(), 600);
+        setTimeout(reloadForUpdate, 600);
     });
 }
 
 // ══ Vérification version Firestore → force reload si obsolète ══
 async function checkVersionFromFirestore() {
     try {
+        if (window._updateInProgress) return;
         if (!window._fb || !window._firebaseAvailable) return;
         // Si cette session a publié ou déjà traité une version, ne pas boucler
         const publishedVer = sessionStorage.getItem('_vin_just_published');
@@ -2063,6 +2113,7 @@ async function checkVersionFromFirestore() {
                 showToast('Nouvelle version ' + serverVer + ' disponible. Relancez ATTT.bat pour synchroniser.', 'info', 8000);
                 return;
             }
+            window._updateInProgress = true;
             console.log('[VERSION] Obsolète:', localVer, '→', serverVer, '— purge auto...');
             showUpdateProgress(15, 'Version obsolète détectée (' + localVer + ' → ' + serverVer + ')', '🔄 Mise à jour requise<br>Ne fermez pas l\'application.');
             // Purger les caches et recharger
@@ -2081,7 +2132,7 @@ async function checkVersionFromFirestore() {
             await new Promise(r => setTimeout(r, 500));
             showUpdateProgress(100, 'Redémarrage...', '✅ Mise à jour v' + serverVer + ' prête !');
             await new Promise(r => setTimeout(r, 400));
-            window.location.replace(window.location.origin + window.location.pathname);
+            reloadForUpdate();
             return;
         }
     } catch(e) { console.warn('[VERSION] Check Firestore erreur:', e.message); }
@@ -2621,6 +2672,7 @@ async function doForgot() {
 // ========== LOGOUT ==========
 async function doLogout() {
     const fb = window._fb;
+    stopRealtimeVersionWatch();
     if (fb && fb.auth.currentUser) await fb.signOut(fb.auth);
     window.currentUser = null;
     document.getElementById('userMenu').style.display = 'none';
@@ -2639,6 +2691,7 @@ async function checkAppUpdate() {
         sessionStorage.removeItem('_skipUpdateCheck');
         return;
     }
+    if (window._updateInProgress) return;
     const fb = window._fb;
     if (!fb) return;
     try {
@@ -2656,7 +2709,8 @@ async function checkAppUpdate() {
 
         if (needsUpdate) {
             // Mise à jour automatique sans interaction utilisateur
-            doUpdate();
+            await doUpdate(serverVer);
+            return;
         }
     } catch(e) {}
 }
@@ -2690,7 +2744,9 @@ function showUpdateProgress(percent, stepText, msgHTML) {
 }
 
 // Vide le cache SW et recharge la dernière version depuis le serveur
-async function doUpdate() {
+async function doUpdate(targetVersion) {
+    if (window._updateInProgress) return;
+    window._updateInProgress = true;
     showUpdateProgress(10, 'Démarrage de la mise à jour...', '🔄 Mise à jour en cours<br>Ne fermez pas l\'application.');
 
     // Étape 1 : Forcer le nouveau SW à prendre le contrôle
@@ -2724,8 +2780,7 @@ async function doUpdate() {
     await new Promise(r => setTimeout(r, 600));
     showUpdateProgress(100, 'Redémarrage...', '✅ Mise à jour terminée !');
     await new Promise(r => setTimeout(r, 400));
-    sessionStorage.setItem('_skipUpdateCheck', '1');
-    location.reload(true);
+    reloadForUpdate();
 }
 
 // ========== ADMIN FUNCTIONS ==========
@@ -3161,6 +3216,50 @@ async function loadAdminVersionInfo() {
     } catch(e) {}
 }
 
+function applyReleaseVersionToContent(path, content, verNorm) {
+    if (path === 'index.html') {
+        content = content.replace(/window\.APP_VERSION\s*=\s*["'][^"']*["']/g, `window.APP_VERSION = "${verNorm}"`);
+        content = content.replace(/(<link\s+rel=["']manifest["']\s+href=["']manifest\.json)(?:\?v=[^"']*)?(["'])/i, `$1?v=${verNorm}$2`);
+    }
+    if (path === 'sw.js') {
+        content = content.replace(/const CACHE_NAME\s*=\s*['"][^'"]*['"]/, `const CACHE_NAME = 'vin-expert-v${verNorm}'`);
+    }
+    if (path === 'manifest.json') {
+        content = content.replace(/"description"\s*:\s*"[^"]*"/, `"description": "Identification et vérification de numéros de châssis VIN — ATTT Tunisie v${verNorm}"`);
+    }
+    return content;
+}
+
+async function waitForGitHubPagesBuild(token, owner, repo, commitSha) {
+    if (!commitSha) return;
+
+    for (let attempt = 1; attempt <= 36; attempt++) {
+        const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/pages/builds/latest`, {
+            headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+        });
+
+        if (!res.ok) {
+            throw new Error(`Statut GitHub Pages inaccessible (${res.status})`);
+        }
+
+        const build = await res.json();
+        const status = String(build.status || '').toLowerCase();
+        const buildCommit = build.commit || '';
+
+        if ((status === 'built' || status === 'success') && buildCommit === commitSha) {
+            return;
+        }
+
+        if (status === 'errored' || status === 'error' || status === 'failed') {
+            throw new Error('GitHub Pages a échoué à publier la nouvelle version.');
+        }
+
+        await new Promise(r => setTimeout(r, 5000));
+    }
+
+    throw new Error('GitHub Pages n’a pas publié la nouvelle version à temps.');
+}
+
 async function publierMiseAJour() {
     const fb = window._fb; if (!fb) return;
     const ver   = document.getElementById('newVersionInput').value.trim();
@@ -3175,20 +3274,7 @@ async function publierMiseAJour() {
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Publication...'; }
 
     try {
-        // Empêcher la boucle de mise à jour AVANT toute modification
-        sessionStorage.setItem('_vin_just_published', verNorm);
-        window.APP_VERSION = verNorm;
-
-        // 1. Firestore
-        showToast('Mise à jour Firestore...', 'info', 2000);
-        await fb.setDoc(fb.doc(fb.db, 'config', 'appVersion'), {
-            version: verNorm, notes, forceUpdate: force,
-            minVersion: minV || '0.0.0',
-            updatedAt: new Date().toISOString(),
-            updatedBy: window.currentUser?.email || 'admin'
-        });
-
-        // 2. GitHub — lire le token depuis Firestore
+        // 1. GitHub — déployer le code avant d'annoncer la nouvelle version aux utilisateurs.
         let ghToken = '', ghOwner = 'dtaattt2026-boop', ghRepo = 'vin-expert-attt';
         try {
             const ghSnap = await fb.getDoc(fb.doc(fb.db, 'config', 'github'));
@@ -3200,55 +3286,68 @@ async function publierMiseAJour() {
             }
         } catch(e) {}
 
-        if (ghToken) {
-            showToast('Synchronisation GitHub...', 'info', 3000);
-
-            // Fichiers à mettre à jour la version
-            const filesToUpdate = [
-                { path: 'index.html', regex: /window\.APP_VERSION\s*=\s*["'][^"']*["']/, replace: `window.APP_VERSION = "${verNorm}"` },
-                { path: 'sw.js', regex: /const CACHE_NAME\s*=\s*['"][^'"]*['"]/, replace: `const CACHE_NAME = 'vin-expert-v${verNorm}'` }
-            ];
-
-            for (const file of filesToUpdate) {
-                try {
-                    // Lire le fichier actuel depuis GitHub
-                    const getRes = await fetch(`https://api.github.com/repos/${ghOwner}/${ghRepo}/contents/${file.path}`, {
-                        headers: { 'Authorization': `token ${ghToken}`, 'Accept': 'application/vnd.github.v3+json' }
-                    });
-                    if (!getRes.ok) { console.warn(`[PUB] ${file.path} non trouvé sur GitHub`); continue; }
-                    const ghData = await getRes.json();
-
-                    // Décoder base64 → bytes → UTF-8 texte (sans corruption)
-                    const raw = atob(ghData.content.replace(/\n/g, ''));
-                    const rawBytes = new Uint8Array(raw.length);
-                    for (let i = 0; i < raw.length; i++) rawBytes[i] = raw.charCodeAt(i);
-                    let content = new TextDecoder('utf-8').decode(rawBytes);
-                    content = content.replace(file.regex, file.replace);
-
-                    // Encoder texte → UTF-8 bytes → base64 (sans double-encodage)
-                    const encBytes = new TextEncoder().encode(content);
-                    let bin = '';
-                    const chunk = 8192;
-                    for (let i = 0; i < encBytes.length; i += chunk) {
-                        bin += String.fromCharCode(...encBytes.subarray(i, Math.min(i + chunk, encBytes.length)));
-                    }
-                    const encoded = btoa(bin);
-
-                    const putRes = await fetch(`https://api.github.com/repos/${ghOwner}/${ghRepo}/contents/${file.path}`, {
-                        method: 'PUT',
-                        headers: { 'Authorization': `token ${ghToken}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ message: `v${verNorm} — ${file.path}`, content: encoded, sha: ghData.sha })
-                    });
-                    if (putRes.ok) console.log(`[PUB] ${file.path} → v${verNorm} OK`);
-                    else console.warn(`[PUB] ${file.path} erreur:`, await putRes.text());
-                } catch(e) { console.warn(`[PUB] ${file.path} erreur:`, e.message); }
-            }
-            showToast(`v${verNorm} publiée (Firestore + GitHub) !`, 'ok', 4000);
-        } else {
-            showToast(`v${verNorm} publiée (Firestore uniquement — token GitHub manquant)`, 'ok', 4000);
+        if (!ghToken) {
+            throw new Error('Token GitHub manquant. La mise à jour automatique nécessite un déploiement GitHub Pages.');
         }
 
+        showToast('Synchronisation GitHub...', 'info', 3000);
+        const filesToUpdate = ['index.html', 'sw.js', 'manifest.json'];
+        let lastCommitSha = '';
+
+        for (const path of filesToUpdate) {
+            const getRes = await fetch(`https://api.github.com/repos/${ghOwner}/${ghRepo}/contents/${path}`, {
+                headers: { 'Authorization': `token ${ghToken}`, 'Accept': 'application/vnd.github.v3+json' }
+            });
+            if (!getRes.ok) {
+                throw new Error(`Lecture GitHub impossible pour ${path} (${getRes.status})`);
+            }
+
+            const ghData = await getRes.json();
+            const raw = atob(ghData.content.replace(/\n/g, ''));
+            const rawBytes = new Uint8Array(raw.length);
+            for (let i = 0; i < raw.length; i++) rawBytes[i] = raw.charCodeAt(i);
+
+            let content = new TextDecoder('utf-8').decode(rawBytes);
+            content = applyReleaseVersionToContent(path, content, verNorm);
+
+            const encBytes = new TextEncoder().encode(content);
+            let bin = '';
+            const chunk = 8192;
+            for (let i = 0; i < encBytes.length; i += chunk) {
+                bin += String.fromCharCode(...encBytes.subarray(i, Math.min(i + chunk, encBytes.length)));
+            }
+
+            const putRes = await fetch(`https://api.github.com/repos/${ghOwner}/${ghRepo}/contents/${path}`, {
+                method: 'PUT',
+                headers: { 'Authorization': `token ${ghToken}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: `v${verNorm} — ${path}`, content: btoa(bin), sha: ghData.sha })
+            });
+            const putData = await putRes.json().catch(() => ({}));
+            if (!putRes.ok) {
+                throw new Error(`Mise à jour GitHub impossible pour ${path}: ${putData.message || putRes.status}`);
+            }
+
+            lastCommitSha = putData.commit?.sha || lastCommitSha;
+        }
+
+        showToast('Déploiement GitHub Pages...', 'info', 4000);
+        await waitForGitHubPagesBuild(ghToken, ghOwner, ghRepo, lastCommitSha);
+
+        // 2. Firestore — seulement une fois le site public prêt.
+        sessionStorage.setItem('_vin_just_published', verNorm);
+        window.APP_VERSION = verNorm;
+        showToast('Mise à jour Firestore...', 'info', 2000);
+        await fb.setDoc(fb.doc(fb.db, 'config', 'appVersion'), {
+            version: verNorm, notes, forceUpdate: force,
+            minVersion: minV || '0.0.0',
+            updatedAt: new Date().toISOString(),
+            updatedBy: window.currentUser?.email || 'admin'
+        });
+
+        showToast(`v${verNorm} publiée et déployée !`, 'ok', 5000);
+
         document.getElementById('adminCurVersion').textContent = verNorm;
+        updateVersionBadge(verNorm);
     } catch(e) {
         showToast('Erreur : ' + e.message, 'err');
     } finally {
@@ -3464,7 +3563,7 @@ function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'
 // ========== NOTIFICATION AGENTS ==========
 async function notifierAgentsMaj() {
     const ver = window.APP_VERSION || document.getElementById('adminCurVersion')?.textContent || '?';
-    const url = 'https://dtaattt2026-boop.github.io/vin-expert-attt/index.html?force-update=1';
+    const url = 'https://dtaattt2026-boop.github.io/vin-expert-attt/?force-update=1';
     const fb = window._fb;
     let emails = [];
     if (fb) {
@@ -3480,7 +3579,7 @@ async function notifierAgentsMaj() {
 }
 
 function copierLienForceUpdate() {
-    const url = 'https://dtaattt2026-boop.github.io/vin-expert-attt/index.html?force-update=1';
+    const url = 'https://dtaattt2026-boop.github.io/vin-expert-attt/?force-update=1';
     if (navigator.clipboard) {
         navigator.clipboard.writeText(url).then(() => showToast('Lien copié !', 'ok', 2000));
     } else {

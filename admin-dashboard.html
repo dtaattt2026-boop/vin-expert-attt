@@ -27,14 +27,29 @@ window._fb = { auth, db, signInWithEmailAndPassword, signOut, onAuthStateChanged
 
 onAuthStateChanged(auth, async (user) => {
   if (user) {
-    const snap = await doc(db, "users", user.uid);
-    if (!snap || !(await getDoc(snap)).exists()) {
+    try {
+      const snapRef = doc(db, "users", user.uid);
+      const snap = await getDoc(snapRef);
+      if (!snap.exists()) {
+        await signOut(auth);
+        alert("Accès réservé aux administrateurs.");
+        return;
+      }
+
+      const data = snap.data();
+      if (data.disabled || data.role !== 'admin') {
+        await signOut(auth);
+        alert("Accès réservé aux administrateurs.");
+        return;
+      }
+
+      window._admin = data;
+      showPanel();
+    } catch (error) {
+      console.error(error);
       await signOut(auth);
-      alert("Accès réservé aux administrateurs.");
-      return;
+      alert("Vérification administrateur impossible.");
     }
-    window._admin = (await getDoc(snap)).data();
-    showPanel();
   } else {
     showLogin();
   }

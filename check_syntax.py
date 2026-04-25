@@ -23,7 +23,7 @@ all_ok = True
 for name, start_idx, end_idx in blocks:
     # Skip CDN module blocks (Firebase SDK etc.) — node can't resolve https:// imports
     if 'module' in (script_types.get(start_idx, '') or '') and 'https://' in '\n'.join(lines[start_idx+1:end_idx]):
-        print(f'  {name}: Ignoré (module CDN https://)')
+        print(f'  {name}: Ignore (module CDN https://)')
         continue
     # Extract content between tags (skip the <script> tag itself)
     part = '\n'.join(lines[start_idx+1:end_idx])
@@ -46,4 +46,4 @@ for name, start_idx, end_idx in blocks:
     os.remove('tmp_check.js')
 
 print()
-print('BILAN:', '✓ Tout OK' if all_ok else '✗ Des erreurs trouvees')
+print('BILAN:', 'OK - Tout OK' if all_ok else 'ERREUR - Des erreurs trouvees')

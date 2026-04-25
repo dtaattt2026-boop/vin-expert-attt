@@ -1331,6 +1331,53 @@ function logClear() {
   el.style.display = 'block';
 }
 
+function applyPublishedVersionToContent(path, content, verNorm) {
+  if (path === 'index.html') {
+    content = content.replace(/window\.APP_VERSION\s*=\s*["'][^"']*["']/g, `window.APP_VERSION = "${verNorm}"`);
+    content = content.replace(/(<link\s+rel=["']manifest["']\s+href=["']manifest\.json)(?:\?v=[^"']*)?(["'])/i, `$1?v=${verNorm}$2`);
+  }
+  if (path === 'sw.js') {
+    content = content.replace(/const CACHE_NAME\s*=\s*['"][^'"]*['"]/, `const CACHE_NAME = 'vin-expert-v${verNorm}'`);
+  }
+  if (path === 'manifest.json') {
+    content = content.replace(/"description"\s*:\s*"[^"]*"/, `"description": "Identification et vérification de numéros de châssis VIN — ATTT Tunisie v${verNorm}"`);
+  }
+  return content;
+}
+
+async function waitForGitHubPagesBuild(token, owner, repo, commitSha, logFn = null) {
+  if (!commitSha) return;
+
+  for (let attempt = 1; attempt <= 36; attempt++) {
+    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/pages/builds/latest`, {
+      headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+    });
+
+    if (!res.ok) {
+      throw new Error(`Statut GitHub Pages inaccessible (${res.status})`);
+    }
+
+    const build = await res.json();
+    const status = String(build.status || '').toLowerCase();
+    const buildCommit = build.commit || '';
+    if (typeof logFn === 'function') {
+      logFn(`GitHub Pages : tentative ${attempt}/36 — statut ${status || 'inconnu'}`);
+    }
+
+    if ((status === 'built' || status === 'success') && buildCommit === commitSha) {
+      return;
+    }
+
+    if (status === 'errored' || status === 'error' || status === 'failed') {
+      throw new Error('GitHub Pages a échoué à publier la nouvelle version.');
+    }
+
+    await new Promise(r => setTimeout(r, 5000));
+  }
+
+  throw new Error('GitHub Pages n’a pas publié la nouvelle version à temps.');
+}
+
 function dlog(msg, type='info') {
   const el = document.getElementById('deployLog');
   el.style.display = 'block';
@@ -1560,7 +1607,129 @@ async function publier() {
   logClear();
 
   try {
-    // ── 1. Firestore ──────────────────────────────
+    let lastCommitSha = '';
+
+    // ── 1. GitHub : déployer le code avant d'annoncer la version ──
+    if (doGh) {
+      const token = getToken();
+      const { owner, repo } = getGhConfig();
+
+      if (!token) {
+        throw new Error('Token GitHub manquant. Configurez-le dans ⚙️ Configuration.');
+      }
+      if (!owner || !repo) {
+        throw new Error('Owner/repo GitHub non configurés.');
+      }
+
+      log('Vérification du token GitHub...');
+      const testRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+        headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+      });
+      if (!testRes.ok) {
+        throw new Error(`Token invalide ou dépôt inaccessible (${testRes.status})`);
+      }
+
+      log('Token GitHub valide ✓', 'ok');
+
+      const textFiles = ['index.html','sw.js','manifest.json','panneau.html','gas-drive.js','admin-dashboard.html'];
+      const binaryFiles = ['Logo.png','icons/icon-72.png','icons/icon-96.png','icons/icon-128.png','icons/icon-144.png','icons/icon-152.png','icons/icon-192.png','icons/icon-384.png','icons/icon-512.png'];
+      let ghOk = 0, ghErr = 0;
+
+      for (const file of textFiles) {
+        try {
+          let content, sha = null;
+          const res = await fetch(`./${file}`, { cache: 'no-store' });
+          if (!res.ok) throw new Error('non trouvé en local');
+
+          const buf = await res.arrayBuffer();
+          let bts = new Uint8Array(buf);
+          if (bts.length >= 3 && bts[0] === 0xEF && bts[1] === 0xBB && bts[2] === 0xBF) bts = bts.subarray(3);
+          content = new TextDecoder('utf-8').decode(bts);
+
+          try {
+            const gh = await ghGetFile(token, owner, repo, file);
+            sha = gh.sha;
+          } catch(e) {}
+
+          content = applyPublishedVersionToContent(file, content, verNorm);
+
+          const encoded = new TextEncoder().encode(content);
+          let binary = '';
+          const chunk = 8192;
+          for (let i = 0; i < encoded.length; i += chunk) {
+            binary += String.fromCharCode(...encoded.subarray(i, Math.min(i + chunk, encoded.length)));
+          }
+          const body = { message: `v${verNorm} — ${file}`, content: btoa(binary) };
+          if (sha) body.sha = sha;
+
+          const upRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${file}`, {
+            method: 'PUT',
+            headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
+          const upData = await upRes.json().catch(() => ({}));
+          if (!upRes.ok) throw new Error(upData.message || `erreur ${upRes.status}`);
+
+          lastCommitSha = upData.commit?.sha || lastCommitSha;
+          log(`${file} ✓`, 'ok');
+          ghOk++;
+        } catch(e) {
+          log(`${file} — ${e.message}`, 'err');
+          ghErr++;
+        }
+      }
+
+      for (const file of binaryFiles) {
+        try {
+          const res = await fetch(`./${file}`, { cache: 'no-store' });
+          if (!res.ok) throw new Error('non trouvé en local');
+
+          const buf = await res.arrayBuffer();
+          const bytes = new Uint8Array(buf);
+          let binary = '';
+          const chunk = 8192;
+          for (let i = 0; i < bytes.length; i += chunk) {
+            binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.length)));
+          }
+
+          let sha = null;
+          const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${file}`, {
+            headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+          });
+          if (ghRes.ok) { sha = (await ghRes.json()).sha; }
+
+          const body = { message: `v${verNorm} — ${file}`, content: btoa(binary) };
+          if (sha) body.sha = sha;
+
+          const upRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${file}`, {
+            method: 'PUT',
+            headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
+          const upData = await upRes.json().catch(() => ({}));
+          if (!upRes.ok) throw new Error(upData.message || `erreur ${upRes.status}`);
+
+          lastCommitSha = upData.commit?.sha || lastCommitSha;
+          log(`${file} ✓`, 'ok');
+          ghOk++;
+        } catch(e) {
+          log(`${file} — ${e.message}`, 'err');
+          ghErr++;
+        }
+      }
+
+      log(`GitHub : ${ghOk} fichiers synchronisés` + (ghErr > 0 ? `, ${ghErr} erreurs` : ''), ghErr > 0 ? 'err' : 'ok');
+      if (ghErr > 0) {
+        throw new Error(`Synchronisation GitHub incomplète (${ghErr} erreur(s)). Firestore n’a pas été mis à jour.`);
+      }
+
+      log('Attente du déploiement GitHub Pages...');
+      await waitForGitHubPagesBuild(token, owner, repo, lastCommitSha, (msg) => log(msg, 'info'));
+      log('GitHub Pages à jour ✓', 'ok');
+      log(`Site : https://${owner}.github.io/${repo}/`, 'ok');
+    }
+
+    // ── 2. Firestore : annoncer la version seulement quand le site public est prêt ──
     log('Mise à jour Firestore config/appVersion...');
     await fb.setDoc(fb.doc(fb.db,'config','appVersion'), {
       version: verNorm,
@@ -1571,116 +1740,6 @@ async function publier() {
       updatedBy: `${window._admin?.prenom||''} ${window._admin?.nom||''}`.trim()
     });
     log(`Firestore mis à jour → version ${verNorm}`, 'ok');
-
-    // ── 2. GitHub : synchroniser TOUS les fichiers ──
-    if (doGh) {
-      const token = getToken();
-      const { owner, repo } = getGhConfig();
-
-      if (!token) {
-        log('Token GitHub manquant → mise à jour GitHub ignorée', 'err');
-        log('Configurez le token dans ⚙️ Configuration', 'err');
-      } else if (!owner || !repo) {
-        log('Owner/repo GitHub non configurés', 'err');
-      } else {
-        log('Vérification du token GitHub...');
-        const testRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
-          headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
-        });
-        if (!testRes.ok) {
-          log(`Token invalide ou dépôt inaccessible (${testRes.status})`, 'err');
-        } else {
-          log('Token GitHub valide ✓', 'ok');
-
-          // Liste de tous les fichiers à synchroniser
-          const textFiles = ['index.html','sw.js','manifest.json','panneau.html','gas-drive.js','admin-dashboard.html'];
-          const binaryFiles = ['icons/icon-192.png','icons/icon-512.png'];
-          let ghOk = 0, ghErr = 0;
-
-          // ── Fichiers texte ──
-          for (const file of textFiles) {
-            try {
-              // Lire depuis le disque local (source de vérité = fichiers modifiés localement)
-              let content, sha = null;
-              const res = await fetch(`./${file}`, { cache: 'no-store' });
-              if (!res.ok) { log(`${file} — non trouvé en local, ignoré`, 'err'); continue; }
-              const buf = await res.arrayBuffer();
-              let bts = new Uint8Array(buf);
-              if (bts.length >= 3 && bts[0] === 0xEF && bts[1] === 0xBB && bts[2] === 0xBF) bts = bts.subarray(3);
-              content = new TextDecoder('utf-8').decode(bts);
-              // Récupérer le sha GitHub pour pouvoir mettre à jour le fichier existant
-              try {
-                const gh = await ghGetFile(token, owner, repo, file);
-                sha = gh.sha;
-              } catch(e) { /* fichier pas encore sur GitHub, sha reste null → création */ }
-
-              // Mettre à jour la version dans index.html et sw.js
-              if (file === 'index.html') {
-                content = content.replace(/window\.APP_VERSION\s*=\s*["'][^"']*["']/, `window.APP_VERSION = "${verNorm}"`);
-              }
-              if (file === 'sw.js') {
-                content = content.replace(/const CACHE_NAME\s*=\s*['"][^'"]*['"]/, `const CACHE_NAME = 'vin-expert-v${verNorm}'`);
-              }
-
-              const encoded = new TextEncoder().encode(content);
-              let binary = '';
-              const chunk = 8192;
-              for (let i = 0; i < encoded.length; i += chunk) {
-                binary += String.fromCharCode(...encoded.subarray(i, Math.min(i + chunk, encoded.length)));
-              }
-              const b64 = btoa(binary);
-
-              const body = { message: `v${verNorm} — ${file}`, content: b64 };
-              if (sha) body.sha = sha;
-
-              const upRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${file}`, {
-                method: 'PUT',
-                headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
-              });
-              if (upRes.ok) { log(`${file} ✓`, 'ok'); ghOk++; }
-              else { const e = await upRes.json(); log(`${file} — ${e.message}`, 'err'); ghErr++; }
-            } catch(e) { log(`${file} — ${e.message}`, 'err'); ghErr++; }
-          }
-
-          // ── Fichiers binaires ──
-          for (const file of binaryFiles) {
-            try {
-              const res = await fetch(`./${file}`, { cache: 'no-store' });
-              if (!res.ok) continue;
-              const buf = await res.arrayBuffer();
-              const bytes = new Uint8Array(buf);
-              let binary = '';
-              const chunk = 8192;
-              for (let i = 0; i < bytes.length; i += chunk) {
-                binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.length)));
-              }
-              const b64 = btoa(binary);
-
-              let sha = null;
-              const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${file}`, {
-                headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
-              });
-              if (ghRes.ok) { sha = (await ghRes.json()).sha; }
-
-              const body = { message: `v${verNorm} — ${file}`, content: b64 };
-              if (sha) body.sha = sha;
-
-              const upRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${file}`, {
-                method: 'PUT',
-                headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
-              });
-              if (upRes.ok) { log(`${file} ✓`, 'ok'); ghOk++; }
-              else { ghErr++; }
-            } catch(e) { ghErr++; }
-          }
-
-          log(`GitHub : ${ghOk} fichiers synchronisés` + (ghErr > 0 ? `, ${ghErr} erreurs` : ''), ghErr > 0 ? 'err' : 'ok');
-          log(`Site : https://${owner}.github.io/${repo}/`, 'ok');
-        }
-      }
-    }
 
     log('');
     log(`═══ VERSION ${verNorm} PUBLIÉE AVEC SUCCÈS ═══`, 'ok');
