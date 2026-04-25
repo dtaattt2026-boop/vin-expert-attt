@@ -2779,8 +2779,9 @@ function getFilteredReports() {
 function buildReportBreakdown(records, keyName) {
   const map = new Map();
   records.forEach((report) => {
-    const label = String(report[keyName] || '').trim() || 'Non renseigné';
-    const entry = map.get(label) || { label, total: 0, valid: 0, invalid: 0 };
+    const value = String(report[keyName] || '').trim();
+    const label = value || 'Non renseigné';
+    const entry = map.get(label) || { label, value, total: 0, valid: 0, invalid: 0 };
     entry.total += 1;
     if (report.is_valid) entry.valid += 1;
     else entry.invalid += 1;
@@ -2821,7 +2822,18 @@ function sortReports(records) {
   return rows;
 }
 
-function renderBreakdownList(containerId, rows, emptyLabel) {
+function applyReportBreakdownFilter(filterType, encodedValue) {
+  const value = decodeURIComponent(encodedValue || '');
+  const agentSelect = document.getElementById('reportAgentFilter');
+  const lieuSelect = document.getElementById('reportLieuFilter');
+  if (filterType === 'agent' && agentSelect) agentSelect.value = value;
+  if (filterType === 'lieu' && lieuSelect) lieuSelect.value = value;
+  _reportPage = 1;
+  renderReports();
+  document.getElementById('reportList')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderBreakdownList(containerId, rows, emptyLabel, filterType) {
   const el = document.getElementById(containerId);
   if (!el) return;
   if (!rows.length) {
@@ -2829,10 +2841,13 @@ function renderBreakdownList(containerId, rows, emptyLabel) {
     return;
   }
   el.innerHTML = rows.slice(0, 8).map((row) => `
-    <div class="report-row" style="padding:8px 10px;margin-bottom:8px">
+    <div class="report-row" style="padding:8px 10px;margin-bottom:8px;${row.value ? 'cursor:pointer;' : ''}" ${row.value ? `onclick="applyReportBreakdownFilter('${filterType}','${encodeURIComponent(row.value)}')"` : ''}>
       <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
         <span style="font-weight:700;color:var(--text)">${esc(row.label)}</span>
-        <span style="font-family:var(--font-mono);color:var(--blue2)">${row.total}</span>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+          <span style="font-family:var(--font-mono);color:var(--blue2)">${row.total}</span>
+          ${row.value ? `<button class="btn-save-cfg" style="padding:4px 8px;font-size:0.72rem" onclick="event.stopPropagation();applyReportBreakdownFilter('${filterType}','${encodeURIComponent(row.value)}')">Voir uniquement</button>` : ''}
+        </div>
       </div>
       <div class="report-meta">✅ ${row.valid} · ⚠ ${row.invalid}</div>
     </div>`).join('');
@@ -2869,7 +2884,7 @@ function downloadTextFile(fileName, content, mimeType = 'text/plain;charset=utf-
 }
 
 function buildReportExportRows() {
-  return getFilteredReports().map((report) => {
+  return sortReports(getFilteredReports()).map((report) => {
     const date = getReportCreatedAt(report);
     return {
       createdAt: date ? date.toLocaleString('fr-FR') : '—',
@@ -2966,8 +2981,8 @@ function renderReports() {
   const pageInfoEl = document.getElementById('reportPageInfo');
   if (pageInfoEl) pageInfoEl.textContent = `Page ${_reportPage} / ${totalPages} · ${filteredReports.length} résultat(s)`;
 
-  renderBreakdownList('reportAgentStats', buildReportBreakdown(filteredReports, 'agentNom'), 'Aucune statistique agent.');
-  renderBreakdownList('reportLieuStats', buildReportBreakdown(filteredReports, 'lieuTravail'), 'Aucune statistique lieu.');
+  renderBreakdownList('reportAgentStats', buildReportBreakdown(filteredReports, 'agentNom'), 'Aucune statistique agent.', 'agent');
+  renderBreakdownList('reportLieuStats', buildReportBreakdown(filteredReports, 'lieuTravail'), 'Aucune statistique lieu.', 'lieu');
 
   if (!filteredReports.length) {
     list.innerHTML = '<div class="empty">Aucune identification ne correspond aux filtres.</div>';

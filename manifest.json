@@ -2,7 +2,7 @@
   "id": "./",
   "name": "ATTT · VIN Expert",
   "short_name": "VIN Expert",
-  "description": "Identification et vérification de numéros de châssis VIN — ATTT Tunisie v2.7.14",
+  "description": "Identification et vérification de numéros de châssis VIN — ATTT Tunisie v2.7.15",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
