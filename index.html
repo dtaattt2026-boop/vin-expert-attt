@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.7.3";
+            window.APP_VERSION = "2.7.4";
             try {
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
@@ -106,7 +106,7 @@
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
         // Version définie tôt pour autoPurgeCache et SW
-        window.APP_VERSION = "2.7.1"; // cache si version différente OU force-update
+        window.APP_VERSION = "2.7.4"; // cache si version différente OU force-update
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -1170,10 +1170,11 @@
     <h2>🔑 Réinitialisation</h2>
     <div class="auth-err" id="forgotErr"></div>
     <div class="form-group">
-      <label>Email du compte</label>
-      <input type="email" id="forgotEmail" placeholder="votre@email.com">
+      <label>Email ou matricule</label>
+      <input type="text" id="forgotEmail" placeholder="votre@email.com ou matricule" onkeydown="if(event.key==='Enter'){event.preventDefault();doForgot();}">
+      <div style="margin-top:6px;font-size:0.74rem;color:var(--text-dim)">Vous pouvez saisir votre email ou votre matricule.</div>
     </div>
-    <button class="btn-auth" onclick="doForgot()">ENVOYER LE LIEN</button>
+    <button class="btn-auth" id="forgotSubmitBtn" onclick="doForgot()">ENVOYER LE LIEN</button>
     <div class="auth-switch"><a onclick="showAuthScreen('login')">← Retour connexion</a></div>
   </div>
 
@@ -2282,12 +2283,29 @@ function showAuthScreen(view) {
     }
     // Initialiser le widget Lieu de travail sur l'écran d'inscription
     if (view === 'register') { setTimeout(initRegLieuWidget, 100); }
+    const focusMap = { login:'loginId', register:'regPrenom', forgot:'forgotEmail' };
+    const focusId = focusMap[view];
+    if (focusId) setTimeout(() => document.getElementById(focusId)?.focus(), 80);
     updateAuthModeUI();
 }
 
 function showAuthError(id, msg) {
     const el = document.getElementById(id);
     if (el) { el.textContent = msg; el.classList.add('show'); }
+}
+
+function setForgotPendingState(isPending) {
+    const input = document.getElementById('forgotEmail');
+    const btn = document.getElementById('forgotSubmitBtn');
+    if (input) input.disabled = !!isPending;
+    if (btn) {
+        btn.disabled = !!isPending;
+        btn.textContent = isPending ? 'ENVOI EN COURS...' : 'ENVOYER LE LIEN';
+    }
+}
+
+function isFirebaseServiceUnavailableError(err) {
+    return /identity-toolkit|api-has-not-been-used|service firebase|forbidden|403|network-request-failed|operation-not-allowed|config/i.test(String(err?.message || err?.code || ''));
 }
 
 function updateAuthModeUI() {
@@ -2355,6 +2373,36 @@ function showApp() {
 }
 
 // ========== LOGIN ==========
+async function resolveAuthEmailInput(idVal) {
+    const value = String(idVal || '').trim();
+    if (!value) return '';
+    if (value.includes('@')) return value;
+
+    const fb = window._fb;
+    if (!fb) {
+        const err = new Error('fb-unavailable');
+        err.code = 'fb-unavailable';
+        throw err;
+    }
+
+    try {
+        const snap = await fb.getDocs(fb.collection(fb.db, 'users'));
+        let found = '';
+        const wanted = value.toUpperCase();
+        snap.forEach(d => {
+            const data = d.data();
+            const matricule = String(data.matricule || '').trim().toUpperCase();
+            if (!found && matricule === wanted) found = String(data.email || '').trim();
+        });
+        return found;
+    } catch (e) {
+        const err = new Error('lookup-failed');
+        err.code = 'lookup-failed';
+        err.cause = e;
+        throw err;
+    }
+}
+
 async function doLogin() {
     const idVal = document.getElementById('loginId').value.trim();
     const pass  = document.getElementById('loginPass').value;
@@ -2376,16 +2424,13 @@ async function doLogin() {
 
     // Determine if input is email or matricule/login
     let email = idVal;
-    if (!idVal.includes('@')) {
-        // Try to find user by matricule in Firestore
-        try {
-            const snap = await fb.getDocs(fb.collection(fb.db, 'users'));
-            let found = null;
-            snap.forEach(d => { if (d.data().matricule === idVal) found = d.data().email; });
-            if (!found) { showAuthError('loginErr', 'Identifiant introuvable.'); return; }
-            email = found;
-        } catch(e) { showAuthError('loginErr', 'Erreur réseau. Vérifiez votre connexion.'); return; }
+    try {
+        email = await resolveAuthEmailInput(idVal);
+    } catch(e) {
+        showAuthError('loginErr', 'Erreur réseau. Vérifiez votre connexion.');
+        return;
     }
+    if (!email) { showAuthError('loginErr', 'Identifiant introuvable.'); return; }
 
     try {
         await fb.signInWithEmailAndPassword(fb.auth, email, pass);
@@ -2397,7 +2442,7 @@ async function doLogin() {
             'auth/too-many-requests': 'Trop de tentatives. Réessayez plus tard.',
             'auth/invalid-credential': 'Identifiant ou mot de passe incorrect.',
         };
-        const firebaseUnavailable = /identity-toolkit|api-has-not-been-used|service firebase|forbidden|403/i.test(String(e.message || ''));
+        const firebaseUnavailable = isFirebaseServiceUnavailableError(e);
         if (firebaseUnavailable) {
             showAuthError('loginErr', 'Service d\'authentification temporairement indisponible. Réessayez dans quelques secondes.');
             showToast('Erreur serveur Firebase. Réessayez.', 'err', 5000);
@@ -2482,17 +2527,40 @@ async function doRegister() {
 
 // ========== FORGOT PASSWORD ==========
 async function doForgot() {
+    if (document.getElementById('forgotSubmitBtn')?.disabled) return;
     if (window._firebaseAvailable === false) { showAuthError('forgotErr', 'Réinitialisation indisponible sans Firebase. Utilisez le mode local gratuit.'); return; }
-    const email = document.getElementById('forgotEmail').value.trim();
-    if (!email) { showAuthError('forgotErr','Saisissez votre email.'); return; }
+    const idVal = document.getElementById('forgotEmail').value.trim();
+    if (!idVal) { showAuthError('forgotErr','Saisissez votre email ou votre matricule.'); return; }
     const fb = window._fb;
-    if (!fb) return;
+    if (!fb) { showAuthError('forgotErr', 'Service Firebase non disponible.'); return; }
+
+    setForgotPendingState(true);
     try {
+        let email = idVal;
+        try {
+            email = await resolveAuthEmailInput(idVal);
+        } catch(e) {
+            showAuthError('forgotErr', 'Erreur réseau. Vérifiez votre connexion.');
+            return;
+        }
+        if (!email) { showAuthError('forgotErr', 'Compte introuvable. Saisissez votre email ou votre matricule.'); return; }
+
         await fb.sendPasswordResetEmail(fb.auth, email);
+        document.getElementById('forgotEmail').value = '';
         showToast('Email de réinitialisation envoyé !', 'ok');
         showAuthScreen('login');
     } catch(e) {
-        showAuthError('forgotErr', 'Email introuvable ou erreur réseau.');
+        if (isFirebaseServiceUnavailableError(e)) {
+            showAuthError('forgotErr', 'Service de réinitialisation temporairement indisponible. Réessayez dans quelques secondes.');
+            return;
+        }
+        const msgs = {
+            'auth/invalid-email': 'Email invalide.',
+            'auth/too-many-requests': 'Trop de tentatives. Réessayez plus tard.'
+        };
+        showAuthError('forgotErr', msgs[e.code] || 'Email introuvable ou erreur réseau.');
+    } finally {
+        setForgotPendingState(false);
     }
 }
 
@@ -3379,14 +3447,17 @@ function togglePass(inputId, btn) {
 // ========== ADMIN RESET PASSWORD ==========
 async function adminResetPassword(email, nomAgent) {
     if (!email) { showToast('Email introuvable pour cet agent.', 'err'); return; }
-    if (!confirm(`Envoyer un email de réinitialisation à ${nomAgent} (${email}) ?\n\nL'agent recevra un lien pour choisir un nouveau mot de passe.\n\nMot de passe temporaire par défaut : Attt@2026-2`)) return;
-    const fb = window._fb; if (!fb) return;
+    if (!confirm(`Envoyer un email de réinitialisation à ${nomAgent} (${email}) ?\n\nL'agent recevra un lien pour choisir un nouveau mot de passe.`)) return;
+    const fb = window._fb;
+    if (!fb) { showToast('Service Firebase non disponible.', 'err'); return; }
     try {
         await fb.sendPasswordResetEmail(fb.auth, email);
         showToast(`Email de reset envoyé à ${email}`, 'ok', 5000);
-        // Display default temp password reminder
-        setTimeout(() => showToast('MDP temporaire : Attt@2026-2 (à communiquer à l\'agent)', 'info', 7000), 500);
     } catch(e) {
+        if (isFirebaseServiceUnavailableError(e)) {
+            showToast('Service de réinitialisation temporairement indisponible.', 'err');
+            return;
+        }
         showToast('Erreur : ' + (e.message || e.code), 'err');
     }
 }

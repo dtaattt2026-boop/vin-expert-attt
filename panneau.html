@@ -787,6 +787,10 @@ function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function isFirebaseServiceUnavailableError(err) {
+  return /identity-toolkit|api-has-not-been-used|service firebase|forbidden|403|network-request-failed|operation-not-allowed|config/i.test(String(err?.message || err?.code || ''));
+}
+
 function showLogin(err='') {
   document.getElementById('loginScreen').classList.add('active');
   document.getElementById('panel').classList.remove('active');
@@ -1095,11 +1099,25 @@ async function toggleUser(uid, disable) {
   loadAgents(); loadDashboard();
 }
 async function resetPass(email, nom) {
-  const fb = window._fb; if (!fb) return;
+  if (!email) { toast('Email introuvable pour cet agent.', 'err'); return; }
+  if (!confirm(`Envoyer un email de réinitialisation à ${nom || 'cet agent'} (${email}) ?\n\nL'agent recevra un lien pour choisir un nouveau mot de passe.`)) return;
+  const fb = window._fb;
+  if (!fb) { toast('Service Firebase non disponible.', 'err'); return; }
   try {
     await fb.sendPasswordResetEmail(fb.auth, email);
     toast(`Email de réinitialisation envoyé à ${email}`, 'ok');
-  } catch(e) { toast('Erreur : ' + e.message, 'err'); }
+  } catch(e) {
+    if (isFirebaseServiceUnavailableError(e)) {
+      toast('Service de réinitialisation temporairement indisponible.', 'err');
+      return;
+    }
+    const msgs = {
+      'auth/invalid-email': 'Email invalide.',
+      'auth/user-not-found': 'Compte introuvable.',
+      'auth/too-many-requests': 'Trop de tentatives. Réessayez plus tard.'
+    };
+    toast(msgs[e.code] || ('Erreur : ' + (e.message || e.code)), 'err');
+  }
 }
 
 function getAgentById(uid) {
