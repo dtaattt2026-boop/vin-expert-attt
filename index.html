@@ -11,7 +11,7 @@
     <meta name="application-name" content="VIN Expert ATTT">
     <meta name="description" content="Identification VIN — ATTT Direction Technique d'Automobiles">
     <title>ATTT · VIN Identification</title>
-    <link rel="manifest" href="manifest.json?v=2.7.9">
+    <link rel="manifest" href="manifest.json?v=2.7.10">
     <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.7.9";
+            window.APP_VERSION = "2.7.10";
             try {
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
@@ -111,7 +111,7 @@
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
         // Version définie tôt pour autoPurgeCache et SW
-        window.APP_VERSION = "2.7.9"; // cache si version différente OU force-update
+        window.APP_VERSION = "2.7.10"; // cache si version différente OU force-update
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -1101,6 +1101,12 @@
     <h1>ATTT · VIN Expert</h1>
     <p>Direction Technique d'Automobiles</p>
   </div>
+
+  <div id="authModeHint" class="pending-badge" style="width:100%;max-width:420px;margin-bottom:12px">
+    En mode cloud, les rapports, photos utiles et métadonnées de contrôle peuvent être archivés automatiquement sur les services ATTT.
+  </div>
+
+  <button class="btn-auth secondary" id="localModeBtn" onclick="enterLocalMode()" style="width:100%;max-width:420px;margin-top:0;margin-bottom:12px">UTILISER LE MODE LOCAL GRATUIT</button>
 
   <!-- LOGIN FORM -->
   <div class="auth-card" id="loginCard">
@@ -2419,7 +2425,7 @@ function updateAuthModeUI() {
 
     if (authModeHint) {
         authModeHint.textContent = isFirebaseAvailable
-            ? "Connexion cloud disponible. En cas de blocage réseau, vous pouvez quand même utiliser le mode local gratuit."
+            ? "Mode cloud ATTT: les rapports, pièces jointes utiles et métadonnées de contrôle, y compris la localisation si elle est disponible, peuvent être archivés automatiquement sur les services ATTT (Drive/email). En cas de blocage réseau, vous pouvez aussi utiliser le mode local gratuit."
             : "Firebase est indisponible sur cet environnement. Utilisez le mode local gratuit pour l'OCR, l'historique local et les PDF.";
     }
     if (forgotBtn) forgotBtn.style.display = isFirebaseAvailable ? '' : 'none';
@@ -3491,10 +3497,13 @@ function filterAdminChat() {
     filtered.forEach((m, idx) => {
         const ts = m.timestamp?.toDate ? m.timestamp.toDate() : (m.timestamp ? new Date(m.timestamp) : null);
         const dateStr = ts ? ts.toLocaleString('fr-FR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit' }) : '?';
-        const isPhoto = m.type === 'photo' && m.photoData;
-        const contentPreview = isPhoto
+        const isPhotoMessage = m.type === 'photo';
+        const hasPhotoPreview = isPhotoMessage && !!m.photoData;
+        const contentPreview = hasPhotoPreview
             ? '📷 <i>Photo</i>' + (m.text ? ' — ' + escHtml(m.text) : '')
-            : escHtml((m.text || '').substring(0, 120)) + (m.text?.length > 120 ? '…' : '');
+            : isPhotoMessage
+                ? '📷 <i>Photo archivée ATTT — aperçu expiré</i>' + (m.text ? ' — ' + escHtml(m.text) : '')
+                : escHtml((m.text || '').substring(0, 120)) + (m.text?.length > 120 ? '…' : '');
 
         html += `<div class="admin-chat-row" style="display:flex;gap:8px;align-items:flex-start;padding:8px 6px;border-bottom:1px solid var(--border)" data-idx="${idx}">
           <input type="checkbox" class="chat-msg-check" data-id="${m.id}" onchange="updateChatSelection()" style="margin-top:4px;cursor:pointer">
@@ -3505,7 +3514,7 @@ function filterAdminChat() {
               <span style="font-size:0.68rem;color:var(--text-dim)">${dateStr}</span>
             </div>
             <div style="font-size:0.82rem;margin-top:4px;color:var(--text);word-break:break-word">${contentPreview}</div>
-            ${isPhoto ? `<img src="${m.photoData}" style="max-width:120px;max-height:80px;border-radius:6px;margin-top:4px;cursor:pointer" onclick="openLightbox(this.src,'Photo chat')">` : ''}
+            ${hasPhotoPreview ? `<img src="${m.photoData}" style="max-width:120px;max-height:80px;border-radius:6px;margin-top:4px;cursor:pointer" onclick="openLightbox(this.src,'Photo chat')">` : isPhotoMessage ? `<div style="margin-top:4px;font-size:0.74rem;color:var(--text-dim)">Aperçu Firestore purgé automatiquement. Original archivé côté ATTT.</div>` : ''}
           </div>
           <button onclick="supprimerMessageChat('${m.id}')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:1rem;padding:4px" title="Supprimer">🗑</button>
         </div>`;
@@ -5468,7 +5477,8 @@ async function fullVerify() {
             info: carInfo, ai: aiReport || '',
             sureInfo: vinIntel.sure,
             unsureInfo: vinIntel.unsure,
-            locationSummary: formatLocationSummary(locationInfo),
+            locationStatus: locationInfo?.status || 'unknown',
+            hasLocation: locationInfo?.status === 'ok',
             agentUid: u.uid, agentNom: record.agentNom,
             matricule: u.matricule || '', lieuTravail: u.lieuTravail || '',
             date: record.date,
@@ -5522,13 +5532,13 @@ async function fullVerify() {
             hasLocation: !!(archiveMetadata && archiveMetadata.localisation),
             agentEmail: agentEmail ? '✓' : '—', superieurEmail: superieurEmail ? '✓' : '—'
         });
-        showToast(`Synchronisation DTA en cours... (${agentDossier}/${reportFolderName})`, 'info', 3500);
+        showToast(`Archivage ATTT en cours... (${agentDossier}/${reportFolderName})`, 'info', 3500);
         const data = await sendVinReportPayload(drivePayload);
         const photosTxt = (data.files || 0) > 1 ? ` (${data.files - 1} photos)` : '';
         const agentTxt = data.agentEmailed ? ` · 📧 Agent ✓` : '';
         const supTxt = data.superieurEmailed ? ` · 📨 Supérieur ✓` : '';
         const dupTxt = data.duplicate ? ' · déjà synchronisé' : '';
-        showToast(`Rapport synchronisé DTA${photosTxt}${agentTxt}${supTxt}${dupTxt}`, data.partial ? 'info' : 'ok', 4500);
+        showToast(`Rapport archivé ATTT${photosTxt}${agentTxt}${supTxt}${dupTxt}`, data.partial ? 'info' : 'ok', 4500);
     } catch(eDrive) {
         console.error('[DTA-DRIVE] Erreur génération/envoi:', eDrive.message, eDrive);
         traceDta('DTA_BUILD_ERR', { message: eDrive.message });
@@ -6422,8 +6432,12 @@ function chargerMessagesChat() {
             if (!isMine) {
                 html += '<div class="chat-sender">' + escHtml(msg.senderName || 'Agent') + (msg.senderLieu ? ' · ' + escHtml(msg.senderLieu) : '') + '</div>';
             }
-            if (msg.type === 'photo' && msg.photoData) {
-                html += '<img src="' + msg.photoData + '" alt="Photo" loading="lazy">';
+            if (msg.type === 'photo') {
+                if (msg.photoData) {
+                    html += '<img src="' + msg.photoData + '" alt="Photo" loading="lazy">';
+                } else {
+                    html += '<div style="font-size:0.78rem;color:var(--text-dim);padding:6px 0">📷 Photo archivée ATTT — aperçu expiré</div>';
+                }
                 if (msg.text) html += '<div>' + escHtml(msg.text) + '</div>';
             } else {
                 html += '<div>' + escHtml(msg.text || '') + '</div>';
@@ -6481,8 +6495,8 @@ async function envoyerPhotoChatFromInput(inputEl) {
     showToast('Envoi de la photo...', 'info', 2000);
 
     try {
-        // Compress photo to max ~80KB thumbnail for Firestore
-        const thumbBase64 = await compressChatPhoto(file, 600, 0.5);
+        // Keep only a light preview in Firestore; full-resolution goes to Drive.
+        const thumbBase64 = await compressChatPhoto(file, 360, 0.38);
 
         const { db, collection, addDoc, serverTimestamp } = window._fb;
         const u = window.currentUser;

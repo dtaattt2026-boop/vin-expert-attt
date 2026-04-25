@@ -11,7 +11,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail }
   from "https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js";
-import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, query, orderBy, limit, serverTimestamp }
+import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, query, orderBy, limit, serverTimestamp, startAfter, deleteField, writeBatch }
   from "https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -29,7 +29,7 @@ const db   = getFirestore(app);
 const GAS_DRIVE_URL = "https://script.google.com/macros/s/AKfycbwJu4hNrvh3e9_sT9GcQ8Q2CMWo3kC64F2n7RVCmM1gjQtnHbud9k-FPV3piRfSgUxC/exec";
 
 window._fb = { auth, db, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail,
-  doc, setDoc, getDoc, collection, getDocs, updateDoc, query, orderBy, limit, serverTimestamp };
+  doc, setDoc, getDoc, collection, getDocs, updateDoc, query, orderBy, limit, serverTimestamp, startAfter, deleteField, writeBatch };
 
 async function getCurrentFirebaseIdToken() {
   const authUser = window._fb?.auth?.currentUser;
@@ -268,6 +268,20 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',sans-serif;mi
         <div class="stat"><div class="stat-val" id="st-pending">—</div><div class="stat-label">En attente</div></div>
         <div class="stat"><div class="stat-val" id="st-reports">—</div><div class="stat-label">Identifications</div></div>
         <div class="stat"><div class="stat-val" id="st-version" style="font-size:1.3rem">—</div><div class="stat-label">Version déployée</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">🗃️ Stockage Firestore & rétention</div>
+        <div class="stats-grid">
+          <div class="stat"><div class="stat-val" id="st-chat-msgs">—</div><div class="stat-label">Messages chat</div></div>
+          <div class="stat"><div class="stat-val" id="st-chat-previews">—</div><div class="stat-label">Aperçus actifs</div></div>
+          <div class="stat"><div class="stat-val" id="st-chat-preview-size" style="font-size:1.15rem">—</div><div class="stat-label">Poids aperçus</div></div>
+          <div class="stat"><div class="stat-val" id="st-retention-days">—</div><div class="stat-label">Rétention jours</div></div>
+        </div>
+        <div id="storageMaintenanceNote" style="font-size:0.82rem;color:var(--dim);line-height:1.7;margin-bottom:12px">Chargement de la politique de stockage...</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn-save-cfg" onclick="loadDashboard()">🔄 Actualiser</button>
+          <button class="btn-save-cfg" onclick="runChatPreviewCleanup(true, true)">🧹 Nettoyer maintenant</button>
+        </div>
       </div>
       <div class="card">
         <div class="card-title">🔗 Accès rapides Firebase</div>
@@ -512,6 +526,23 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',sans-serif;mi
           </div>
           <button class="btn-save-cfg" onclick="saveGhConfig()">💾 Sauvegarder</button>
         </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">🧹 Rétention des aperçus photo chat</div>
+        <div class="info-box">
+          <b>Mode équilibré</b> : Firestore conserve seulement un <b>aperçu léger temporaire</b> des photos du chat.<br>
+          L'original pleine résolution reste archivé côté ATTT sur Google Drive. Au-delà de la durée ci-dessous, seul l'aperçu Firestore est purgé.
+        </div>
+        <div class="config-row">
+          <div class="field">
+            <label>Conserver l'aperçu (jours)</label>
+            <input type="number" id="cfgChatPreviewRetentionDays" min="1" max="365" step="1" placeholder="30">
+          </div>
+          <button class="btn-save-cfg" onclick="saveStoragePolicy()">💾 Sauvegarder</button>
+          <button class="btn-save-cfg" onclick="runChatPreviewCleanup(true, true)">🧹 Nettoyer maintenant</button>
+        </div>
+        <div id="storagePolicyStatus" style="margin-top:10px;font-size:0.82rem;color:var(--dim);line-height:1.7">Chargement...</div>
       </div>
     </div>
 
@@ -813,8 +844,233 @@ async function showPanel() {
   document.getElementById('topUser').textContent = `${window._admin?.prenom||''} ${window._admin?.nom||''}`.trim();
   // Charger la config GitHub depuis Firestore (token + owner + repo)
   await loadGhConfigFromFirestore();
-  loadDashboard();
+  await loadStoragePolicy(true);
+  await runChatPreviewCleanup(false, false);
+  await loadDashboard();
   checkTokenStatus();
+}
+
+const DEFAULT_STORAGE_POLICY = {
+  chatPreviewRetentionDays: 30,
+  chatPreviewMaxDimension: 360,
+  chatPreviewQuality: 0.38,
+  lastChatCleanupAt: '',
+  lastChatCleanupBy: '',
+  lastChatCleanupCount: 0,
+  lastChatCleanupScanned: 0,
+  lastChatCleanupRetentionDays: 30
+};
+
+let _storagePolicyCache = null;
+
+function clampRetentionDays(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return DEFAULT_STORAGE_POLICY.chatPreviewRetentionDays;
+  return Math.min(365, Math.max(1, Math.round(parsed)));
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes) || 0;
+  if (value >= 1024 * 1024) return (value / (1024 * 1024)).toFixed(2) + ' Mo';
+  if (value >= 1024) return (value / 1024).toFixed(1) + ' Ko';
+  return value + ' o';
+}
+
+function formatDateTime(value) {
+  if (!value) return 'Jamais';
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Jamais';
+  return date.toLocaleString('fr-FR');
+}
+
+function estimateDataUrlBytes(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== 'string') return 0;
+  const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+  if (!base64) return 0;
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+}
+
+function normalizeStoragePolicy(data = {}) {
+  return {
+    chatPreviewRetentionDays: clampRetentionDays(data.chatPreviewRetentionDays),
+    chatPreviewMaxDimension: Number(data.chatPreviewMaxDimension) || DEFAULT_STORAGE_POLICY.chatPreviewMaxDimension,
+    chatPreviewQuality: Number(data.chatPreviewQuality) || DEFAULT_STORAGE_POLICY.chatPreviewQuality,
+    lastChatCleanupAt: data.lastChatCleanupAt || '',
+    lastChatCleanupBy: data.lastChatCleanupBy || '',
+    lastChatCleanupCount: Number(data.lastChatCleanupCount) || 0,
+    lastChatCleanupScanned: Number(data.lastChatCleanupScanned) || 0,
+    lastChatCleanupRetentionDays: clampRetentionDays(data.lastChatCleanupRetentionDays || data.chatPreviewRetentionDays || DEFAULT_STORAGE_POLICY.chatPreviewRetentionDays)
+  };
+}
+
+function renderStoragePolicyStatus(policy) {
+  const input = document.getElementById('cfgChatPreviewRetentionDays');
+  if (input) input.value = String(policy.chatPreviewRetentionDays);
+  const status = document.getElementById('storagePolicyStatus');
+  if (!status) return;
+  const lastBy = policy.lastChatCleanupBy ? ` par <b>${esc(policy.lastChatCleanupBy)}</b>` : '';
+  status.innerHTML =
+    `Aperçu Firestore conservé <b>${policy.chatPreviewRetentionDays} jour(s)</b>.<br>` +
+    `Dernier nettoyage : <b>${formatDateTime(policy.lastChatCleanupAt)}</b>${lastBy}` +
+    ` — ${policy.lastChatCleanupCount} aperçu(x) purgé(s) sur ${policy.lastChatCleanupScanned} message(s) scanné(s).`;
+}
+
+async function loadStoragePolicy(forceRefresh = false) {
+  if (!forceRefresh && _storagePolicyCache) {
+    renderStoragePolicyStatus(_storagePolicyCache);
+    return _storagePolicyCache;
+  }
+
+  const fb = window._fb;
+  let policy = { ...DEFAULT_STORAGE_POLICY };
+  if (fb) {
+    try {
+      const snap = await fb.getDoc(fb.doc(fb.db, 'config', 'storagePolicy'));
+      if (snap.exists()) {
+        policy = normalizeStoragePolicy(snap.data() || {});
+      } else {
+        policy = normalizeStoragePolicy();
+      }
+    } catch (e) {
+      policy = normalizeStoragePolicy();
+    }
+  }
+
+  _storagePolicyCache = policy;
+  renderStoragePolicyStatus(policy);
+  return policy;
+}
+
+async function saveStoragePolicy() {
+  const fb = window._fb; if (!fb) return;
+  const retentionDays = clampRetentionDays(document.getElementById('cfgChatPreviewRetentionDays')?.value);
+  const previous = await loadStoragePolicy(true);
+  const policy = {
+    ...previous,
+    chatPreviewRetentionDays: retentionDays,
+    chatPreviewMaxDimension: DEFAULT_STORAGE_POLICY.chatPreviewMaxDimension,
+    chatPreviewQuality: DEFAULT_STORAGE_POLICY.chatPreviewQuality,
+    updatedAt: new Date().toISOString(),
+    updatedBy: `${window._admin?.prenom||''} ${window._admin?.nom||''}`.trim() || (window._admin?.email || 'admin')
+  };
+  await fb.setDoc(fb.doc(fb.db, 'config', 'storagePolicy'), policy);
+  _storagePolicyCache = normalizeStoragePolicy(policy);
+  renderStoragePolicyStatus(_storagePolicyCache);
+  toast('Politique de rétention sauvegardée.', 'ok');
+  await loadDashboard();
+  if (document.getElementById('sec-hosting')?.classList.contains('active')) {
+    await loadHostingInfo();
+  }
+}
+
+async function collectChatStorageStats() {
+  const fb = window._fb; if (!fb) return null;
+  const policy = await loadStoragePolicy();
+  const snap = await fb.getDocs(fb.collection(fb.db, 'chat_messages'));
+  let totalMessages = 0;
+  let photoMessages = 0;
+  let previewCount = 0;
+  let previewBytes = 0;
+  snap.forEach((docSnap) => {
+    totalMessages++;
+    const msg = docSnap.data() || {};
+    if (msg.type !== 'photo') return;
+    photoMessages++;
+    if (msg.photoData) {
+      previewCount++;
+      previewBytes += estimateDataUrlBytes(msg.photoData);
+    }
+  });
+  return {
+    policy,
+    totalMessages,
+    photoMessages,
+    previewCount,
+    previewBytes,
+    prunedPhotoMessages: Math.max(0, photoMessages - previewCount)
+  };
+}
+
+async function runChatPreviewCleanup(showFeedback = false, forceRun = false) {
+  const fb = window._fb; if (!fb) return { skipped: true, reason: 'no-firebase' };
+  const policy = await loadStoragePolicy(true);
+  const now = Date.now();
+  const lastRun = policy.lastChatCleanupAt ? new Date(policy.lastChatCleanupAt).getTime() : 0;
+  const due = !lastRun || Number.isNaN(lastRun) || (now - lastRun) >= 12 * 60 * 60 * 1000;
+  if (!forceRun && !due) {
+    return { skipped: true, reason: 'not-due', policy };
+  }
+
+  const cutoffMs = now - (policy.chatPreviewRetentionDays * 24 * 60 * 60 * 1000);
+  let cursor = null;
+  let scanned = 0;
+  let cleaned = 0;
+  let stop = false;
+
+  while (!stop) {
+    const constraints = [fb.orderBy('timestamp', 'asc')];
+    if (cursor) constraints.push(fb.startAfter(cursor));
+    constraints.push(fb.limit(100));
+    const q = fb.query(fb.collection(fb.db, 'chat_messages'), ...constraints);
+    const snap = await fb.getDocs(q);
+    if (snap.empty) break;
+
+    const batch = fb.writeBatch(fb.db);
+    let batchChanges = 0;
+    const docs = snap.docs || [];
+    for (const docSnap of docs) {
+      cursor = docSnap;
+      const data = docSnap.data() || {};
+      const tsValue = data.timestamp?.toDate ? data.timestamp.toDate() : (data.timestamp ? new Date(data.timestamp) : null);
+      if (tsValue && !Number.isNaN(tsValue.getTime()) && tsValue.getTime() >= cutoffMs) {
+        stop = true;
+        break;
+      }
+      scanned++;
+      if (data.type === 'photo' && data.photoData) {
+        batch.update(fb.doc(fb.db, 'chat_messages', docSnap.id), {
+          photoData: fb.deleteField()
+        });
+        batchChanges++;
+        cleaned++;
+      }
+    }
+
+    if (batchChanges > 0) {
+      await batch.commit();
+    }
+    if (stop || docs.length < 100) break;
+  }
+
+  const updatedPolicy = {
+    ...policy,
+    chatPreviewRetentionDays: policy.chatPreviewRetentionDays,
+    chatPreviewMaxDimension: policy.chatPreviewMaxDimension,
+    chatPreviewQuality: policy.chatPreviewQuality,
+    lastChatCleanupAt: new Date().toISOString(),
+    lastChatCleanupBy: `${window._admin?.prenom||''} ${window._admin?.nom||''}`.trim() || (window._admin?.email || 'admin'),
+    lastChatCleanupCount: cleaned,
+    lastChatCleanupScanned: scanned,
+    lastChatCleanupRetentionDays: policy.chatPreviewRetentionDays
+  };
+  await fb.setDoc(fb.doc(fb.db, 'config', 'storagePolicy'), updatedPolicy);
+  _storagePolicyCache = normalizeStoragePolicy(updatedPolicy);
+  renderStoragePolicyStatus(_storagePolicyCache);
+
+  if (showFeedback) {
+    const label = cleaned > 0
+      ? `${cleaned} aperçu(x) chat purgé(s) après ${policy.chatPreviewRetentionDays} jour(s).`
+      : `Aucun aperçu chat à purger (rétention ${policy.chatPreviewRetentionDays} jour(s)).`;
+    toast(label, cleaned > 0 ? 'ok' : 'info', 5000);
+  }
+  if (showFeedback || forceRun) {
+    await loadDashboard();
+    if (document.getElementById('sec-hosting')?.classList.contains('active')) {
+      await loadHostingInfo();
+    }
+  }
+  return { cleaned, scanned, policy: _storagePolicyCache };
 }
 
 // ══════════════════════════════════════════════
@@ -866,10 +1122,11 @@ function goTab(name, el) {
   sec.classList.add('active');
   if (el) el.classList.add('active');
   else if (event && event.currentTarget) event.currentTarget.classList.add('active');
+  if (name === 'dashboard')   loadDashboard();
   if (name === 'agents')      loadAgents();
   if (name === 'publication') { loadGhConfigFromFirestore().then(() => checkGhStatus()); }
   if (name === 'rapports')    loadReports();
-  if (name === 'config')      { loadGhConfigFromFirestore().then(checkTokenStatus); loadGhConfig(); }
+  if (name === 'config')      { loadGhConfigFromFirestore().then(checkTokenStatus); loadGhConfig(); loadStoragePolicy(true); }
   if (name === 'guide')       generateQRCode();
   if (name === 'hosting')     loadHostingInfo();
 }
@@ -898,6 +1155,27 @@ async function loadDashboard() {
     // Version
     const verSnap = await fb.getDoc(fb.doc(fb.db, 'config', 'appVersion'));
     document.getElementById('st-version').textContent = verSnap.exists() ? verSnap.data().version : 'N/A';
+
+    // Storage dashboard
+    try {
+      const storageStats = await collectChatStorageStats();
+      if (storageStats) {
+        document.getElementById('st-chat-msgs').textContent = storageStats.totalMessages;
+        document.getElementById('st-chat-previews').textContent = `${storageStats.previewCount}/${storageStats.photoMessages}`;
+        document.getElementById('st-chat-preview-size').textContent = formatBytes(storageStats.previewBytes);
+        document.getElementById('st-retention-days').textContent = storageStats.policy.chatPreviewRetentionDays;
+        const note = document.getElementById('storageMaintenanceNote');
+        if (note) {
+          note.innerHTML =
+            `Mode équilibré : les originaux photo restent archivés sur Google Drive ATTT. Firestore ne garde que les aperçus chat temporaires.<br>` +
+            `Aperçus purgés au-delà de <b>${storageStats.policy.chatPreviewRetentionDays} jour(s)</b>. ` +
+            `Actifs : <b>${storageStats.previewCount}</b> · purgés : <b>${storageStats.prunedPhotoMessages}</b> · dernier nettoyage : <b>${formatDateTime(storageStats.policy.lastChatCleanupAt)}</b>.`;
+        }
+      }
+    } catch (storageError) {
+      const note = document.getElementById('storageMaintenanceNote');
+      if (note) note.textContent = 'Erreur chargement stockage : ' + storageError.message;
+    }
 
     // Pending agents list
     let pendingHtml = '';
@@ -2366,7 +2644,7 @@ async function loadHostingInfo() {
 
   // 2) Firestore stats
   try {
-    const collections = ['reports', 'users', 'config', 'chat'];
+    const collections = ['reports', 'users', 'config', 'chat_messages'];
     html += `<div style="margin-bottom:20px">
       <h3 style="color:var(--blue2);font-size:0.85rem;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px">🗃️ Base de données Firestore</h3>
       <table style="width:100%;border-collapse:collapse;font-size:0.82rem">
@@ -2377,13 +2655,34 @@ async function loadHostingInfo() {
         const r = await fetch(`${firestoreBase}/${col}`);
         const data = await r.json();
         const count = data.documents ? data.documents.length : 0;
-        const icon = col === 'reports' ? '📋' : col === 'users' ? '👥' : col === 'chat' ? '💬' : '⚙️';
+        const icon = col === 'reports' ? '📋' : col === 'users' ? '👥' : col === 'chat_messages' ? '💬' : '⚙️';
         html += `<tr><td style="padding:6px 12px">${icon} ${col}</td><td style="padding:6px 12px;text-align:right;font-family:monospace;color:var(--green)">${count}</td></tr>`;
       } catch(e) {
         html += `<tr><td style="padding:6px 12px">${col}</td><td style="padding:6px 12px;text-align:right;color:var(--red)">erreur</td></tr>`;
       }
     }
     html += '</tbody></table></div>';
+  } catch(e) {}
+
+  // 2b) Détail stockage chat Firestore
+  try {
+    const storageStats = await collectChatStorageStats();
+    if (storageStats) {
+      html += `<div style="margin-bottom:20px">
+        <h3 style="color:var(--blue2);font-size:0.85rem;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px">💬 Stockage chat Firestore</h3>
+        <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+          <div class="stat"><div class="stat-val" style="font-size:1.3rem">${storageStats.totalMessages}</div><div class="stat-label">Messages chat</div></div>
+          <div class="stat"><div class="stat-val" style="font-size:1.3rem">${storageStats.photoMessages}</div><div class="stat-label">Messages photo</div></div>
+          <div class="stat"><div class="stat-val" style="font-size:1.3rem">${storageStats.previewCount}</div><div class="stat-label">Aperçus actifs</div></div>
+          <div class="stat"><div class="stat-val" style="font-size:1.1rem">${formatBytes(storageStats.previewBytes)}</div><div class="stat-label">Poids aperçu</div></div>
+        </div>
+        <div style="font-size:0.82rem;color:var(--dim);line-height:1.7;margin-top:10px">
+          Rétention active : <b>${storageStats.policy.chatPreviewRetentionDays} jour(s)</b>.<br>
+          Aperçus déjà purgés : <b>${storageStats.prunedPhotoMessages}</b>.<br>
+          Dernier nettoyage : <b>${formatDateTime(storageStats.policy.lastChatCleanupAt)}</b>.
+        </div>
+      </div>`;
+    }
   } catch(e) {}
 
   // 3) Infos repo GitHub
