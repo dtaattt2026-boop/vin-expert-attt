@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.7.6";
+            window.APP_VERSION = "2.7.7";
             try {
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
@@ -106,7 +106,7 @@
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
         // Version définie tôt pour autoPurgeCache et SW
-        window.APP_VERSION = "2.7.6"; // cache si version différente OU force-update
+        window.APP_VERSION = "2.7.7"; // cache si version différente OU force-update
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -2437,14 +2437,17 @@ async function resolveAuthEmailInput(idVal) {
     }
 
     try {
-        const snap = await fb.getDocs(fb.collection(fb.db, 'users'));
+        const candidates = Array.from(new Set([value, value.toUpperCase()]));
         let found = '';
-        const wanted = value.toUpperCase();
-        snap.forEach(d => {
-            const data = d.data();
-            const matricule = String(data.matricule || '').trim().toUpperCase();
-            if (!found && matricule === wanted) found = String(data.email || '').trim();
-        });
+        for (const candidate of candidates) {
+            const matriculeQuery = fb.query(fb.collection(fb.db, 'users'), fb.where('matricule', '==', candidate), fb.limit(1));
+            const snap = await fb.getDocs(matriculeQuery);
+            snap.forEach(d => {
+                const data = d.data();
+                if (!found) found = String(data.email || '').trim();
+            });
+            if (found) break;
+        }
         return found;
     } catch (e) {
         const err = new Error('lookup-failed');
@@ -3133,14 +3136,10 @@ async function bulkDeleteLieux() {
 async function getLieuSuperieurEmail(designation) {
     const fb = window._fb; if (!fb || !designation) return null;
     try {
-        const snap = await fb.getDocs(fb.collection(fb.db, 'lieux_travail'));
+        const lieuQuery = fb.query(fb.collection(fb.db, 'lieux_travail'), fb.where('designation', '==', designation), fb.limit(1));
+        const snap = await fb.getDocs(lieuQuery);
         let email = null;
-        snap.forEach(d => {
-            const l = d.data();
-            if ((l.designation||'').toLowerCase() === designation.toLowerCase()) {
-                email = l.adresseLotusSuperieur || null;
-            }
-        });
+        snap.forEach(d => { email = d.data().adresseLotusSuperieur || null; });
         return email;
     } catch(e) { return null; }
 }
@@ -3261,7 +3260,7 @@ async function loadAdminReports() {
     const list = document.getElementById('adminReportList');
     list.innerHTML = '<div class="empty-state"><p>Chargement...</p></div>';
     try {
-        const q = fb.query(fb.collection(fb.db, 'reports'), fb.orderBy('createdAt', 'desc'));
+        const q = fb.query(fb.collection(fb.db, 'reports'), fb.orderBy('createdAt', 'desc'), fb.limit(200));
         const snap = await fb.getDocs(q);
         if (snap.empty) { list.innerHTML = '<div class="empty-state"><p>Aucun rapport.</p></div>'; return; }
         let html = '';
@@ -3354,7 +3353,7 @@ async function loadAdminChat() {
     document.getElementById('btnDeleteSelected').style.display = 'none';
     document.getElementById('chatSelectedCount').textContent = '';
     try {
-        const q = fb.query(fb.collection(fb.db, 'chat_messages'), fb.orderBy('timestamp', 'desc'));
+        const q = fb.query(fb.collection(fb.db, 'chat_messages'), fb.orderBy('timestamp', 'desc'), fb.limit(400));
         const snap = await fb.getDocs(q);
         _adminChatMessages = [];
         snap.forEach(d => _adminChatMessages.push({ id: d.id, ...d.data() }));
