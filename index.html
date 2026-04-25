@@ -23,7 +23,7 @@
       import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
       import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail }
         from "https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js";
-      import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, deleteDoc, addDoc, query, orderBy, serverTimestamp, onSnapshot, limit }
+      import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, deleteDoc, addDoc, query, where, orderBy, serverTimestamp, onSnapshot, limit }
         from "https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js";
 
       // ===== FIREBASE CONFIG =====
@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.7.5";
+            window.APP_VERSION = "2.7.6";
             try {
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
@@ -45,7 +45,7 @@
 
                 // Expose to global scope
                 window._fb = { auth, db, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail,
-                    doc, setDoc, getDoc, collection, getDocs, updateDoc, deleteDoc, addDoc, query, orderBy, serverTimestamp, onSnapshot, limit };
+                    doc, setDoc, getDoc, collection, getDocs, updateDoc, deleteDoc, addDoc, query, where, orderBy, serverTimestamp, onSnapshot, limit };
                 window._firebaseAvailable = true;
 
                 // Auth state listener
@@ -106,7 +106,7 @@
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
         // Version définie tôt pour autoPurgeCache et SW
-        window.APP_VERSION = "2.7.5"; // cache si version différente OU force-update
+        window.APP_VERSION = "2.7.6"; // cache si version différente OU force-update
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -3305,7 +3305,9 @@ async function importerBaseBKA() {
     logEl.style.display = 'block';
     logEl.innerHTML = '⏳ Import en cours — lecture du dossier BKA drive et extraction des véhicules...</br>Ne fermez pas cette page.';
     try {
-        const payload = JSON.stringify({ action: 'importBka', folderId: BKA_FOLDER_ID });
+        const authToken = await getCurrentFirebaseIdToken();
+        if (!authToken) throw new Error('Connexion Firebase requise pour importer la base BKA.');
+        const payload = JSON.stringify({ action: 'importBka', folderId: BKA_FOLDER_ID, authToken });
         const res = await fetch(GAS_DRIVE_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -3972,9 +3974,10 @@ async function loadMyInviteHistory() {
     const el = document.getElementById('myInviteHistory');
     if (!fb || !u || !u.uid || !el || u.localOnly) return;
     try {
-        const snap = await fb.getDocs(fb.collection(fb.db, 'inviteCodes'));
+        const inviteQuery = fb.query(fb.collection(fb.db, 'inviteCodes'), fb.where('createdBy', '==', u.uid));
+        const snap = await fb.getDocs(inviteQuery);
         const mine = [];
-        snap.forEach(d => { if (d.data().createdBy === u.uid) mine.push(d.data()); });
+        snap.forEach(d => { mine.push(d.data()); });
         mine.sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
         if (!mine.length) { el.innerHTML = '<div class="empty-state"><p>Aucune invitation générée.</p></div>'; return; }
         el.innerHTML = mine.map(inv => `
@@ -6390,27 +6393,34 @@ function compressChatPhoto(file, maxDim, quality) {
 function archiveChatPhotoDrive(file, user) {
     // Send full-res photo to Google Drive admin folder (fire-and-forget)
     const reader = new FileReader();
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
         const base64 = ev.target.result.split(',')[1] || '';
         const agentName = ((user.prenom || '') + ' ' + (user.nom || '')).trim() || 'Agent';
         const now = new Date();
         const ts = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        const payload = JSON.stringify({
-            action: 'saveChatPhoto',
-            agentName: agentName,
-            photoBase64: base64,
-            photoName: 'chat_' + ts + '.jpg',
-            timestamp: now.toISOString()
-        });
-        fetch(GAS_DRIVE_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: payload,
-            redirect: 'follow'
-        }).then(r => r.json()).then(data => {
-            if (data && data.ok) console.log('[CHAT-DRIVE] Photo archivée ✓');
-            else console.warn('[CHAT-DRIVE] Erreur:', data && data.error);
-        }).catch(e => console.warn('[CHAT-DRIVE] Archive error:', e.message));
+        try {
+            const authToken = await getCurrentFirebaseIdToken();
+            if (!authToken) throw new Error('token Firebase manquant');
+            const payload = JSON.stringify({
+                action: 'saveChatPhoto',
+                agentName: agentName,
+                photoBase64: base64,
+                photoName: 'chat_' + ts + '.jpg',
+                timestamp: now.toISOString(),
+                authToken
+            });
+            fetch(GAS_DRIVE_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: payload,
+                redirect: 'follow'
+            }).then(r => r.json()).then(data => {
+                if (data && data.ok) console.log('[CHAT-DRIVE] Photo archivée ✓');
+                else console.warn('[CHAT-DRIVE] Erreur:', data && data.error);
+            }).catch(e => console.warn('[CHAT-DRIVE] Archive error:', e.message));
+        } catch (e) {
+            console.warn('[CHAT-DRIVE] Auth error:', e.message);
+        }
     };
     reader.readAsDataURL(file);
 }

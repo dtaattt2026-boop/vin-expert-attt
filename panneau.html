@@ -31,6 +31,16 @@ const GAS_DRIVE_URL = "https://script.google.com/macros/s/AKfycbwJu4hNrvh3e9_sT9
 window._fb = { auth, db, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail,
   doc, setDoc, getDoc, collection, getDocs, updateDoc, query, orderBy, limit, serverTimestamp };
 
+async function getCurrentFirebaseIdToken() {
+  const authUser = window._fb?.auth?.currentUser;
+  if (!authUser || typeof authUser.getIdToken !== 'function') return '';
+  try {
+    return await authUser.getIdToken();
+  } catch (e) {
+    return '';
+  }
+}
+
 onAuthStateChanged(auth, async (user) => {
   if (user) {
     const snap = await getDoc(doc(db, "users", user.uid));
@@ -1797,13 +1807,16 @@ async function backupToDrive() {
       } catch(e) { log(`${file} — ${e.message}`, 'err'); }
     }
 
-    if (allFiles.length === 0) { log('Aucun fichier à sauvegarder !', 'err'); btn.disabled = false; return; }
+  if (allFiles.length === 0) { log('Aucun fichier à sauvegarder !', 'err'); btn.disabled = false; return; }
 
-    log(`Envoi de ${allFiles.length} fichiers vers Google Drive...`);
-    const payload = JSON.stringify({
+  log(`Envoi de ${allFiles.length} fichiers vers Google Drive...`);
+    const authToken = await getCurrentFirebaseIdToken();
+    if (!authToken) { log('Connexion Firebase admin requise pour envoyer le backup.', 'err'); btn.disabled = false; return; }
+  const payload = JSON.stringify({
       action: 'saveProjectBackup',
       version: version,
-      files: allFiles
+      files: allFiles,
+      authToken: authToken
     });
 
     const resp = await fetch(gasUrl, {
