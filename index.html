@@ -11,7 +11,7 @@
     <meta name="application-name" content="VIN Expert ATTT">
     <meta name="description" content="Identification VIN — ATTT Direction Technique d'Automobiles">
     <title>ATTT · VIN Identification</title>
-    <link rel="manifest" href="manifest.json?v=2.7.17">
+    <link rel="manifest" href="manifest.json?v=2.7.18">
     <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.7.17";
+            window.APP_VERSION = "2.7.18";
             try {
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
@@ -111,7 +111,7 @@
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
         // Version définie tôt pour autoPurgeCache et SW
-        window.APP_VERSION = "2.7.17"; // cache si version différente OU force-update
+        window.APP_VERSION = "2.7.18"; // cache si version différente OU force-update
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -1974,6 +1974,8 @@ function reloadForUpdate() {
     window.location.replace(buildForceUpdateUrl());
 }
 
+const SHARED_UPDATE_LOCK_KEY = '_vin_shared_update_lock';
+
 function getRememberedUpdateVersion() {
     return sessionStorage.getItem('_vin_pending_update_version') || '';
 }
@@ -1984,11 +1986,38 @@ function getRememberedUpdateAgeMs() {
     return Date.now() - raw;
 }
 
+function readSharedUpdateLock() {
+    const raw = safeStorageGet(SHARED_UPDATE_LOCK_KEY, '');
+    if (!raw) return null;
+    try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed.version !== 'string' || !parsed.version) return null;
+        return parsed;
+    } catch (e) {
+        safeStorageRemove(SHARED_UPDATE_LOCK_KEY);
+        return null;
+    }
+}
+
+function writeSharedUpdateLock(version, source = 'auto') {
+    if (!version) return;
+    safeStorageSet(SHARED_UPDATE_LOCK_KEY, JSON.stringify({ version, source, at: Date.now() }));
+}
+
+function clearSharedUpdateLockIfResolved() {
+    const shared = readSharedUpdateLock();
+    if (!shared) return;
+    if (compareVersions(window.APP_VERSION || '0.0.0', shared.version) >= 0) {
+        safeStorageRemove(SHARED_UPDATE_LOCK_KEY);
+    }
+}
+
 function rememberPendingUpdateVersion(version) {
     if (!version) return;
     sessionStorage.setItem('_vin_pending_update_version', version);
     sessionStorage.setItem('_vin_pending_update_at', String(Date.now()));
     window._pendingUpdateVersion = version;
+    writeSharedUpdateLock(version, 'session');
 }
 
 function clearResolvedUpdateVersion() {
@@ -1999,10 +2028,14 @@ function clearResolvedUpdateVersion() {
         sessionStorage.removeItem('_vin_pending_update_at');
         window._pendingUpdateVersion = '';
     }
+    clearSharedUpdateLockIfResolved();
 }
 
 function shouldThrottleSameUpdate(version) {
-    return getRememberedUpdateVersion() === version && getRememberedUpdateAgeMs() < 90000;
+    const sameSession = getRememberedUpdateVersion() === version && getRememberedUpdateAgeMs() < 90000;
+    const shared = readSharedUpdateLock();
+    const sameShared = shared && shared.version === version && (Date.now() - Number(shared.at || 0)) < 90000;
+    return !!(sameSession || sameShared);
 }
 
 function triggerAppUpdate(version, source = 'auto') {
@@ -2093,21 +2126,31 @@ function setupServiceWorkerAutoUpdate() {
             console.log('[SW] Nouvelle version trouvée');
             const installing = reg.installing;
             if (!installing) return;
-            showUpdateProgress(20, 'Téléchargement de la mise à jour...', '🔄 Nouvelle version détectée<br>Mise à jour automatique en cours...');
+            const shared = readSharedUpdateLock();
+            const passiveVersion = shared?.version || getRememberedUpdateVersion();
+            const suppressPassiveOverlay = !window._updateInProgress && passiveVersion && shouldThrottleSameUpdate(passiveVersion);
+            if (suppressPassiveOverlay) {
+                console.log('[SW] Updatefound passif ignoré (onglet déjà couvert):', passiveVersion);
+            }
+            if (!suppressPassiveOverlay) {
+                showUpdateProgress(20, 'Téléchargement de la mise à jour...', '🔄 Nouvelle version détectée<br>Mise à jour automatique en cours...');
+            }
             installing.addEventListener('statechange', () => {
                 console.log('[SW] State:', installing.state);
                 if (installing.state === 'installed') {
                     if (navigator.serviceWorker.controller) {
                         // Mise à jour d'un SW existant → activer immédiatement
                         console.log('[SW] Mise à jour prête, activation automatique...');
-                        showUpdateProgress(60, 'Installation de la mise à jour...', null);
-                        applyUpdate(installing);
+                        if (!suppressPassiveOverlay) {
+                            showUpdateProgress(60, 'Installation de la mise à jour...', null);
+                            applyUpdate(installing);
+                        }
                     } else {
                         // Premier install → rien à faire, page se rechargera
                         console.log('[SW] Premier install terminé');
                     }
                 } else if (installing.state === 'activating') {
-                    showUpdateProgress(80, 'Activation...', null);
+                    if (!suppressPassiveOverlay) showUpdateProgress(80, 'Activation...', null);
                 }
             });
         });
