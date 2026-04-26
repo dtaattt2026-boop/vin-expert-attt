@@ -11,7 +11,7 @@
     <meta name="application-name" content="VIN Expert ATTT">
     <meta name="description" content="Identification VIN — ATTT Direction Technique d'Automobiles">
     <title>ATTT · VIN Identification</title>
-    <link rel="manifest" href="manifest.json?v=2.7.19">
+    <link rel="manifest" href="manifest.json?v=2.7.20">
     <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.7.19";
+            window.APP_VERSION = "2.7.20";
             try {
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
@@ -111,7 +111,7 @@
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
         // Version définie tôt pour autoPurgeCache et SW
-        window.APP_VERSION = "2.7.19"; // cache si version différente OU force-update
+        window.APP_VERSION = "2.7.20"; // cache si version différente OU force-update
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -4464,16 +4464,35 @@ function creerCanvasOCRDepuisImage(img, maxWidth = 1600) {
     return { canvas, ctx };
 }
 
-function creerZoneVinCanvas(img, maxWidth = 1400) {
+const OCR_VIN_ZONE_PRESETS = [
+    { label: 'Zone VIN ciblée', x: 0.16, y: 0.38, w: 0.72, h: 0.18, rotation: 0 },
+    { label: 'Zone VIN basse',   x: 0.14, y: 0.42, w: 0.74, h: 0.18, rotation: 0 },
+    { label: 'Zone VIN +2°',     x: 0.16, y: 0.38, w: 0.72, h: 0.18, rotation: 2 }
+];
+
+function creerZoneVinCanvas(img, maxWidth = 1400, preset = OCR_VIN_ZONE_PRESETS[0]) {
     const { canvas, ctx } = creerCanvasOCRDepuisImage(img, maxWidth);
     const srcW = canvas.width;
     const srcH = canvas.height;
 
-    // Zone centrée adaptée à la photo fournie: le VIN est sur la bande médiane.
-    const cropX = Math.max(0, Math.round(srcW * 0.20));
-    const cropY = Math.max(0, Math.round(srcH * 0.34));
-    const cropW = Math.min(srcW - cropX, Math.round(srcW * 0.66));
-    const cropH = Math.min(srcH - cropY, Math.round(srcH * 0.24));
+    if (preset && Number(preset.rotation)) {
+        const angle = Number(preset.rotation) * Math.PI / 180;
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = srcW;
+        tempCanvas.height = srcH;
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+        tempCtx.translate(srcW / 2, srcH / 2);
+        tempCtx.rotate(angle);
+        tempCtx.drawImage(canvas, -srcW / 2, -srcH / 2, srcW, srcH);
+        ctx.clearRect(0, 0, srcW, srcH);
+        ctx.drawImage(tempCanvas, 0, 0);
+    }
+
+    // Zone VIN ciblée, légèrement plus large et plus basse d'après les photos terrain.
+    const cropX = Math.max(0, Math.round(srcW * (preset?.x ?? 0.16)));
+    const cropY = Math.max(0, Math.round(srcH * (preset?.y ?? 0.38)));
+    const cropW = Math.min(srcW - cropX, Math.round(srcW * (preset?.w ?? 0.72)));
+    const cropH = Math.min(srcH - cropY, Math.round(srcH * (preset?.h ?? 0.18)));
 
     const imageData = ctx.getImageData(cropX, cropY, cropW, cropH);
     canvas.width = cropW;
@@ -4616,15 +4635,18 @@ function appliquerSeuilOtsu(imageData) {
 }
 
 function preparerVariantesOCR(img) {
-    // Recadrer la bande du VIN avant OCR. C'est le levier principal de précision.
-    const { canvas, ctx } = creerZoneVinCanvas(img, 1400);
-    const source = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
     const variantes = [];
 
-    ctx.putImageData(source, 0, 0);
-    variantes.push({ label: 'Zone VIN', data: serialiserCanvasPourOCR(canvas, 'image/jpeg', 0.82) });
+    for (const preset of OCR_VIN_ZONE_PRESETS) {
+        const { canvas } = creerZoneVinCanvas(img, 1400, preset);
+        variantes.push({ label: preset.label, data: serialiserCanvasPourOCR(canvas, 'image/jpeg', 0.84) });
+    }
 
+    // Variantes dérivées de la zone la plus ciblée.
+    const { canvas, ctx } = creerZoneVinCanvas(img, 1400, OCR_VIN_ZONE_PRESETS[0]);
+    const source = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+    ctx.putImageData(source, 0, 0);
     const gris = convertirEnGris(source);
     const grisContraste = etirerContrasteGris(gris);
     ctx.putImageData(grisContraste, 0, 0);
@@ -4642,8 +4664,8 @@ function preparerVariantesOCR(img) {
     ctx.putImageData(binaire, 0, 0);
     variantes.push({ label: 'Zone VIN Binaire', data: serialiserCanvasPourOCR(canvas, 'image/png') });
 
-    // 4ème variante : image complète (si le recadrage automatique rate le VIN)
-    const { canvas: fullCanvas, ctx: fullCtx } = creerCanvasOCRDepuisImage(img, 1400);
+    // Variante de secours : image complète (si le recadrage automatique rate le VIN)
+    const { canvas: fullCanvas } = creerCanvasOCRDepuisImage(img, 1400);
     variantes.push({ label: 'Image complète', data: serialiserCanvasPourOCR(fullCanvas, 'image/jpeg', 0.80) });
 
     ctx.putImageData(source, 0, 0);
@@ -4996,6 +5018,14 @@ function enrichirRapportAvecOCR(vin, vinIntel) {
     return { sure, unsure };
 }
 
+function candidatOcrEstSolide(vin, conf = 0) {
+    if (!vin || vin.length !== 17) return false;
+    const checkDigitRequired = checkDigitObligatoire(vin) !== false;
+    const checkDigitOk = calcCheckDigit(vin) === vin[8];
+    if (checkDigitRequired && !checkDigitOk) return false;
+    return evaluerCandidatVIN(vin, conf) >= 800;
+}
+
 function updateRapportBadges(sure, unsure) {
     const row = document.getElementById('resIntelRow');
     const sureBadge = document.getElementById('sureCountBadge');
@@ -5067,7 +5097,7 @@ async function lancerOCRTesseract(imageInput) {
         : (imageInput ? [{ label: 'Image OCR', data: imageInput }] : []);
 
     const variantesWeb = [];
-    for (const variante of variantes.slice(0, 4)) {
+    for (const variante of variantes.slice(0, 6)) {
         const data = await compresserDataUrlSousLimite(variante.data);
         variantesWeb.push({ label: variante.label, data });
     }
@@ -5083,8 +5113,9 @@ async function lancerOCRTesseract(imageInput) {
         // Solution Internet 100% gratuite (25 000 requêtes/mois sans CB) : API OCR.Space
         const candidats = [];
         let apiBlocked = false;
+        let strongCandidateFound = false;
         for (const variante of variantesWeb) {
-            if (apiBlocked) break; // Ne pas insister si l'API est bloquée
+            if (apiBlocked || strongCandidateFound) break;
             const formData = new FormData();
             formData.append('apikey', 'helloworld'); // Clé publique gratuite
             formData.append('base64Image', variante.data);
@@ -5116,12 +5147,16 @@ async function lancerOCRTesseract(imageInput) {
             const raw = extraireVIN(texteBrut);
             if (raw.length < 8) continue;
             const vin = raw.length === 17 ? corrigerVINparCheckDigit(raw) : raw;
+            const conf = json.ParsedResults[0].TextOverlay?.HasOverlay ? 65 : 55;
             candidats.push({
                 vin,
                 raw,
                 source: variante.label,
-                conf: json.ParsedResults[0].TextOverlay?.HasOverlay ? 65 : 55
+                conf
             });
+            if (candidatOcrEstSolide(vin, conf)) {
+                strongCandidateFound = true;
+            }
         }
 
         clearTimeout(timeoutId);
@@ -5179,13 +5214,16 @@ async function fallbackOCRLocal(imageInput) {
             : (imageInput ? [{ label: 'Image OCR', data: imageInput }] : []);
 
         const passes = [
+            { psm: '8', label: 'Mot unique' },
             { psm: '7', label: 'Ligne unique' },
             { psm: '6', label: 'Bloc court' },
             { psm: '13', label: 'Ligne brute' }
         ];
 
         const resultats = [];
-        for (const variante of variantes.slice(0, 3)) {
+        let strongCandidateFound = false;
+        for (const variante of variantes.slice(0, 5)) {
+            if (strongCandidateFound) break;
             for (const pass of passes) {
                 try {
                     const { data } = await worker.recognize(variante.data, {
@@ -5202,7 +5240,12 @@ async function fallbackOCRLocal(imageInput) {
                         vin = correctedVin;
                     }
                     if (vin.length >= 8) {
-                        resultats.push({ vin, raw: rawVin, wasFixed, conf: data.confidence || 0, label: `${variante.label} · ${pass.label}` });
+                        const conf = data.confidence || 0;
+                        resultats.push({ vin, raw: rawVin, wasFixed, conf, label: `${variante.label} · ${pass.label}` });
+                        if (candidatOcrEstSolide(vin, conf)) {
+                            strongCandidateFound = true;
+                            break;
+                        }
                     }
                 } catch (err) {
                     console.warn('Erreur OCR locale:', err);
