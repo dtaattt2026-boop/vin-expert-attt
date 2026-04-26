@@ -624,6 +624,25 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',sans-serif;mi
       </div>
 
       <div class="card">
+        <div class="card-title">🔎 Clé OCR.Space
+          <span class="token-status" id="ocrConfigBadge"><span>⚪ Clé publique</span></span>
+        </div>
+        <div class="info-box">
+          Vous pouvez remplacer la clé publique gratuite <b>helloworld</b> par une <b>vraie clé OCR.Space</b> pour améliorer la stabilité et réduire les blocages / limitations.<br>
+          Cette clé sera utilisée automatiquement par l'application des agents pour l'<b>OCR web</b>. En cas d'absence, l'app garde le fallback gratuit actuel.
+        </div>
+        <div class="config-row">
+          <div class="field">
+            <label>OCR.Space API Key</label>
+            <input type="password" id="cfgOcrApiKey" placeholder="K8xxxxxxxxxxxxxxxxxxxxxxxx">
+          </div>
+          <button class="btn-save-cfg" onclick="saveOcrConfig()">💾 Sauvegarder</button>
+          <button class="btn-save-cfg" style="color:var(--red)" onclick="clearOcrConfig()">🗑️ Supprimer</button>
+        </div>
+        <div id="ocrConfigStatus" style="margin-top:10px;font-size:0.82rem;color:var(--dim);line-height:1.7">Chargement...</div>
+      </div>
+
+      <div class="card">
         <div class="card-title">🧹 Rétention stockage Firestore</div>
         <div class="info-box">
           <b>Mode équilibré</b> : Firestore conserve seulement un <b>aperçu léger temporaire</b> des photos du chat.<br>
@@ -944,11 +963,13 @@ async function showPanel() {
   document.getElementById('topUser').textContent = `${window._admin?.prenom||''} ${window._admin?.nom||''}`.trim();
   // Charger la config GitHub depuis Firestore (token + owner + repo)
   await loadGhConfigFromFirestore();
+  await loadOcrConfigFromFirestore();
   await loadStoragePolicy(true);
   await runChatPreviewCleanup(false, false);
   await runReportRetentionCleanup(false, false);
   await loadDashboard();
   checkTokenStatus();
+  checkOcrConfigStatus();
 }
 
 const DEFAULT_STORAGE_POLICY = {
@@ -1361,7 +1382,7 @@ function goTab(name, el) {
   if (name === 'agents')      loadAgents();
   if (name === 'publication') { loadGhConfigFromFirestore().then(() => checkGhStatus()); }
   if (name === 'rapports')    loadReports();
-  if (name === 'config')      { loadGhConfigFromFirestore().then(checkTokenStatus); loadGhConfig(); loadStoragePolicy(true); }
+  if (name === 'config')      { loadGhConfigFromFirestore().then(checkTokenStatus); loadGhConfig(); loadOcrConfigFromFirestore().then(checkOcrConfigStatus); loadStoragePolicy(true); }
   if (name === 'guide')       generateQRCode();
   if (name === 'hosting')     loadHostingInfo();
 }
@@ -3383,9 +3404,11 @@ async function loadReports() {
 let _tokenCache = '';
 let _ownerCache = 'dtaattt2026-boop';
 let _repoCache  = 'vin-expert-attt';
+let _ocrApiKeyCache = '';
 
 function getToken()    { return _tokenCache; }
 function getGhConfig() { return { owner: _ownerCache, repo: _repoCache }; }
+function getOcrConfig() { return { apiKey: _ocrApiKeyCache }; }
 
 // Charger la config depuis Firestore au login
 async function loadGhConfigFromFirestore() {
@@ -3405,6 +3428,22 @@ async function loadGhConfigFromFirestore() {
   } catch(e) {}
 }
 
+async function loadOcrConfigFromFirestore() {
+  const fb = window._fb; if (!fb) return;
+  try {
+    const snap = await fb.getDoc(fb.doc(fb.db, 'config', 'ocr'));
+    if (snap.exists()) {
+      const d = snap.data();
+      _ocrApiKeyCache = (d.apiKey || '').trim();
+    } else {
+      _ocrApiKeyCache = '';
+    }
+  } catch(e) {
+    _ocrApiKeyCache = '';
+  }
+  checkOcrConfigStatus();
+}
+
 function checkTokenStatus() {
   const token = getToken();
   const el = document.getElementById('tokenStatus');
@@ -3413,6 +3452,23 @@ function checkTokenStatus() {
   el.innerHTML = token ? '<span>✓ Token configuré</span>' : '<span>✗ Token manquant</span>';
   if (document.getElementById('cfgToken')) {
     document.getElementById('cfgToken').value = token ? '••••••••••••••••••••' : '';
+  }
+}
+
+function checkOcrConfigStatus() {
+  const badge = document.getElementById('ocrConfigBadge');
+  const status = document.getElementById('ocrConfigStatus');
+  const hasKey = !!_ocrApiKeyCache;
+  if (badge) {
+    badge.className = `token-status ${hasKey ? 'token-ok' : 'token-missing'}`;
+    badge.innerHTML = hasKey ? '<span>✓ Clé privée configurée</span>' : '<span>⚪ Clé publique gratuite</span>';
+  }
+  const input = document.getElementById('cfgOcrApiKey');
+  if (input) input.value = hasKey ? '••••••••••••••••••••' : '';
+  if (status) {
+    status.innerHTML = hasKey
+      ? 'Une vraie clé OCR.Space est configurée. Les agents utiliseront cette clé pour l\'OCR web au prochain lancement.'
+      : 'Aucune clé privée configurée. L\'application utilise la clé publique gratuite `helloworld`, plus sujette aux limitations.';
   }
 }
 
@@ -3471,6 +3527,38 @@ async function clearToken() {
   document.getElementById('tokenTestResult').textContent = '';
   checkTokenStatus();
   toast('Token supprimé.', 'info');
+}
+
+async function saveOcrConfig() {
+  const fb = window._fb; if (!fb) return;
+  const input = document.getElementById('cfgOcrApiKey');
+  const val = (input?.value || '').trim();
+  if (!val || val === '••••••••••••••••••••') {
+    toast('Saisissez une vraie clé OCR.Space.', 'err');
+    return;
+  }
+  await fb.setDoc(fb.doc(fb.db, 'config', 'ocr'), {
+    provider: 'ocr.space',
+    apiKey: val,
+    updatedAt: new Date().toISOString(),
+    updatedBy: `${window._admin?.prenom||''} ${window._admin?.nom||''}`.trim() || (window._admin?.email || 'admin')
+  });
+  _ocrApiKeyCache = val;
+  checkOcrConfigStatus();
+  toast('Clé OCR sauvegardée.', 'ok');
+}
+
+async function clearOcrConfig() {
+  const fb = window._fb; if (!fb) return;
+  await fb.setDoc(fb.doc(fb.db, 'config', 'ocr'), {
+    provider: 'ocr.space',
+    apiKey: '',
+    updatedAt: new Date().toISOString(),
+    updatedBy: `${window._admin?.prenom||''} ${window._admin?.nom||''}`.trim() || (window._admin?.email || 'admin')
+  });
+  _ocrApiKeyCache = '';
+  checkOcrConfigStatus();
+  toast('Retour à la clé OCR publique gratuite.', 'info');
 }
 
 async function saveGhConfig() {
