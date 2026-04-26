@@ -29,8 +29,10 @@ function extractConst(name) {
 const code = [
   extractConst('VIN_MAP'),
   extractConst('VIN_WEIGHTS'),
+  extractConst('WMI_CHECK_DIGIT_REGIONS'),
   'let doubleScanState = { firstVin: "", firstSource: "", firstMode: "", pending: false, confirmedVin: "", mismatchCount: 0 };',
   extractFunction('calcCheckDigit'),
+  extractFunction('checkDigitObligatoire'),
   extractFunction('evaluerCandidatVIN'),
   extractFunction('evaluerConsensusOcr'),
   extractFunction('updateDoubleScanUI'),

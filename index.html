@@ -11,7 +11,7 @@
     <meta name="application-name" content="VIN Expert ATTT">
     <meta name="description" content="Identification VIN — ATTT Direction Technique d'Automobiles">
     <title>ATTT · VIN Identification</title>
-    <link rel="manifest" href="manifest.json?v=2.7.18">
+    <link rel="manifest" href="manifest.json?v=2.7.19">
     <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
@@ -37,7 +37,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.7.18";
+            window.APP_VERSION = "2.7.19";
             try {
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
@@ -111,7 +111,7 @@
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
         // Version définie tôt pour autoPurgeCache et SW
-        window.APP_VERSION = "2.7.18"; // cache si version différente OU force-update
+        window.APP_VERSION = "2.7.19"; // cache si version différente OU force-update
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -1337,23 +1337,23 @@
                         <div class="result-value" id="resCheckDetail"></div>
                     </div>
                     <div class="result-row">
-                        <div class="result-label">Identification Véhicule (NHTSA)</div>
+                        <div class="result-label">Données exactes issues du VIN</div>
                         <div class="result-value" id="resVehicle"></div>
                     </div>
                     <div class="result-row" id="resIntelRow" style="display:none">
-                        <div class="result-label">Synthèse rapport VIN</div>
+                        <div class="result-label">Synthèse exactitude VIN</div>
                         <div class="intel-badges">
-                            <span class="intel-badge sure" id="sureCountBadge">Sûres: 0</span>
-                            <span class="intel-badge unsure" id="unsureCountBadge">Non sûres: 0</span>
+                            <span class="intel-badge sure" id="sureCountBadge">Exactes: 0</span>
+                            <span class="intel-badge unsure" id="unsureCountBadge">À vérifier: 0</span>
                         </div>
                     </div>
                     <div class="result-row" id="resAiRow" style="display:none">
-                        <div class="result-label">Rapport complémentaire</div>
+                        <div class="result-label">Éléments à vérifier / sources complémentaires</div>
                         <div class="ai-report" id="resAiReport"></div>
                     </div>
                     <!-- Sources externes (couleur, moteur, BV…) -->
                     <div class="result-row" id="resExterneRow" style="display:none">
-                        <div class="result-label">🌐 Sources externes véhicule</div>
+                        <div class="result-label">🌐 Vérifications externes / hors VIN</div>
                         <div id="resExterneContent" style="font-size:0.82rem;line-height:1.7"></div>
                     </div>
                     <!-- Étalon BKA -->
@@ -4726,13 +4726,20 @@ function extraireVIN(text) {
 
     for (const cand of candidates) {
         let score = 0;
+        const checkDigitRequired = checkDigitObligatoire(cand) !== false;
 
-        // 1. Validité très forte : code CheckDigit correct ou corrigeable
+        // 1. Le check-digit n'est un signal fort que pour les régions où il est obligatoire.
         const checkDigit = calcCheckDigit(cand);
-        if (checkDigit === cand[8]) {
-            score += 1000; // 100% de certitude
-        } else if (corrigerVINparCheckDigit(cand) !== cand) {
-            score += 500;  // Corrigeable (donc un seul caractère d'erreur max)
+        if (checkDigitRequired) {
+            if (checkDigit === cand[8]) {
+                score += 1000;
+            } else if (corrigerVINparCheckDigit(cand) !== cand) {
+                score += 500;
+            } else {
+                score -= 180;
+            }
+        } else if (checkDigit === cand[8]) {
+            score += 180;
         }
 
         // 2. Format du WMI (Ex: WMV, WBA, VF3...) généralement commence par des lettres
@@ -4761,6 +4768,7 @@ function corrigerVINparCheckDigit(vin) {
     if (vin.length !== 17) return vin;
     const vinPattern = /^[A-HJ-NPR-Z0-9]{17}$/;
     if (!vinPattern.test(vin)) return vin;
+    if (checkDigitObligatoire(vin) === false) return vin;
     const expectedCheckDigit = calcCheckDigit(vin);
     if (expectedCheckDigit === vin[8]) return vin; // Déjà valide
 
@@ -4831,7 +4839,14 @@ function evaluerCandidatVIN(vin, conf = 0) {
     if (!vin) return -10000;
     let score = Number(conf) || 0;
     if (vin.length === 17) score += 300;
-    if (vin.length === 17 && calcCheckDigit(vin) === vin[8]) score += 900;
+    if (vin.length === 17) {
+        const checkDigitRequired = checkDigitObligatoire(vin) !== false;
+        const checkDigitOk = calcCheckDigit(vin) === vin[8];
+        if (checkDigitRequired && checkDigitOk) score += 900;
+        else if (checkDigitRequired && !checkDigitOk) score -= 220;
+        else if (checkDigitOk) score += 200;
+        else score += 60;
+    }
     if (/^[A-Z]{3}/.test(vin)) score += 120;
     if (/\d{5,}$/.test(vin)) score += 80;
     if (/[IOQ]/.test(vin)) score -= 500;
@@ -4910,14 +4925,15 @@ function registerDoubleScanResult(diag) {
 
 function calculerNiveauConfianceOCR(vin, conf = 0) {
     const score = evaluerCandidatVIN(vin, conf);
-    if (score >= 1400) return 'élevée';
-    if (score >= 950) return 'moyenne';
+    if (score >= 1300) return 'élevée';
+    if (score >= 750) return 'moyenne';
     return 'faible';
 }
 
 function diagnosticOcrEstFiable(diag, vin) {
     if (!diag || !vin || vin.length !== 17) return false;
-    if (calcCheckDigit(vin) !== vin[8]) return false;
+    const checkDigitRequired = checkDigitObligatoire(vin) !== false;
+    if (checkDigitRequired && calcCheckDigit(vin) !== vin[8]) return false;
     if (diag.wasFixed) return false;
     if ((diag.consensus || 0) < 2) return false;
     if (!diag.doubleScanConfirmed) return false;
@@ -4968,12 +4984,9 @@ function enrichirRapportAvecOCR(vin, vinIntel) {
     }
 
     const niveau = calculerNiveauConfianceOCR(vin, diag.conf || 0);
-    const baseLine = `OCR ${diag.mode || 'inconnu'} | source: ${diag.source || 'n/a'} | confiance: ${niveau} | consensus: ${diag.consensus || 1} | double scan: ${diag.doubleScanConfirmed ? 'confirmé' : 'non confirmé'}`;
-    if (vin.length === 17 && calcCheckDigit(vin) === vin[8] && niveau !== 'faible') {
-        sure.push(baseLine);
-    } else {
-        unsure.push(baseLine);
-    }
+    const checkDigitInfo = getInfoCheckDigitModele(vin);
+    const baseLine = `OCR ${diag.mode || 'inconnu'} | source: ${diag.source || 'n/a'} | confiance: ${niveau} | consensus: ${diag.consensus || 1} | double scan: ${diag.doubleScanConfirmed ? 'confirmé' : 'non confirmé'} | check digit: ${checkDigitInfo.respecte === false ? 'optionnel' : 'obligatoire'}`;
+    unsure.push(baseLine);
     if (diag.wasFixed) {
         unsure.push('OCR: caractères auto-corrigés par check digit, vérifier visuellement la frappe');
     }
@@ -4990,8 +5003,8 @@ function updateRapportBadges(sure, unsure) {
     const countSure = Array.isArray(sure) ? sure.length : 0;
     const countUnsure = Array.isArray(unsure) ? unsure.length : 0;
     if (row) row.style.display = (countSure || countUnsure) ? 'block' : 'none';
-    if (sureBadge) sureBadge.textContent = `Sûres: ${countSure}`;
-    if (unsureBadge) unsureBadge.textContent = `Non sûres: ${countUnsure}`;
+    if (sureBadge) sureBadge.textContent = `Exactes: ${countSure}`;
+    if (unsureBadge) unsureBadge.textContent = `À vérifier: ${countUnsure}`;
 }
 let _tesseractWorker = null;
 let _tesseractWorkerReady = false;
@@ -5180,10 +5193,16 @@ async function fallbackOCRLocal(imageInput) {
                         tessedit_char_whitelist: 'ABCDEFGHJKLMNPRSTUVWXYZ0123456789',
                         preserve_interword_spaces: '0'
                     });
-                    let vin = extraireVIN(data.text || '');
-                    if (vin.length === 17) vin = corrigerVINparCheckDigit(vin);
+                    const rawVin = extraireVIN(data.text || '');
+                    let vin = rawVin;
+                    let wasFixed = false;
+                    if (vin.length === 17) {
+                        const correctedVin = corrigerVINparCheckDigit(vin);
+                        wasFixed = correctedVin !== vin;
+                        vin = correctedVin;
+                    }
                     if (vin.length >= 8) {
-                        resultats.push({ vin, conf: data.confidence || 0, label: `${variante.label} · ${pass.label}` });
+                        resultats.push({ vin, raw: rawVin, wasFixed, conf: data.confidence || 0, label: `${variante.label} · ${pass.label}` });
                     }
                 } catch (err) {
                     console.warn('Erreur OCR locale:', err);
@@ -5207,9 +5226,9 @@ async function fallbackOCRLocal(imageInput) {
             mode: 'local',
             source: meilleurResultat.label,
             conf: Number(meilleurResultat.conf) || 0,
-            raw: meilleur,
+            raw: meilleurResultat.raw || meilleur,
             vin: meilleur,
-            wasFixed: false,
+            wasFixed: !!meilleurResultat.wasFixed,
             consensus
         };
         registerDoubleScanResult(lastOcrDiagnostics);
@@ -5417,18 +5436,24 @@ async function fullVerify() {
         collectCurrentLocation(),
         fetchVinRefData(vin.substring(0, 3))
     ]);
+    const exactVinLines = Array.isArray(vinIntel.exactLines) && vinIntel.exactLines.length
+        ? vinIntel.exactLines.slice()
+        : (Array.isArray(vinIntel.sure) ? vinIntel.sure.slice() : []);
+    const reviewVinLines = Array.isArray(vinIntel.unsure) ? vinIntel.unsure.slice() : [];
     // Données sources externes (specs techniques + liens, synchrone)
-    const externalData = buildExternalVinData(vin, vinIntel);
+    const externalData = buildExternalVinData(vin, { sure: exactVinLines });
     // Décodage structurel local (WMI, année, pays)
     const vinStructure = decoderVinStructurel(vin);
     // Enrichir les infos sûres avec le décodage local
     if (vinStructure) {
         if (vinStructure.pays && vinStructure.pays !== 'Pays inconnu')
-            vinIntel.sure.unshift(`Pays d'origine: ${vinStructure.pays}`);
+            pushUniqueLine(exactVinLines, `Pays d'origine: ${vinStructure.pays}`);
         if (vinStructure.constructeur)
-            vinIntel.sure.unshift(`Constructeur (WMI): ${vinStructure.constructeur}`);
+            pushUniqueLine(exactVinLines, `Constructeur (WMI): ${vinStructure.constructeur}`);
         if (vinStructure.anneeModele)
-            vinIntel.sure.unshift(`Année modèle (pos.10): ${vinStructure.anneeModele}`);
+            pushUniqueLine(exactVinLines, `Année modèle (pos.10): ${vinStructure.anneeModele}`);
+        if (vinStructure.wmi)
+            pushUniqueLine(exactVinLines, `WMI local: ${vinStructure.wmi}`);
     }
     // Rechercher les rappels de sécurité
     setLoaderSub('Recherche rappels de sécurité + étalon BKA...');
@@ -5443,12 +5468,12 @@ async function fullVerify() {
         rappels = await rechercherRappelsNHTSA(makeVal, modelVal, yearVal);
     }
     if (rappels.length > 0) {
-        vinIntel.sure.push(`Rappels de sécurité: ${rappels.length} rappel(s) trouvé(s)`);
+        reviewVinLines.push(`Rappels de sécurité: ${rappels.length} rappel(s) trouvé(s)`);
         rappels.slice(0, 5).forEach((r, i) => {
-            vinIntel.unsure.push(`Rappel #${i+1}: ${r.composant} — ${r.resume.substring(0, 120)}${r.resume.length > 120 ? '...' : ''}`);
+            reviewVinLines.push(`Rappel #${i+1}: ${r.composant} — ${r.resume.substring(0, 120)}${r.resume.length > 120 ? '...' : ''}`);
         });
     } else if (makeVal && modelVal && yearVal) {
-        vinIntel.sure.push('Rappels de sécurité: Aucun rappel trouvé ✓');
+        reviewVinLines.push('Rappels de sécurité: Aucun rappel trouvé ✓');
     }
 
     // ─ Étalon BKA : si WMI non trouvé, tenter par nom marque NHTSA
@@ -5462,10 +5487,10 @@ async function fullVerify() {
         } catch(e) { /* silencieux */ }
     }
     if (finalVinRef) {
-        vinIntel.sure.push(`Étalon BKA: ${finalVinRef.marque} ${finalVinRef.modele} (${finalVinRef.anneeMin}–${finalVinRef.anneeMax}) — Statut: ${finalVinRef.statut}`);
+        reviewVinLines.push(`Étalon BKA: ${finalVinRef.marque} ${finalVinRef.modele} (${finalVinRef.anneeMin}–${finalVinRef.anneeMax}) — Statut: ${finalVinRef.statut}`);
     }
 
-    const intelAvecOcr = enrichirRapportAvecOCR(vin, vinIntel);
+    const intelAvecOcr = enrichirRapportAvecOCR(vin, { sure: exactVinLines, unsure: reviewVinLines });
     vinIntel.sure = intelAvecOcr.sure;
     vinIntel.unsure = intelAvecOcr.unsure;
     let carInfo = vinIntel.summary;
@@ -5486,7 +5511,7 @@ async function fullVerify() {
     } else {
         document.getElementById('resCheckDetail').innerHTML = cdLibelle.texte;
     }
-    document.getElementById('resVehicle').innerHTML = `<b>${carInfo}</b>`;
+    document.getElementById('resVehicle').innerHTML = buildVinExactSummaryHtml(carInfo, vinIntel.sure, vinIntel.sourceLabel || 'NHTSA');
     updateRapportBadges(vinIntel.sure, vinIntel.unsure);
 
     const aiRow = document.getElementById('resAiRow');
@@ -5551,6 +5576,7 @@ async function fullVerify() {
         info: carInfo, ai: aiReport,
         sureInfo: vinIntel.sure,
         unsureInfo: vinIntel.unsure,
+        decodeSource: vinIntel.sourceLabel || 'NHTSA',
         vinStructure: vinStructure,
         rappels: rappels,
         vinRef: finalVinRef || null,
@@ -5594,6 +5620,7 @@ async function fullVerify() {
                 info: carInfo, ai: aiReport || '',
                 sureInfo: vinIntel.sure,
                 unsureInfo: vinIntel.unsure,
+                decodeSource: vinIntel.sourceLabel || 'NHTSA',
                 locationStatus: locationInfo?.status || 'unknown',
                 hasLocation: locationInfo?.status === 'ok',
                 agentUid: u.uid, agentNom: record.agentNom,
@@ -6315,12 +6342,59 @@ function construireTexteRapportVin(sure, unsure) {
     const lignesSure = Array.isArray(sure) && sure.length ? sure : ['Aucune information confirmée'];
     const lignesUnsure = Array.isArray(unsure) && unsure.length ? unsure : ['Aucune incertitude remontée'];
     return [
-        '1) Informations sûres',
+        '1) Données exactes issues du VIN',
         ...lignesSure.map(v => `- ${v}`),
         '',
-        '2) Informations non sûres',
+        '2) Éléments à vérifier / sources complémentaires',
         ...lignesUnsure.map(v => `- ${v}`)
     ].join('\n');
+}
+
+function pushUniqueLine(lines, line) {
+    if (!Array.isArray(lines) || !line) return;
+    if (!lines.includes(line)) lines.push(line);
+}
+
+function selectPreferredVinLines(lines, maxItems = 8) {
+    const source = Array.isArray(lines) ? lines.filter(Boolean) : [];
+    const preferredLabels = [
+        'Code WMI',
+        'Constructeur',
+        'Marque',
+        'Modèle',
+        'Année modèle',
+        'Type véhicule',
+        'Carrosserie',
+        'Transmission / Motricité',
+        'Cylindrée (L)',
+        'Nombre cylindres',
+        'Carburant principal',
+        'Boîte de vitesse',
+        'Pays usine',
+        'Ville usine',
+        'Constructeur usine'
+    ];
+    const picked = [];
+    const remaining = [...source];
+    preferredLabels.forEach((label) => {
+        const index = remaining.findIndex((line) => line.startsWith(label + ':'));
+        if (index !== -1) {
+            picked.push(remaining[index]);
+            remaining.splice(index, 1);
+        }
+    });
+    return picked.concat(remaining).slice(0, maxItems);
+}
+
+function buildVinExactSummaryHtml(summary, lines, sourceLabel) {
+    const exactLines = selectPreferredVinLines(lines, 8);
+    const sourceHtml = sourceLabel
+        ? `<div style="font-size:0.72rem;color:var(--text-dim);margin-bottom:6px">Décodage officiel : ${escHtml(sourceLabel)}</div>`
+        : '';
+    const detailsHtml = exactLines.length
+        ? `<ul style="margin:0;padding-left:18px;font-size:0.82rem;line-height:1.6">${exactLines.map(line => `<li>${escHtml(line)}</li>`).join('')}</ul>`
+        : '<div style="font-size:0.82rem;color:var(--text-dim)">Aucune donnée exacte supplémentaire disponible.</div>';
+    return `<div style="font-weight:700;color:#fff;margin-bottom:6px">${escHtml(summary || 'Non identifié')}</div>${sourceHtml}${detailsHtml}`;
 }
 
 // ─── Sources externes de données véhicule (couleur, moteur, BV…) ────────────
@@ -6330,6 +6404,155 @@ function construireTexteRapportVin(sure, unsure) {
 // non encodées dans le VIN — disponibles uniquement sur la carte grise.
 // Cette fonction retourne les liens de vérification manuelle + les specs
 // techniques extraites de vinIntel (déjà chargé via NHTSA).
+const VIN_NHTSA_CACHE_KEY = '_vin_nhtsa_cache_v1';
+const VIN_NHTSA_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const VIN_NHTSA_CACHE_MAX_ITEMS = 60;
+
+function cloneSimple(value) {
+    return JSON.parse(JSON.stringify(value));
+}
+
+function readVinDecodeCacheStore() {
+    const raw = safeStorageGet(VIN_NHTSA_CACHE_KEY, '{}');
+    try {
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (e) {
+        return {};
+    }
+}
+
+function writeVinDecodeCacheStore(store) {
+    safeStorageSet(VIN_NHTSA_CACHE_KEY, JSON.stringify(store || {}));
+}
+
+function getCachedVinDecode(vin, allowStale = false) {
+    const store = readVinDecodeCacheStore();
+    const entry = store[String(vin || '').toUpperCase()];
+    if (!entry || !entry.payload) return null;
+    const age = Date.now() - Number(entry.savedAt || 0);
+    if (!allowStale && (!Number.isFinite(age) || age > VIN_NHTSA_CACHE_TTL_MS)) {
+        return null;
+    }
+    const payload = cloneSimple(entry.payload);
+    payload.sourceLabel = allowStale ? 'NHTSA (cache local)' : (payload.sourceLabel || 'NHTSA (cache local)');
+    return payload;
+}
+
+function rememberVinDecode(vin, payload) {
+    if (!vin || !payload) return;
+    const store = readVinDecodeCacheStore();
+    store[String(vin).toUpperCase()] = {
+        savedAt: Date.now(),
+        payload: cloneSimple(payload)
+    };
+    const entries = Object.entries(store).sort((a, b) => Number(b[1]?.savedAt || 0) - Number(a[1]?.savedAt || 0));
+    const trimmed = Object.fromEntries(entries.slice(0, VIN_NHTSA_CACHE_MAX_ITEMS));
+    writeVinDecodeCacheStore(trimmed);
+}
+
+function buildNhtsaDecodePayload(vin, results, sourceLabel = 'NHTSA (direct)') {
+    const get = (variable) => normaliserValeurNhtsa(results.find(r => r.Variable === variable)?.Value || '');
+
+    const champsPrioritaires = [
+        ['Make', 'Marque'],
+        ['Model', 'Modèle'],
+        ['Model Year', 'Année modèle'],
+        ['Vehicle Type', 'Type véhicule'],
+        ['Body Class', 'Carrosserie'],
+        ['Series', 'Série'],
+        ['Trim', 'Finition'],
+        ['Displacement (L)', 'Cylindrée (L)'],
+        ['Engine Number of Cylinders', 'Nombre cylindres'],
+        ['Engine Configuration', 'Configuration moteur'],
+        ['Engine Manufacturer', 'Fabricant moteur'],
+        ['Engine Model', 'Modèle moteur'],
+        ['Turbo', 'Turbo'],
+        ['Fuel Type - Primary', 'Carburant principal'],
+        ['Fuel Type - Secondary', 'Carburant secondaire'],
+        ['Transmission Style', 'Boîte de vitesse'],
+        ['Transmission Speeds', 'Nombre rapports BV'],
+        ['Drive Type', 'Transmission / Motricité'],
+        ['Brake System Type', 'Type freinage'],
+        ['Plant Country', 'Pays usine'],
+        ['Plant Company Name', 'Constructeur usine'],
+        ['Plant City', 'Ville usine'],
+        ['Plant State', 'État/Région usine'],
+        ['Manufacturer Name', 'Constructeur'],
+        ['GVWR', 'PTAC (GVWR)'],
+        ['Seats', 'Nombre de sièges'],
+        ['Doors', 'Nombre de portes'],
+        ['Air Bag Loc Front', 'Airbags avant'],
+        ['Air Bag Loc Side', 'Airbags latéraux'],
+        ['ESC', 'Contrôle de stabilité (ESC)'],
+        ['ABS', 'ABS'],
+        ['TPMS', 'TPMS'],
+        ['WMI', 'Code WMI']
+    ];
+
+    const sure = [];
+    const unsure = [];
+
+    for (const [variable, label] of champsPrioritaires) {
+        const value = traduireValeurRapport(get(variable));
+        if (isValeurSure(value)) {
+            sure.push(`${label}: ${value}`);
+        }
+    }
+
+    const errorCode = get('Error Code');
+    const errorText = get('Error Text');
+    const suggestedVin = get('Suggested VIN');
+
+    if (isValeurSure(errorCode) && errorCode !== '0') {
+        unsure.push(`Décodage NHTSA: code erreur ${errorCode}`);
+    }
+    if (isValeurSure(errorText) && !/0\s*-\s*vin decoded clean/i.test(errorText)) {
+        unsure.push(`Commentaire NHTSA: ${traduireCommentaireNhtsa(errorText)}`);
+    }
+    if (isValeurSure(suggestedVin) && suggestedVin !== vin) {
+        unsure.push(`VIN suggéré par NHTSA: ${suggestedVin}`);
+    }
+
+    const dejaPris = new Set(champsPrioritaires.map(([v]) => v));
+    for (const row of results) {
+        if (!row || !row.Variable || dejaPris.has(row.Variable)) continue;
+        const value = traduireValeurRapport(row.Value);
+        if (!isValeurSure(value)) continue;
+        sure.push(`${row.Variable}: ${value}`);
+    }
+
+    const make = traduireValeurRapport(get('Make'));
+    const model = traduireValeurRapport(get('Model'));
+    const year = traduireValeurRapport(get('Model Year'));
+    const summary = [make, model, year].filter(Boolean).join(' ') || 'Non identifié';
+
+    return {
+        summary,
+        sure,
+        unsure,
+        exactLines: sure.slice(),
+        sourceLabel
+    };
+}
+
+function buildNhtsaUnavailablePayload(message, fallbackPayload = null) {
+    if (fallbackPayload) {
+        const cloned = cloneSimple(fallbackPayload);
+        cloned.sourceLabel = 'NHTSA (cache local)';
+        cloned.unsure = Array.isArray(cloned.unsure) ? cloned.unsure : [];
+        cloned.unsure.push(message);
+        return cloned;
+    }
+    return {
+        summary: 'Info non disponible',
+        sure: [],
+        unsure: [message],
+        exactLines: [],
+        sourceLabel: 'NHTSA indisponible'
+    };
+}
+
 function buildExternalVinData(vin, vinIntel) {
     // Extraire les specs techniques déjà présentes dans vinIntel.sure
     const moteurLabels = ['Cylindrée (L)', 'Nombre cylindres', 'Configuration moteur',
@@ -6360,96 +6583,41 @@ function buildExternalVinData(vin, vinIntel) {
 }
 
 async function apiDecodeDetailed(vin) {
-    try {
-        const res = await fetch(`https://vpic.nhtsa.dot.gov/api/vehicles/decodevin/${vin}?format=json`);
-        const data = await res.json();
-        const results = Array.isArray(data?.Results) ? data.Results : [];
-        const get = (variable) => normaliserValeurNhtsa(results.find(r => r.Variable === variable)?.Value || '');
+    const normalizedVin = String(vin || '').toUpperCase();
+    const cached = getCachedVinDecode(normalizedVin, false);
+    if (cached) return cached;
 
-        const champsPrioritaires = [
-            ['Make', 'Marque'],
-            ['Model', 'Modèle'],
-            ['Model Year', 'Année modèle'],
-            ['Vehicle Type', 'Type véhicule'],
-            ['Body Class', 'Carrosserie'],
-            ['Series', 'Série'],
-            ['Trim', 'Finition'],
-            ['Displacement (L)', 'Cylindrée (L)'],
-            ['Engine Number of Cylinders', 'Nombre cylindres'],
-            ['Engine Configuration', 'Configuration moteur'],
-            ['Engine Manufacturer', 'Fabricant moteur'],
-            ['Engine Model', 'Modèle moteur'],
-            ['Turbo', 'Turbo'],
-            ['Fuel Type - Primary', 'Carburant principal'],
-            ['Fuel Type - Secondary', 'Carburant secondaire'],
-            ['Transmission Style', 'Boîte de vitesse'],
-            ['Transmission Speeds', 'Nombre rapports BV'],
-            ['Drive Type', 'Transmission / Motricité'],
-            ['Brake System Type', 'Type freinage'],
-            ['Plant Country', 'Pays usine'],
-            ['Plant Company Name', 'Constructeur usine'],
-            ['Plant City', 'Ville usine'],
-            ['Plant State', 'État/Région usine'],
-            ['Manufacturer Name', 'Constructeur'],
-            ['GVWR', 'PTAC (GVWR)'],
-            ['Seats', 'Nombre de sièges'],
-            ['Doors', 'Nombre de portes'],
-            ['Air Bag Loc Front', 'Airbags avant'],
-            ['Air Bag Loc Side', 'Airbags latéraux'],
-            ['ESC', 'Contrôle de stabilité (ESC)'],
-            ['ABS', 'ABS'],
-            ['TPMS', 'TPMS'],
-            ['WMI', 'Code WMI']
-        ];
-
-        const sure = [];
-        const unsure = [];
-
-        for (const [variable, label] of champsPrioritaires) {
-            const value = traduireValeurRapport(get(variable));
-            if (isValeurSure(value)) {
-                sure.push(`${label}: ${value}`);
-            } else {
-                unsure.push(`${label}: non disponible`);
+    let lastErrorMessage = 'Décodage NHTSA indisponible (réseau ou service externe).';
+    for (let attempt = 1; attempt <= 2; attempt++) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 9000 + ((attempt - 1) * 3000));
+        try {
+            const res = await fetch(`https://vpic.nhtsa.dot.gov/api/vehicles/decodevin/${normalizedVin}?format=json`, {
+                signal: controller.signal,
+                cache: 'no-store'
+            });
+            if (!res.ok) {
+                throw new Error(`service NHTSA (${res.status})`);
             }
+            const data = await res.json();
+            const results = Array.isArray(data?.Results) ? data.Results : [];
+            if (!results.length) {
+                throw new Error('réponse NHTSA vide');
+            }
+            const payload = buildNhtsaDecodePayload(normalizedVin, results, attempt > 1 ? 'NHTSA (reprise)' : 'NHTSA (direct)');
+            rememberVinDecode(normalizedVin, payload);
+            return payload;
+        } catch (e) {
+            lastErrorMessage = e?.name === 'AbortError'
+                ? 'Décodage NHTSA indisponible (délai dépassé).'
+                : `Décodage NHTSA indisponible (${e.message || 'service externe'}).`;
+            if (attempt === 2) break;
+        } finally {
+            clearTimeout(timeoutId);
         }
-
-        const errorCode = get('Error Code');
-        const errorText = get('Error Text');
-        const suggestedVin = get('Suggested VIN');
-
-        if (isValeurSure(errorCode) && errorCode !== '0') {
-            unsure.push(`Décodage NHTSA: code erreur ${errorCode}`);
-        }
-        if (isValeurSure(errorText) && !/0\s*-\s*vin decoded clean/i.test(errorText)) {
-            unsure.push(`Commentaire NHTSA: ${traduireCommentaireNhtsa(errorText)}`);
-        }
-        if (isValeurSure(suggestedVin) && suggestedVin !== vin) {
-            unsure.push(`VIN suggéré par NHTSA: ${suggestedVin}`);
-        }
-
-        // Ajouter un maximum d'informations exploitables hors liste prioritaire.
-        const dejaPris = new Set(champsPrioritaires.map(([v]) => v));
-        for (const row of results) {
-            if (!row || !row.Variable || dejaPris.has(row.Variable)) continue;
-            const value = traduireValeurRapport(row.Value);
-            if (!isValeurSure(value)) continue;
-            sure.push(`${row.Variable}: ${value}`);
-        }
-
-        const make = traduireValeurRapport(get('Make'));
-        const model = traduireValeurRapport(get('Model'));
-        const year = traduireValeurRapport(get('Model Year'));
-        const summary = [make, model, year].filter(Boolean).join(' ') || 'Non identifié';
-
-        return { summary, sure, unsure };
-    } catch(e) {
-        return {
-            summary: 'Info non disponible',
-            sure: [],
-            unsure: ['Décodage NHTSA indisponible (réseau ou service externe)']
-        };
     }
+
+    return buildNhtsaUnavailablePayload(lastErrorMessage, getCachedVinDecode(normalizedVin, true));
 }
 
 // ========== LOADER ==========
@@ -6501,7 +6669,7 @@ function showHistItem(idx) {
     document.getElementById('resultTitle').textContent = isValid ? 'CHÂSSIS VALIDE' : 'CHÂSSIS INVALIDE';
     const cdLibelleHist = getLibelleCheckDigit(vin, false);
     document.getElementById('resCheckDetail').innerHTML = cdLibelleHist.texte;
-    document.getElementById('resVehicle').innerHTML = `<b>${escHtml(h.info || '')}</b>`;
+    document.getElementById('resVehicle').innerHTML = buildVinExactSummaryHtml(h.info || '', h.sureInfo || [], h.decodeSource || 'Historique local');
     updateRapportBadges(h.sureInfo || [], h.unsureInfo || []);
     const aiRow = document.getElementById('resAiRow');
     const texteRapport = construireTexteRapportVin(h.sureInfo || [], h.unsureInfo || []);

@@ -28,7 +28,8 @@ function extractFunction(name) {
 
 const symbols = [
   'VIN_MAP',
-  'VIN_WEIGHTS'
+  'VIN_WEIGHTS',
+  'WMI_CHECK_DIGIT_REGIONS'
 ];
 
 function extractConst(name) {
@@ -40,6 +41,7 @@ function extractConst(name) {
 
 const neededFns = [
   'calcCheckDigit',
+  'checkDigitObligatoire',
   'corrigerVINparCheckDigit',
   'extraireVIN',
   'evaluerCandidatVIN'
@@ -48,7 +50,7 @@ const neededFns = [
 const code = [
   ...symbols.map(extractConst),
   ...neededFns.map(extractFunction),
-  'module.exports = { calcCheckDigit, corrigerVINparCheckDigit, extraireVIN, evaluerCandidatVIN };'
+  'module.exports = { calcCheckDigit, checkDigitObligatoire, corrigerVINparCheckDigit, extraireVIN, evaluerCandidatVIN };'
 ].join('\n\n');
 
 const sandbox = { module: { exports: {} } };
@@ -57,6 +59,7 @@ vm.runInContext(code, sandbox);
 
 const {
   calcCheckDigit,
+  checkDigitObligatoire,
   corrigerVINparCheckDigit,
   extraireVIN,
   evaluerCandidatVIN
@@ -72,15 +75,19 @@ const tests = [
     run: () => corrigerVINparCheckDigit('1HGCM8Z633A004352') === '1HGCM82633A004352'
   },
   {
-    name: 'Correction check digit sur confusion X/1',
-    run: () => corrigerVINparCheckDigit('WBAWC910X0PV85583') === 'WBAWC91010PV85583'
+    name: 'VIN europeen conserve son check digit si norme optionnelle',
+    run: () => corrigerVINparCheckDigit('WBAWC910X0PV85583') === 'WBAWC910X0PV85583'
   },
   {
     name: 'Check digit connu',
     run: () => calcCheckDigit('1HGCM82633A004352') === '3'
   },
   {
-    name: 'Scoring favorise VIN valide complet',
+    name: 'Politique regionale check digit detectee',
+    run: () => checkDigitObligatoire('1HGCM82633A004352') === true && checkDigitObligatoire('WBAWC910X0PV85583') === false
+  },
+  {
+    name: 'Scoring favorise VIN nord-americain valide complet',
     run: () => evaluerCandidatVIN('1HGCM82633A004352', 60) > evaluerCandidatVIN('1HGCM82633A00435', 90)
   }
 ];

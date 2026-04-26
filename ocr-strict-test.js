@@ -29,12 +29,14 @@ function extractConst(name) {
 const code = [
   extractConst('VIN_MAP'),
   extractConst('VIN_WEIGHTS'),
+  extractConst('WMI_CHECK_DIGIT_REGIONS'),
   extractFunction('calcCheckDigit'),
+  extractFunction('checkDigitObligatoire'),
   extractFunction('evaluerCandidatVIN'),
   extractFunction('calculerNiveauConfianceOCR'),
   extractFunction('evaluerConsensusOcr'),
   extractFunction('diagnosticOcrEstFiable'),
-  `module.exports = { calcCheckDigit, evaluerCandidatVIN, calculerNiveauConfianceOCR, evaluerConsensusOcr, diagnosticOcrEstFiable };`
+  `module.exports = { calcCheckDigit, checkDigitObligatoire, evaluerCandidatVIN, calculerNiveauConfianceOCR, evaluerConsensusOcr, diagnosticOcrEstFiable };`
 ].join('\n\n');
 
 const sandbox = { module: { exports: {} } };
@@ -53,16 +55,24 @@ const tests = [
     run: () => evaluerConsensusOcr([{ vin: 'A' }, { vin: 'B' }, { vin: 'A' }], 'A') === 2
   },
   {
-    name: 'OCR web fiable si consensus >= 2 et pas de correction',
+    name: 'OCR web fiable si consensus >= 2 sur VIN a check digit optionnel',
     run: () => diagnosticOcrEstFiable({ mode: 'web', conf: 65, wasFixed: false, consensus: 2, doubleScanConfirmed: true, vin: 'WBAWC91010PV85583' }, 'WBAWC91010PV85583') === true
+  },
+  {
+    name: 'VIN nord-americain exige un check digit valide',
+    run: () => diagnosticOcrEstFiable({ mode: 'web', conf: 75, wasFixed: false, consensus: 2, doubleScanConfirmed: true, vin: '1HGCM82613A004352' }, '1HGCM82613A004352') === false
   },
   {
     name: 'OCR corrigé reste en revue manuelle',
     run: () => diagnosticOcrEstFiable({ mode: 'web', conf: 65, wasFixed: true, consensus: 2, doubleScanConfirmed: true, vin: 'WBAWC91010PV85583' }, 'WBAWC91010PV85583') === false
   },
   {
-    name: 'Confiance élevée sur VIN valide robuste',
-    run: () => calculerNiveauConfianceOCR('WBAWC91010PV85583', 70) === 'élevée'
+    name: 'Confiance moyenne sur VIN europeen propre',
+    run: () => calculerNiveauConfianceOCR('WBAWC91010PV85583', 70) === 'moyenne'
+  },
+  {
+    name: 'Confiance elevee sur VIN nord-americain valide robuste',
+    run: () => calculerNiveauConfianceOCR('1HGCM82633A004352', 70) === 'élevée'
   }
 ];
 
