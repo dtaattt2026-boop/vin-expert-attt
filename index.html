@@ -11,12 +11,13 @@
     <meta name="application-name" content="VIN Expert ATTT">
     <meta name="description" content="Identification VIN — ATTT Direction Technique d'Automobiles">
     <title>ATTT · VIN Identification</title>
-    <link rel="manifest" href="manifest.json?v=2.7.21">
+    <link rel="manifest" href="manifest.json?v=3.1.1">
     <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="wmi-reference.js?v=3.1.1"></script>
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&family=Exo+2:wght@300;400;600&display=swap" rel="stylesheet">
     <!-- Firebase SDK -->
     <script type="module">
@@ -37,7 +38,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "2.7.21";
+            window.APP_VERSION = "3.1.1";
             try {
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
@@ -114,7 +115,7 @@
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
         // Version définie tôt pour autoPurgeCache et SW
-        window.APP_VERSION = "2.7.21"; // cache si version différente OU force-update
+        window.APP_VERSION = "3.1.1"; // cache si version différente OU force-update
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -1482,6 +1483,7 @@
           <button onclick="switchAdmin('update')">🔄 Mise à jour</button>
           <button onclick="switchAdmin('reports')">📊 Rapports</button>
           <button onclick="switchAdmin('chat')">💬 Chat</button>
+          <button onclick="switchAdmin('wmi')">WMI</button>
           <button onclick="switchAdmin('bka')">📦 Base BKA</button>
         </div>
 
@@ -1626,6 +1628,37 @@
               <span id="chatSelectedCount" style="font-size:0.75rem;color:var(--text-dim);align-self:center"></span>
             </div>
             <div id="adminChatList" style="max-height:calc(100vh - 350px);overflow-y:auto"><div class="empty-state"><div class="empty-icon">💬</div><p>Cliquez 🔄 pour charger</p></div></div>
+          </div>
+        </div>
+
+        <!-- WMI REFERENCE SUB -->
+        <div class="admin-sub" id="adminWmi">
+          <div style="margin-bottom:14px">
+            <div style="font-size:0.82rem;color:var(--text-dim);line-height:1.7;margin-bottom:12px">
+              Table mondiale WMI avec les colonnes <b>WMI</b>, <b>Marque</b> et <b>Check_Digit</b>.
+            </div>
+            <div id="wmiStats" style="font-size:0.8rem;color:var(--text-dim);margin-bottom:10px">-</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+              <input type="text" id="wmiSearch" placeholder="Rechercher WMI ou marque..." oninput="renderAdminWmiTable()"
+                style="flex:1;min-width:180px;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:0.8rem;outline:none">
+              <button class="btn-auth" style="padding:10px;font-size:0.78rem;border-radius:8px;margin-top:0;background:var(--panel2);border:1px solid var(--border);color:var(--text)" onclick="loadWmiAdmin()">Actualiser</button>
+              <button class="btn-auth" style="padding:10px;font-size:0.78rem;border-radius:8px;margin-top:0;background:linear-gradient(135deg,#004d1a,#008030)" onclick="syncWmiReferenceSheet()">Synchroniser Sheet</button>
+            </div>
+            <div id="wmiSyncLog" style="display:none;margin-bottom:10px;font-size:0.78rem;line-height:1.7;color:var(--text-dim);background:rgba(0,0,0,0.3);padding:10px;border-radius:8px;border:1px solid var(--border)"></div>
+            <div style="overflow:auto;border:1px solid var(--border);border-radius:8px;background:rgba(0,0,0,0.18);max-height:420px">
+              <table style="width:100%;border-collapse:collapse;font-size:0.78rem">
+                <thead style="position:sticky;top:0;background:var(--panel2);z-index:1">
+                  <tr>
+                    <th style="text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);color:var(--gold)">WMI</th>
+                    <th style="text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);color:var(--gold)">Marque</th>
+                    <th style="text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);color:var(--gold)">Check Digit</th>
+                  </tr>
+                </thead>
+                <tbody id="wmiTableBody">
+                  <tr><td colspan="3" style="padding:14px;color:var(--text-dim)">Chargement...</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
@@ -1784,6 +1817,39 @@ const RESCUE_ROLE  = "admin";
 
 const VIN_MAP = {'A':1,'B':2,'C':3,'D':4,'E':5,'F':6,'G':7,'H':8,'J':1,'K':2,'L':3,'M':4,'N':5,'P':7,'R':9,'S':2,'T':3,'U':4,'V':5,'W':6,'X':7,'Y':8,'Z':9};
 const VIN_WEIGHTS = [8,7,6,5,4,3,2,10,0,9,8,7,6,5,4,3,2];
+const WMI_REFERENCE_ROWS = Array.isArray(window.WMI_REFERENCE_ROWS) ? window.WMI_REFERENCE_ROWS : [];
+const WMI_REFERENCE_MAP = (() => {
+    const map = Object.create(null);
+    WMI_REFERENCE_ROWS.forEach(row => {
+        const wmi = String(row?.[0] || '').toUpperCase().trim();
+        if (!wmi) return;
+        map[wmi] = {
+            wmi,
+            marque: String(row?.[1] || '').trim(),
+            checkDigit: String(row?.[2] || '').toLowerCase() === 'oui'
+        };
+    });
+    return map;
+})();
+
+function getVinWmiCode(vin) {
+    const normalized = String(vin || '').toUpperCase();
+    const base = normalized.substring(0, 3);
+    if (base.length === 3 && base[2] === '9' && normalized.length >= 14) {
+        const extended = base + normalized.substring(11, 14);
+        if (WMI_REFERENCE_MAP[extended]) return extended;
+    }
+    return base;
+}
+
+function getWmiReference(wmiOrVin) {
+    const value = String(wmiOrVin || '').toUpperCase().trim();
+    if (!value) return null;
+    const exact = WMI_REFERENCE_MAP[value];
+    if (exact) return exact;
+    if (value.length >= 17) return WMI_REFERENCE_MAP[getVinWmiCode(value)] || null;
+    return WMI_REFERENCE_MAP[value.substring(0, 3)] || null;
+}
 
 // ========== TABLES DE DÉCODAGE VIN (ISO 3779 / SAE J853) ==========
 // Position 1 : Pays d'origine
@@ -1881,14 +1947,15 @@ const VIN_ANNEE_ANCIEN = {
 function decoderVinStructurel(vin) {
     if (!vin || vin.length !== 17) return null;
     vin = vin.toUpperCase();
-    const wmi = vin.substring(0, 3);
+    const wmi = getVinWmiCode(vin);
     const vds = vin.substring(3, 9);
     const vis = vin.substring(9, 17);
     const c1 = vin[0], c12 = vin.substring(0, 2);
     // Pays
     const pays = WMI_PAYS_2[c12] || WMI_PAYS[c1] || 'Pays inconnu';
     // Constructeur
-    const constructeur = WMI_CONSTRUCTEUR[wmi] || null;
+    const wmiRef = getWmiReference(wmi);
+    const constructeur = (wmiRef && wmiRef.marque) || WMI_CONSTRUCTEUR[wmi] || WMI_CONSTRUCTEUR[wmi.substring(0, 3)] || null;
     // Année modèle (position 10 = index 9)
     const codeAnnee = vin[9];
     const pos7 = vin[6];
@@ -2969,13 +3036,14 @@ function switchAdmin(sub) {
     document.querySelectorAll('.admin-nav button').forEach(b => b.classList.remove('active'));
     document.getElementById('admin' + sub.charAt(0).toUpperCase() + sub.slice(1)).classList.add('active');
     const btns = document.querySelectorAll('.admin-nav button');
-    const map = { users:0, lieux:1, update:2, reports:3, chat:4, bka:5 };
+    const map = { users:0, lieux:1, update:2, reports:3, chat:4, wmi:5, bka:6 };
     if (btns[map[sub]] !== undefined) btns[map[sub]].classList.add('active');
     if (sub === 'users')   loadAdminUsers();
     if (sub === 'lieux')   loadAdminLieux();
     if (sub === 'update')  loadAdminVersionInfo();
     if (sub === 'reports') loadAdminReports();
     if (sub === 'chat')    loadAdminChat();
+    if (sub === 'wmi')     loadWmiAdmin();
     if (sub === 'bka')     loadBkaStats();
 }
 
@@ -3400,6 +3468,7 @@ function applyReleaseVersionToContent(path, content, verNorm) {
     if (path === 'index.html') {
         content = content.replace(/window\.APP_VERSION\s*=\s*["'][^"']*["']/g, `window.APP_VERSION = "${verNorm}"`);
         content = content.replace(/(<link\s+rel=["']manifest["']\s+href=["']manifest\.json)(?:\?v=[^"']*)?(["'])/i, `$1?v=${verNorm}$2`);
+        content = content.replace(/(<script\s+src=["']wmi-reference\.js)(?:\?v=[^"']*)?(["']><\/script>)/i, `$1?v=${verNorm}$2`);
     }
     if (path === 'sw.js') {
         content = content.replace(/const CACHE_NAME\s*=\s*['"][^'"]*['"]/, `const CACHE_NAME = 'vin-expert-v${verNorm}'`);
@@ -3556,6 +3625,89 @@ async function loadAdminReports() {
         });
         list.innerHTML = html;
     } catch(e) { list.innerHTML = `<div class="empty-state"><p>Erreur : ${e.message}</p></div>`; }
+}
+
+// ========== TABLE WMI ==========
+function getWmiReferenceTableRows() {
+    return WMI_REFERENCE_ROWS.map(row => ({
+        wmi: String(row?.[0] || '').toUpperCase().trim(),
+        marque: String(row?.[1] || '').trim(),
+        checkDigit: String(row?.[2] || '').toLowerCase() === 'oui' ? 'oui' : 'non'
+    })).filter(row => row.wmi);
+}
+
+function loadWmiAdmin() {
+    const rows = getWmiReferenceTableRows();
+    const statsEl = document.getElementById('wmiStats');
+    if (statsEl) {
+        const oui = rows.filter(r => r.checkDigit === 'oui').length;
+        const non = rows.length - oui;
+        statsEl.innerHTML = `<span style="color:var(--green)">OK</span> <b>${rows.length}</b> WMI charges | Check digit oui: <b>${oui}</b> | non: <b>${non}</b>`;
+    }
+    renderAdminWmiTable();
+}
+
+function renderAdminWmiTable() {
+    const body = document.getElementById('wmiTableBody');
+    if (!body) return;
+    const needle = String(document.getElementById('wmiSearch')?.value || '').toLowerCase().trim();
+    let rows = getWmiReferenceTableRows();
+    if (needle) {
+        rows = rows.filter(row =>
+            row.wmi.toLowerCase().includes(needle) ||
+            row.marque.toLowerCase().includes(needle) ||
+            row.checkDigit.includes(needle)
+        );
+    }
+    const visible = rows.slice(0, 250);
+    if (!visible.length) {
+        body.innerHTML = '<tr><td colspan="3" style="padding:14px;color:var(--text-dim)">Aucun WMI trouve.</td></tr>';
+        return;
+    }
+    body.innerHTML = visible.map(row => `
+        <tr>
+          <td style="padding:7px 10px;border-bottom:1px solid rgba(255,255,255,0.05);font-family:var(--font-mono);color:var(--blue-light)">${escHtml(row.wmi)}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid rgba(255,255,255,0.05)">${escHtml(row.marque || '-')}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid rgba(255,255,255,0.05);color:${row.checkDigit === 'oui' ? 'var(--green)' : 'var(--text-dim)'}">${row.checkDigit}</td>
+        </tr>
+    `).join('') + (rows.length > visible.length
+        ? `<tr><td colspan="3" style="padding:9px 10px;color:var(--text-dim)">Affichage limite a ${visible.length} lignes sur ${rows.length}. Affinez la recherche.</td></tr>`
+        : '');
+}
+
+async function syncWmiReferenceSheet() {
+    const logEl = document.getElementById('wmiSyncLog');
+    if (logEl) {
+        logEl.style.display = 'block';
+        logEl.textContent = 'Synchronisation de la table WMI vers Google Sheet...';
+    }
+    try {
+        const authToken = await getCurrentFirebaseIdToken();
+        if (!authToken) throw new Error('Connexion Firebase requise pour synchroniser la table WMI.');
+        const rows = getWmiReferenceTableRows();
+        const payload = JSON.stringify({
+            action: 'importWmiReferenceData',
+            mode: 'replace',
+            authToken,
+            rows
+        });
+        const res = await fetch(GAS_DRIVE_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: payload
+        });
+        const text = await res.text();
+        let data;
+        try { data = JSON.parse(text); } catch(e) { data = { ok: false, error: 'Reponse inattendue: ' + text.substring(0, 200) }; }
+        if (!data.ok) throw new Error(data.error || 'Synchronisation impossible');
+        if (logEl) {
+            logEl.innerHTML = `<span style="color:var(--green)">OK</span> ${data.written} WMI ecrits dans ${escHtml(data.sheetName || 'WMI_MARQUES')}. Total: ${data.total}.`;
+        }
+        showToast('Table WMI synchronisee.', 'ok', 3500);
+    } catch(e) {
+        if (logEl) logEl.innerHTML = `<span style="color:var(--red)">Erreur:</span> ${escHtml(e.message)}`;
+        showToast('Erreur WMI: ' + e.message, 'err', 5000);
+    }
 }
 
 // ========== BASE BKA ==========
@@ -5441,13 +5593,23 @@ const WMI_CHECK_DIGIT_REGIONS = {
 
 function checkDigitObligatoire(vin) {
     if (!vin || vin.length < 1) return null;
-    const info = WMI_CHECK_DIGIT_REGIONS[vin[0].toUpperCase()];
-    return info ? info.respecte : null;
+    const cdInfo = getInfoCheckDigitModele(vin);
+    return cdInfo ? cdInfo.respecte : null;
 }
 
 function getInfoCheckDigitModele(vin) {
     if (!vin || vin.length < 1) return { respecte: null, region: 'Inconnu', norme: 'ISO 3779' };
-    const info = WMI_CHECK_DIGIT_REGIONS[vin[0].toUpperCase()];
+    const normalized = String(vin || '').toUpperCase();
+    const info = WMI_CHECK_DIGIT_REGIONS[normalized[0]];
+    const wmiRef = getWmiReference(normalized);
+    if (wmiRef) {
+        return Object.assign({}, info || { region: 'Région inconnue' }, {
+            respecte: wmiRef.checkDigit,
+            norme: wmiRef.checkDigit ? 'FMVSS 115' : 'ISO 3779 (check-digit optionnel)',
+            wmi: wmiRef.wmi,
+            marque: wmiRef.marque
+        });
+    }
     return info || { respecte: null, region: 'Région inconnue', norme: 'ISO 3779' };
 }
 
@@ -5536,10 +5698,11 @@ async function fullVerify() {
 
     setLoaderSub('Connexion NHTSA, localisation, base BKA...');
     lastVinRefData = null;
+    const localWmi = getVinWmiCode(vin);
     const [vinIntel, locationInfo, vinRefData] = await Promise.all([
         apiDecodeDetailed(vin),
         collectCurrentLocation(),
-        fetchVinRefData(vin.substring(0, 3))
+        fetchVinRefData(localWmi)
     ]);
     const exactVinLines = Array.isArray(vinIntel.exactLines) && vinIntel.exactLines.length
         ? vinIntel.exactLines.slice()
@@ -5555,6 +5718,9 @@ async function fullVerify() {
             pushUniqueLine(exactVinLines, `Pays d'origine: ${vinStructure.pays}`);
         if (vinStructure.constructeur)
             pushUniqueLine(exactVinLines, `Constructeur (WMI): ${vinStructure.constructeur}`);
+        const wmiRef = getWmiReference(vinStructure.wmi);
+        if (wmiRef)
+            pushUniqueLine(exactVinLines, `Table WMI: ${wmiRef.wmi} | ${wmiRef.marque} | Check digit: ${wmiRef.checkDigit ? 'oui' : 'non'}`);
         if (vinStructure.anneeModele)
             pushUniqueLine(exactVinLines, `Année modèle (pos.10): ${vinStructure.anneeModele}`);
         if (vinStructure.wmi)

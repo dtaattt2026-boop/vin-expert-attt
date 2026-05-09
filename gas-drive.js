@@ -43,6 +43,8 @@ var REQUEST_PROP_PREFIX = 'vinReportRequest:';
 var BKA_CATALOG_FOLDER_ID = '1jVi_jfZB3l4oyC4dlQGSeOMQnZCXGi6q';
 var VIN_REF_SHEET_NAME    = 'VIN_REF_BKA';
 var VIN_REF_PROP_KEY      = 'vinRefSheetId';
+var WMI_REF_SHEET_NAME    = 'WMI_MARQUES';
+var WMI_REF_PROP_KEY      = 'wmiRefSheetId';
 
 // ─── Helper: Log to Sheet (optional) ────────────────────────
 function logEvent(action, details) {
@@ -111,7 +113,7 @@ function doGet(e) {
           message: 'VIN Expert GAS Backend v1.0',
           deployed: true,
           timestamp: new Date().toISOString(),
-          capabilities: ['saveVinReport', 'sendEmail', 'Drive archival', 'lookupVinRef', 'lookupByMarque', 'initRefSheet', 'importBka', 'fetchVinExternal']
+          capabilities: ['saveVinReport', 'sendEmail', 'Drive archival', 'lookupVinRef', 'lookupByMarque', 'lookupWmiReference', 'initRefSheet', 'initWmiRefSheet', 'importBka', 'importWmiReferenceData', 'fetchVinExternal']
         }))
         .setMimeType(ContentService.MimeType.JSON);
     }
@@ -125,6 +127,18 @@ function doGet(e) {
       }
       return ContentService
         .createTextOutput(JSON.stringify(getVinRefData(wmi)))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === 'lookupWmiReference') {
+      var refWmi = (e.parameter.wmi || '').toUpperCase().trim();
+      if (!refWmi || refWmi.length < 2) {
+        return ContentService
+          .createTextOutput(JSON.stringify({ ok: false, error: 'WMI requis (min 2 caracteres)' }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      return ContentService
+        .createTextOutput(JSON.stringify(getWmiReferenceData(refWmi)))
         .setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -189,6 +203,19 @@ function doGet(e) {
       }
     }
 
+    if (action === 'initWmiRefSheet') {
+      try {
+        var wmiSheet = getOrCreateWmiReferenceSheet();
+        return ContentService
+          .createTextOutput(JSON.stringify({ ok: true, message: 'Sheet WMI_MARQUES pret', rows: Math.max(0, wmiSheet.getLastRow() - 1) }))
+          .setMimeType(ContentService.MimeType.JSON);
+      } catch(err) {
+        return ContentService
+          .createTextOutput(JSON.stringify({ ok: false, error: err.message }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+
     if (action === 'importBka') {
       try {
         var folderId = e.parameter.folderId || BKA_CATALOG_FOLDER_ID;
@@ -218,6 +245,20 @@ function doGet(e) {
     }
 
     // ─── Proxy sources externes VIN (couleur, moteur, BV…) ──────
+    if (action === 'getWmiRefStats') {
+      try {
+        var refSheet = getOrCreateWmiReferenceSheet();
+        var refTotal = Math.max(0, refSheet.getLastRow() - 1);
+        return ContentService
+          .createTextOutput(JSON.stringify({ ok: true, total: refTotal, sheetName: WMI_REF_SHEET_NAME }))
+          .setMimeType(ContentService.MimeType.JSON);
+      } catch(err) {
+        return ContentService
+          .createTextOutput(JSON.stringify({ ok: false, error: err.message }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+
     if (action === 'fetchVinExternal') {
       var vin = (e.parameter.vin || '').replace(/[^A-HJ-NPR-Z0-9]/gi, '').toUpperCase();
       if (!vin || vin.length !== 17) {
@@ -247,7 +288,7 @@ function doPost(e) {
     var payload = JSON.parse(e.postData.contents);
     logEvent('RECEIVED_POST', { action: payload.action, agentName: payload.agentName });
 
-    if (payload.action === 'saveVinReport' || payload.action === 'saveChatPhoto' || payload.action === 'saveProjectBackup' || payload.action === 'importBka' || payload.action === 'importBkaData' || payload.action === 'clearBkaData') {
+    if (payload.action === 'saveVinReport' || payload.action === 'saveChatPhoto' || payload.action === 'saveProjectBackup' || payload.action === 'importBka' || payload.action === 'importBkaData' || payload.action === 'clearBkaData' || payload.action === 'importWmiReferenceData' || payload.action === 'clearWmiReferenceData') {
       payload._authUser = authenticatePayload(payload);
     }
 
@@ -319,6 +360,39 @@ function doPost(e) {
       } catch(err) {
         return ContentService
           .createTextOutput(JSON.stringify({ ok: false, error: 'clearBkaData: ' + err.message }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+
+    if (payload.action === 'importWmiReferenceData') {
+      try {
+        var wmiRows = payload.rows || [];
+        var wmiMode = payload.mode || 'append';
+        var wmiResult = importWmiReferenceData(wmiRows, wmiMode);
+        logEvent('IMPORT_WMI_REFERENCE_OK', { count: wmiResult.written, mode: wmiMode });
+        return ContentService
+          .createTextOutput(JSON.stringify(wmiResult))
+          .setMimeType(ContentService.MimeType.JSON);
+      } catch(err) {
+        return ContentService
+          .createTextOutput(JSON.stringify({ ok: false, error: 'importWmiReferenceData: ' + err.message }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+
+    if (payload.action === 'clearWmiReferenceData') {
+      try {
+        var wmiSheet = getOrCreateWmiReferenceSheet();
+        var wmiLastRow = wmiSheet.getLastRow();
+        if (wmiLastRow > 1) {
+          wmiSheet.deleteRows(2, wmiLastRow - 1);
+        }
+        return ContentService
+          .createTextOutput(JSON.stringify({ ok: true, cleared: wmiLastRow - 1 }))
+          .setMimeType(ContentService.MimeType.JSON);
+      } catch(err) {
+        return ContentService
+          .createTextOutput(JSON.stringify({ ok: false, error: 'clearWmiReferenceData: ' + err.message }))
           .setMimeType(ContentService.MimeType.JSON);
       }
     }
@@ -673,6 +747,120 @@ function getOrCreateVinRefSheet() {
 
   props.setProperty(VIN_REF_PROP_KEY, ss.getId());
   return sheet;
+}
+
+// ─── Sheet WMI_MARQUES : reference mondiale WMI ──────────────
+function getOrCreateWmiReferenceSheet() {
+  var props = PropertiesService.getScriptProperties();
+  var sheetId = props.getProperty(WMI_REF_PROP_KEY);
+  if (sheetId) {
+    try {
+      var ss = SpreadsheetApp.openById(sheetId);
+      var sh = ss.getSheetByName(WMI_REF_SHEET_NAME) || ss.getSheets()[0];
+      if (sh) return sh;
+    } catch(e) { /* sheet supprime, recreer */ }
+  }
+
+  var rootFolder = getOrCreateFolder('VIN_EXPERT', DriveApp.getRootFolder());
+  var refFolder = getOrCreateFolder('_REF_WMI', rootFolder);
+  var existingFiles = refFolder.getFilesByName(WMI_REF_SHEET_NAME);
+  var wmiSs;
+  if (existingFiles.hasNext()) {
+    wmiSs = SpreadsheetApp.open(existingFiles.next());
+  } else {
+    wmiSs = SpreadsheetApp.create(WMI_REF_SHEET_NAME);
+    var ssFile = DriveApp.getFileById(wmiSs.getId());
+    refFolder.addFile(ssFile);
+    DriveApp.getRootFolder().removeFile(ssFile);
+  }
+
+  var sheet = wmiSs.getSheetByName(WMI_REF_SHEET_NAME) || wmiSs.getActiveSheet();
+  sheet.setName(WMI_REF_SHEET_NAME);
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(['WMI', 'Marque', 'Check_Digit']);
+    sheet.getRange(1, 1, 1, 3).setFontWeight('bold').setBackground('#1a237e').setFontColor('#ffffff');
+    sheet.setFrozenRows(1);
+  }
+
+  props.setProperty(WMI_REF_PROP_KEY, wmiSs.getId());
+  return sheet;
+}
+
+function normalizeWmiCheckDigit(value, wmi) {
+  var raw = String(value || '').toLowerCase().trim();
+  if (raw === 'oui' || raw === 'yes' || raw === 'true' || raw === '1') return 'oui';
+  if (raw === 'non' || raw === 'no' || raw === 'false' || raw === '0') return 'non';
+  return String(wmi || '').charAt(0).match(/[1-5]/) ? 'oui' : 'non';
+}
+
+function importWmiReferenceData(rows, mode) {
+  var sheet = getOrCreateWmiReferenceSheet();
+  if (mode === 'replace') {
+    var lastRow = sheet.getLastRow();
+    if (lastRow > 1) sheet.deleteRows(2, lastRow - 1);
+  }
+
+  var existing = {};
+  if (mode === 'append') {
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      var oldWmi = String(data[i][0] || '').toUpperCase().trim();
+      if (oldWmi) existing[oldWmi] = true;
+    }
+  }
+
+  var toWrite = [];
+  for (var j = 0; j < rows.length; j++) {
+    var r = rows[j] || {};
+    var wmi = String(Array.isArray(r) ? r[0] : r.wmi || '').toUpperCase().trim();
+    if (!wmi) continue;
+    if (mode === 'append' && existing[wmi]) continue;
+    var marque = String(Array.isArray(r) ? r[1] : r.marque || '').trim();
+    var checkDigit = normalizeWmiCheckDigit(Array.isArray(r) ? r[2] : r.checkDigit, wmi);
+    existing[wmi] = true;
+    toWrite.push([wmi, marque, checkDigit]);
+  }
+
+  if (toWrite.length > 0) {
+    var startRow = sheet.getLastRow() + 1;
+    for (var offset = 0; offset < toWrite.length; offset += 1000) {
+      var chunk = toWrite.slice(offset, offset + 1000);
+      sheet.getRange(startRow + offset, 1, chunk.length, 3).setValues(chunk);
+    }
+    sheet.autoResizeColumns(1, 3);
+  }
+
+  return {
+    ok: true,
+    written: toWrite.length,
+    skipped: rows.length - toWrite.length,
+    total: sheet.getLastRow() - 1,
+    sheetName: WMI_REF_SHEET_NAME
+  };
+}
+
+function getWmiReferenceData(wmi) {
+  try {
+    var sheet = getOrCreateWmiReferenceSheet();
+    var data = sheet.getDataRange().getValues();
+    var needle = String(wmi || '').toUpperCase().trim();
+    for (var i = 1; i < data.length; i++) {
+      var rowWmi = String(data[i][0] || '').toUpperCase().trim();
+      if (!rowWmi) continue;
+      if (rowWmi === needle || needle.indexOf(rowWmi) === 0) {
+        return {
+          ok: true,
+          found: true,
+          wmi: rowWmi,
+          marque: String(data[i][1] || '').trim(),
+          checkDigit: normalizeWmiCheckDigit(data[i][2], rowWmi)
+        };
+      }
+    }
+    return { ok: true, found: false, wmi: needle };
+  } catch(err) {
+    return { ok: false, found: false, error: 'Erreur lookup WMI reference: ' + err.message };
+  }
 }
 
 // ─── Lookup par WMI ──────────────────────────────────────────
