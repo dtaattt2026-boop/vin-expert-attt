@@ -11,13 +11,13 @@
     <meta name="application-name" content="VIN Expert ATTT">
     <meta name="description" content="Identification VIN — ATTT Direction Technique d'Automobiles">
     <title>ATTT · VIN Identification</title>
-    <link rel="manifest" href="manifest.json?v=3.1.4">
+    <link rel="manifest" href="manifest.json?v=3.1.5">
     <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="wmi-reference.js?v=3.1.4"></script>
+    <script src="wmi-reference.js?v=3.1.5"></script>
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&family=Exo+2:wght@300;400;600&display=swap" rel="stylesheet">
     <!-- Firebase SDK -->
     <script type="module">
@@ -38,7 +38,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "3.1.4";
+            window.APP_VERSION = "3.1.5";
             try {
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
@@ -115,7 +115,7 @@
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
         // Version définie tôt pour autoPurgeCache et SW
-        window.APP_VERSION = "3.1.4"; // cache si version différente OU force-update
+        window.APP_VERSION = "3.1.5"; // cache si version différente OU force-update
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -1509,6 +1509,7 @@
           <button onclick="switchAdmin('reports')">📊 Rapports</button>
           <button onclick="switchAdmin('chat')">💬 Chat</button>
           <button onclick="switchAdmin('wmi')">WMI</button>
+          <button onclick="switchAdmin('ocr')">OCR</button>
           <button onclick="switchAdmin('bka')">📦 Base BKA</button>
         </div>
 
@@ -1688,6 +1689,22 @@
           </div>
         </div>
 
+        <!-- OCR CONFIG SUB -->
+        <div class="admin-sub" id="adminOcr">
+          <div class="version-card">
+            <div class="card-title" style="margin-bottom:8px">Configuration OCR</div>
+            <div id="ocrConfigStatus" style="font-size:0.78rem;color:var(--text-dim);line-height:1.7;margin-bottom:12px">-</div>
+            <div class="form-group">
+              <label>Clé OCR.Space</label>
+              <input type="password" id="ocrApiKeyInput" placeholder="apikey OCR.Space">
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn-auth" style="flex:1;padding:10px;font-size:0.82rem;border-radius:8px;margin-top:0" onclick="saveAdminOcrConfig()">Enregistrer</button>
+              <button class="btn-auth" style="flex:1;padding:10px;font-size:0.82rem;border-radius:8px;margin-top:0;background:var(--panel2);color:var(--text);border:1px solid var(--border)" onclick="testAdminOcrConfig()">Tester</button>
+            </div>
+          </div>
+        </div>
+
         <!-- BASE BKA SUB -->
         <div class="admin-sub" id="adminBka">
           <div style="margin-bottom:14px">
@@ -1834,6 +1851,93 @@ async function loadOcrConfig(forceRefresh = false) {
     })();
 
     return _ocrConfigPromise;
+}
+
+async function loadAdminOcrConfig() {
+    const statusEl = document.getElementById('ocrConfigStatus');
+    const input = document.getElementById('ocrApiKeyInput');
+    if (statusEl) statusEl.textContent = 'Chargement...';
+    if (!input) return;
+    const fb = window._fb;
+    if (!fb || window.currentUser?.role !== 'admin') {
+        if (statusEl) statusEl.textContent = 'Admin Firebase requis.';
+        return;
+    }
+    try {
+        const snap = await fb.getDoc(fb.doc(fb.db, 'config', 'ocr'));
+        const data = snap.exists() ? (snap.data() || {}) : {};
+        const key = String(data.apiKey || '').trim();
+        input.value = key;
+        if (statusEl) statusEl.textContent = key
+            ? `Clé configurée${data.updatedAt ? ' · ' + data.updatedAt : ''}`
+            : 'Aucune clé configurée: la clé publique peut être limitée.';
+    } catch(e) {
+        if (statusEl) statusEl.textContent = 'Erreur lecture OCR: ' + e.message;
+    }
+}
+
+async function saveAdminOcrConfig() {
+    const fb = window._fb;
+    const input = document.getElementById('ocrApiKeyInput');
+    const statusEl = document.getElementById('ocrConfigStatus');
+    if (!fb || window.currentUser?.role !== 'admin') { showToast('Action réservée admin.', 'err'); return; }
+    const apiKey = String(input?.value || '').trim();
+    if (apiKey && apiKey.length < 5) { showToast('Clé OCR trop courte.', 'err'); return; }
+    try {
+        await fb.setDoc(fb.doc(fb.db, 'config', 'ocr'), {
+            apiKey,
+            updatedAt: new Date().toISOString(),
+            updatedBy: window.currentUser?.email || 'admin'
+        });
+        _ocrWebBlocked = false;
+        await loadOcrConfig(true);
+        if (statusEl) statusEl.textContent = apiKey ? 'Clé OCR enregistrée.' : 'Clé OCR effacée.';
+        showToast('Configuration OCR enregistrée.', 'ok');
+    } catch(e) {
+        showToast('Erreur OCR: ' + e.message, 'err', 5000);
+    }
+}
+
+async function testAdminOcrConfig() {
+    const input = document.getElementById('ocrApiKeyInput');
+    const statusEl = document.getElementById('ocrConfigStatus');
+    const apiKey = String(input?.value || '').trim();
+    if (!apiKey) { showToast('Renseignez une clé OCR.Space.', 'err'); return; }
+    if (statusEl) statusEl.textContent = 'Test OCR en cours...';
+    try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 420;
+        canvas.height = 90;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#111';
+        ctx.font = '42px monospace';
+        ctx.fillText('1HGCM82633A004352', 12, 58);
+        const formData = new FormData();
+        formData.append('apikey', apiKey);
+        formData.append('base64Image', canvas.toDataURL('image/png'));
+        formData.append('language', 'eng');
+        formData.append('scale', 'true');
+        formData.append('OCREngine', '2');
+        formData.append('isTable', 'false');
+        const response = await fetch(OCR_SPACE_API_URL, {
+            method: 'POST',
+            body: formData,
+            signal: AbortSignal.timeout(15000)
+        });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const json = await response.json();
+        if (json.IsErroredOnProcessing) throw new Error((json.ErrorMessage || []).join(' ') || 'OCR refusé');
+        const texte = (json.ParsedResults || []).map(r => r.ParsedText || '').join(' ');
+        const vin = extraireVIN(texte);
+        if (vin !== '1HGCM82633A004352') throw new Error('Lecture test incorrecte: ' + (vin || 'vide'));
+        if (statusEl) statusEl.textContent = 'Test OCR réussi.';
+        showToast('OCR web opérationnel.', 'ok');
+    } catch(e) {
+        if (statusEl) statusEl.textContent = 'Test OCR échoué: ' + e.message;
+        showToast('Test OCR échoué: ' + e.message, 'err', 6000);
+    }
 }
 
 // Compte de secours (hash stocké côté client — pour usage hors-ligne uniquement)
@@ -3086,7 +3190,7 @@ function switchAdmin(sub) {
     document.querySelectorAll('.admin-nav button').forEach(b => b.classList.remove('active'));
     document.getElementById('admin' + sub.charAt(0).toUpperCase() + sub.slice(1)).classList.add('active');
     const btns = document.querySelectorAll('.admin-nav button');
-    const map = { users:0, lieux:1, update:2, reports:3, chat:4, wmi:5, bka:6 };
+    const map = { users:0, lieux:1, update:2, reports:3, chat:4, wmi:5, ocr:6, bka:7 };
     if (btns[map[sub]] !== undefined) btns[map[sub]].classList.add('active');
     if (sub === 'users')   loadAdminUsers();
     if (sub === 'lieux')   loadAdminLieux();
@@ -3094,6 +3198,7 @@ function switchAdmin(sub) {
     if (sub === 'reports') loadAdminReports();
     if (sub === 'chat')    loadAdminChat();
     if (sub === 'wmi')     loadWmiAdmin();
+    if (sub === 'ocr')     loadAdminOcrConfig();
     if (sub === 'bka')     loadBkaStats();
 }
 
@@ -5321,6 +5426,9 @@ function evaluerCandidatVIN(vin, conf = 0) {
         else if (checkDigitRequired && !checkDigitOk) score -= 220;
         else if (checkDigitOk) score += 200;
         else score += 60;
+        const wmiRef = getWmiReference(vin);
+        if (wmiRef) score += 320;
+        else score -= 850;
     }
     if (/^[A-Z]{3}/.test(vin)) score += 120;
     if (/\d{5,}$/.test(vin)) score += 80;
@@ -5331,6 +5439,28 @@ function evaluerCandidatVIN(vin, conf = 0) {
 function evaluerConsensusOcr(items, vin) {
     if (!Array.isArray(items) || !vin) return 0;
     return items.filter(item => item && item.vin === vin).length;
+}
+
+function candidatOcrWmiReconnu(vin) {
+    return !!(vin && vin.length === 17 && getWmiReference(vin));
+}
+
+function candidatOcrEstPlausible(vin, conf = 0) {
+    if (!vin || vin.length !== 17) return false;
+    if (!isVinFormatAllowed(vin)) return false;
+    if (!candidatOcrWmiReconnu(vin)) return false;
+    const checkDigitRequired = checkDigitObligatoire(vin) !== false;
+    const checkDigitOk = calcCheckDigit(vin) === vin[8];
+    if (checkDigitRequired && !checkDigitOk) return false;
+    if (Number(conf) < 25) return false;
+    return evaluerCandidatVIN(vin, conf) >= (checkDigitRequired ? 820 : 520);
+}
+
+function candidatOcrPeutRemplirChamp(candidat, tousLesCandidats, mode) {
+    if (!candidat || !candidatOcrEstPlausible(candidat.vin, candidat.conf || 0)) return false;
+    const consensus = evaluerConsensusOcr(tousLesCandidats, candidat.vin);
+    if (mode === 'local') return consensus >= 2 && Number(candidat.conf || 0) >= 45;
+    return consensus >= 2 || Number(candidat.conf || 0) >= 82;
 }
 
 function updateDoubleScanUI() {
@@ -5407,6 +5537,8 @@ function calculerNiveauConfianceOCR(vin, conf = 0) {
 
 function diagnosticOcrEstFiable(diag, vin) {
     if (!diag || !vin || vin.length !== 17) return false;
+    if (diag.rejected) return false;
+    if (!candidatOcrEstPlausible(vin, diag.conf || 0)) return false;
     const checkDigitRequired = checkDigitObligatoire(vin) !== false;
     if (checkDigitRequired && calcCheckDigit(vin) !== vin[8]) return false;
     if (diag.wasFixed) return false;
@@ -5472,11 +5604,7 @@ function enrichirRapportAvecOCR(vin, vinIntel) {
 }
 
 function candidatOcrEstSolide(vin, conf = 0) {
-    if (!vin || vin.length !== 17) return false;
-    const checkDigitRequired = checkDigitObligatoire(vin) !== false;
-    const checkDigitOk = calcCheckDigit(vin) === vin[8];
-    if (checkDigitRequired && !checkDigitOk) return false;
-    return evaluerCandidatVIN(vin, conf) >= 800;
+    return candidatOcrEstPlausible(vin, conf);
 }
 
 function updateRapportBadges(sure, unsure) {
@@ -5568,9 +5696,8 @@ async function lancerOCRTesseract(imageInput) {
         // Solution Internet 100% gratuite (25 000 requêtes/mois sans CB) : API OCR.Space
         const candidats = [];
         let apiBlocked = false;
-        let strongCandidateFound = false;
         for (const variante of variantesWeb) {
-            if (apiBlocked || strongCandidateFound) break;
+            if (apiBlocked) break;
             const formData = new FormData();
             formData.append('apikey', ocrApiKey);
             formData.append('base64Image', variante.data);
@@ -5609,9 +5736,6 @@ async function lancerOCRTesseract(imageInput) {
                 source: variante.label,
                 conf
             });
-            if (candidatOcrEstSolide(vin, conf)) {
-                strongCandidateFound = true;
-            }
         }
 
         clearTimeout(timeoutId);
@@ -5624,6 +5748,10 @@ async function lancerOCRTesseract(imageInput) {
         const meilleur = candidats[0];
         const wasFixed = meilleur.raw !== meilleur.vin;
         const consensus = evaluerConsensusOcr(candidats, meilleur.vin);
+        if (!candidatOcrPeutRemplirChamp(meilleur, candidats, 'web')) {
+            console.warn('[OCR] Résultat web refusé en mode strict:', meilleur, 'consensus=', consensus);
+            return await fallbackOCRLocal(variantes);
+        }
         lastOcrDiagnostics = {
             mode: 'web',
             source: meilleur.source,
@@ -5676,9 +5804,7 @@ async function fallbackOCRLocal(imageInput) {
         ];
 
         const resultats = [];
-        let strongCandidateFound = false;
         for (const variante of variantes.slice(0, 5)) {
-            if (strongCandidateFound) break;
             for (const pass of passes) {
                 try {
                     const { data } = await worker.recognize(variante.data, {
@@ -5697,10 +5823,6 @@ async function fallbackOCRLocal(imageInput) {
                     if (vin.length >= 8) {
                         const conf = data.confidence || 0;
                         resultats.push({ vin, raw: rawVin, wasFixed, conf, label: `${variante.label} · ${pass.label}` });
-                        if (candidatOcrEstSolide(vin, conf)) {
-                            strongCandidateFound = true;
-                            break;
-                        }
                     }
                 } catch (err) {
                     console.warn('Erreur OCR locale:', err);
@@ -5720,6 +5842,22 @@ async function fallbackOCRLocal(imageInput) {
         const meilleurResultat = resultats[0];
         const meilleur = meilleurResultat.vin;
         const consensus = evaluerConsensusOcr(resultats, meilleur);
+        if (!candidatOcrPeutRemplirChamp(meilleurResultat, resultats, 'local')) {
+            lastOcrDiagnostics = {
+                mode: 'local',
+                source: meilleurResultat.label,
+                conf: Number(meilleurResultat.conf) || 0,
+                raw: meilleurResultat.raw || meilleur,
+                vin: meilleur,
+                wasFixed: !!meilleurResultat.wasFixed,
+                consensus,
+                rejected: true
+            };
+            setFeedback('<span class="msg-missing">⚠ OCR local incertain: aucune saisie automatique. Reprenez une photo plus nette ou saisissez manuellement.</span>');
+            showToast('OCR local refusé: résultat non fiable.', 'err', 4500);
+            updateOcrReviewUI(meilleur);
+            return;
+        }
         lastOcrDiagnostics = {
             mode: 'local',
             source: meilleurResultat.label,

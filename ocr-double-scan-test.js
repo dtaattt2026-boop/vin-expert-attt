@@ -30,10 +30,23 @@ const code = [
   extractConst('VIN_MAP'),
   extractConst('VIN_WEIGHTS'),
   extractConst('WMI_CHECK_DIGIT_REGIONS'),
+  `function getWmiReference(value) {
+    const key = String(value || '').toUpperCase().substring(0, 3);
+    const map = {
+      'WBA': { wmi: 'WBA', marque: 'BMW', checkDigit: false },
+      '1HG': { wmi: '1HG', marque: 'Honda', checkDigit: true }
+    };
+    return map[key] || null;
+  }`,
   'let doubleScanState = { firstVin: "", firstSource: "", firstMode: "", pending: false, confirmedVin: "", mismatchCount: 0 };',
   extractFunction('calcCheckDigit'),
+  extractFunction('isVinFormatAllowed'),
+  extractFunction('getInfoCheckDigitModele'),
   extractFunction('checkDigitObligatoire'),
   extractFunction('evaluerCandidatVIN'),
+  extractFunction('candidatOcrWmiReconnu'),
+  extractFunction('candidatOcrEstPlausible'),
+  extractFunction('candidatOcrPeutRemplirChamp'),
   extractFunction('evaluerConsensusOcr'),
   extractFunction('updateDoubleScanUI'),
   extractFunction('resetDoubleScanState'),

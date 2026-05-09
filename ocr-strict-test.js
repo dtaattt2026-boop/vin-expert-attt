@@ -30,13 +30,27 @@ const code = [
   extractConst('VIN_MAP'),
   extractConst('VIN_WEIGHTS'),
   extractConst('WMI_CHECK_DIGIT_REGIONS'),
+  `function getWmiReference(value) {
+    const key = String(value || '').toUpperCase().substring(0, 3);
+    const map = {
+      'WBA': { wmi: 'WBA', marque: 'BMW', checkDigit: false },
+      '1HG': { wmi: '1HG', marque: 'Honda', checkDigit: true },
+      '4TC': { wmi: '4TC', marque: 'Triton', checkDigit: true }
+    };
+    return map[key] || null;
+  }`,
   extractFunction('calcCheckDigit'),
+  extractFunction('isVinFormatAllowed'),
+  extractFunction('getInfoCheckDigitModele'),
   extractFunction('checkDigitObligatoire'),
   extractFunction('evaluerCandidatVIN'),
+  extractFunction('candidatOcrWmiReconnu'),
+  extractFunction('candidatOcrEstPlausible'),
+  extractFunction('candidatOcrPeutRemplirChamp'),
   extractFunction('calculerNiveauConfianceOCR'),
   extractFunction('evaluerConsensusOcr'),
   extractFunction('diagnosticOcrEstFiable'),
-  `module.exports = { calcCheckDigit, checkDigitObligatoire, evaluerCandidatVIN, calculerNiveauConfianceOCR, evaluerConsensusOcr, diagnosticOcrEstFiable };`
+  `module.exports = { calcCheckDigit, checkDigitObligatoire, evaluerCandidatVIN, calculerNiveauConfianceOCR, evaluerConsensusOcr, diagnosticOcrEstFiable, candidatOcrEstPlausible, candidatOcrPeutRemplirChamp };`
 ].join('\n\n');
 
 const sandbox = { module: { exports: {} } };
@@ -46,7 +60,9 @@ vm.runInContext(code, sandbox);
 const {
   evaluerConsensusOcr,
   diagnosticOcrEstFiable,
-  calculerNiveauConfianceOCR
+  calculerNiveauConfianceOCR,
+  candidatOcrEstPlausible,
+  candidatOcrPeutRemplirChamp
 } = sandbox.module.exports;
 
 const tests = [
@@ -73,6 +89,18 @@ const tests = [
   {
     name: 'Confiance elevee sur VIN nord-americain valide robuste',
     run: () => calculerNiveauConfianceOCR('1HGCM82633A004352', 70) === 'élevée'
+  },
+  {
+    name: 'OCR strict rejette un WMI inconnu meme si la forme ressemble a un VIN',
+    run: () => candidatOcrEstPlausible('18J56E555ANEESSAT', 65) === false
+  },
+  {
+    name: 'OCR local ne remplit pas un faux positif faible confiance',
+    run: () => candidatOcrPeutRemplirChamp(
+      { vin: '4TCA10234VA1NTEAS', conf: 20 },
+      [{ vin: '4TCA10234VA1NTEAS', conf: 20 }],
+      'local'
+    ) === false
   }
 ];
 

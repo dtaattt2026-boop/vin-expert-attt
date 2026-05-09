@@ -49,7 +49,17 @@ const neededFns = [
 
 const code = [
   ...symbols.map(extractConst),
+  `function getWmiReference(value) {
+    const key = String(value || '').toUpperCase().substring(0, 3);
+    const map = {
+      'WBA': { wmi: 'WBA', marque: 'BMW', checkDigit: false },
+      '1HG': { wmi: '1HG', marque: 'Honda', checkDigit: true }
+    };
+    return map[key] || null;
+  }`,
   ...neededFns.map(extractFunction),
+  extractFunction('getInfoCheckDigitModele'),
+  extractFunction('isVinFormatAllowed'),
   'module.exports = { calcCheckDigit, checkDigitObligatoire, corrigerVINparCheckDigit, extraireVIN, evaluerCandidatVIN };'
 ].join('\n\n');
 
