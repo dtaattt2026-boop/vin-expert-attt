@@ -11,13 +11,13 @@
     <meta name="application-name" content="VIN Expert ATTT">
     <meta name="description" content="Identification VIN — ATTT Direction Technique d'Automobiles">
     <title>ATTT · VIN Identification</title>
-    <link rel="manifest" href="manifest.json?v=3.1.5">
+    <link rel="manifest" href="manifest.json?v=3.1.6">
     <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="wmi-reference.js?v=3.1.5"></script>
+    <script src="wmi-reference.js?v=3.1.6"></script>
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&family=Exo+2:wght@300;400;600&display=swap" rel="stylesheet">
     <!-- Firebase SDK -->
     <script type="module">
@@ -38,7 +38,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "3.1.5";
+            window.APP_VERSION = "3.1.6";
             try {
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
@@ -115,7 +115,7 @@
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
         // Version définie tôt pour autoPurgeCache et SW
-        window.APP_VERSION = "3.1.5"; // cache si version différente OU force-update
+        window.APP_VERSION = "3.1.6"; // cache si version différente OU force-update
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -1695,7 +1695,15 @@
             <div class="card-title" style="margin-bottom:8px">Configuration OCR</div>
             <div id="ocrConfigStatus" style="font-size:0.78rem;color:var(--text-dim);line-height:1.7;margin-bottom:12px">-</div>
             <div class="form-group">
-              <label>Clé OCR.Space</label>
+              <label>Clé Gemini API (moteur principal)</label>
+              <input type="password" id="geminiApiKeyInput" placeholder="AIza...">
+            </div>
+            <div class="form-group">
+              <label>Modèle Gemini</label>
+              <input type="text" id="geminiModelInput" placeholder="gemini-2.5-flash">
+            </div>
+            <div class="form-group">
+              <label>Clé OCR.Space (secours)</label>
               <input type="password" id="ocrApiKeyInput" placeholder="apikey OCR.Space">
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -1795,8 +1803,10 @@ console.info('[DTA-DRIVE] URL active:', GAS_DRIVE_URL);
 const IS_LOCAL_DEV = /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname);
 const OCR_SPACE_API_URL = 'https://api.ocr.space/parse/image';
 const OCR_SPACE_FALLBACK_KEY = 'helloworld';
+const GEMINI_OCR_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
+const GEMINI_OCR_DEFAULT_MODEL = 'gemini-2.5-flash';
 const OCR_CONFIG_CACHE_TTL_MS = 5 * 60 * 1000;
-let _ocrConfigCache = { apiKey: '', source: 'default' };
+let _ocrConfigCache = { apiKey: '', geminiApiKey: '', geminiModel: GEMINI_OCR_DEFAULT_MODEL, source: 'default' };
 let _ocrConfigPromise = null;
 let _ocrConfigLoadedAt = 0;
 let TRACE_TOTAL = safeStorageGet('trace_total', '0') === '1' || new URLSearchParams(window.location.search).get('trace') === '1';
@@ -1808,7 +1818,12 @@ function resolveOcrApiKey(config) {
 }
 
 function getOcrConfigSourceLabel(config) {
+    if (String(config?.geminiApiKey || '').trim()) return 'Gemini Vision OCR';
     return String(config?.apiKey || '').trim() ? 'OCR.Space (clé configurée)' : 'OCR.Space (clé publique)';
+}
+
+function getGeminiOcrModel(config) {
+    return String(config?.geminiModel || '').trim() || GEMINI_OCR_DEFAULT_MODEL;
 }
 
 async function loadOcrConfig(forceRefresh = false) {
@@ -1819,7 +1834,7 @@ async function loadOcrConfig(forceRefresh = false) {
 
     const fb = window._fb;
     if (!fb || !window.currentUser || window.currentUser.localOnly) {
-        _ocrConfigCache = { apiKey: '', source: 'default' };
+        _ocrConfigCache = { apiKey: '', geminiApiKey: '', geminiModel: GEMINI_OCR_DEFAULT_MODEL, source: 'default' };
         _ocrConfigLoadedAt = Date.now();
         return _ocrConfigCache;
     }
@@ -1832,14 +1847,16 @@ async function loadOcrConfig(forceRefresh = false) {
                 const data = snap.data() || {};
                 _ocrConfigCache = {
                     apiKey: String(data.apiKey || '').trim(),
+                    geminiApiKey: String(data.geminiApiKey || '').trim(),
+                    geminiModel: String(data.geminiModel || GEMINI_OCR_DEFAULT_MODEL).trim(),
                     source: 'firestore',
                     updatedAt: data.updatedAt || ''
                 };
             } else {
-                _ocrConfigCache = { apiKey: '', source: 'default' };
+                _ocrConfigCache = { apiKey: '', geminiApiKey: '', geminiModel: GEMINI_OCR_DEFAULT_MODEL, source: 'default' };
             }
         } catch (e) {
-            _ocrConfigCache = { apiKey: '', source: 'default' };
+            _ocrConfigCache = { apiKey: '', geminiApiKey: '', geminiModel: GEMINI_OCR_DEFAULT_MODEL, source: 'default' };
         } finally {
             _ocrConfigLoadedAt = Date.now();
             if (String(_ocrConfigCache?.apiKey || '').trim() !== previousKey) {
@@ -1855,9 +1872,11 @@ async function loadOcrConfig(forceRefresh = false) {
 
 async function loadAdminOcrConfig() {
     const statusEl = document.getElementById('ocrConfigStatus');
-    const input = document.getElementById('ocrApiKeyInput');
+    const ocrInput = document.getElementById('ocrApiKeyInput');
+    const geminiInput = document.getElementById('geminiApiKeyInput');
+    const modelInput = document.getElementById('geminiModelInput');
     if (statusEl) statusEl.textContent = 'Chargement...';
-    if (!input) return;
+    if (!ocrInput || !geminiInput || !modelInput) return;
     const fb = window._fb;
     if (!fb || window.currentUser?.role !== 'admin') {
         if (statusEl) statusEl.textContent = 'Admin Firebase requis.';
@@ -1867,10 +1886,13 @@ async function loadAdminOcrConfig() {
         const snap = await fb.getDoc(fb.doc(fb.db, 'config', 'ocr'));
         const data = snap.exists() ? (snap.data() || {}) : {};
         const key = String(data.apiKey || '').trim();
-        input.value = key;
-        if (statusEl) statusEl.textContent = key
-            ? `Clé configurée${data.updatedAt ? ' · ' + data.updatedAt : ''}`
-            : 'Aucune clé configurée: la clé publique peut être limitée.';
+        const geminiKey = String(data.geminiApiKey || '').trim();
+        ocrInput.value = key;
+        geminiInput.value = geminiKey;
+        modelInput.value = String(data.geminiModel || GEMINI_OCR_DEFAULT_MODEL).trim();
+        if (statusEl) statusEl.textContent = geminiKey
+            ? `Gemini OCR configuré${data.updatedAt ? ' · ' + data.updatedAt : ''}`
+            : (key ? 'OCR.Space configuré en secours, Gemini non configuré.' : 'Aucun moteur web privé configuré: la clé publique peut être limitée.');
     } catch(e) {
         if (statusEl) statusEl.textContent = 'Erreur lecture OCR: ' + e.message;
     }
@@ -1878,20 +1900,27 @@ async function loadAdminOcrConfig() {
 
 async function saveAdminOcrConfig() {
     const fb = window._fb;
-    const input = document.getElementById('ocrApiKeyInput');
+    const ocrInput = document.getElementById('ocrApiKeyInput');
+    const geminiInput = document.getElementById('geminiApiKeyInput');
+    const modelInput = document.getElementById('geminiModelInput');
     const statusEl = document.getElementById('ocrConfigStatus');
     if (!fb || window.currentUser?.role !== 'admin') { showToast('Action réservée admin.', 'err'); return; }
-    const apiKey = String(input?.value || '').trim();
+    const apiKey = String(ocrInput?.value || '').trim();
+    const geminiApiKey = String(geminiInput?.value || '').trim();
+    const geminiModel = String(modelInput?.value || GEMINI_OCR_DEFAULT_MODEL).trim() || GEMINI_OCR_DEFAULT_MODEL;
     if (apiKey && apiKey.length < 5) { showToast('Clé OCR trop courte.', 'err'); return; }
+    if (geminiApiKey && geminiApiKey.length < 10) { showToast('Clé Gemini trop courte.', 'err'); return; }
     try {
         await fb.setDoc(fb.doc(fb.db, 'config', 'ocr'), {
             apiKey,
+            geminiApiKey,
+            geminiModel,
             updatedAt: new Date().toISOString(),
             updatedBy: window.currentUser?.email || 'admin'
         });
         _ocrWebBlocked = false;
         await loadOcrConfig(true);
-        if (statusEl) statusEl.textContent = apiKey ? 'Clé OCR enregistrée.' : 'Clé OCR effacée.';
+        if (statusEl) statusEl.textContent = geminiApiKey ? 'Gemini OCR enregistré.' : (apiKey ? 'OCR.Space enregistré.' : 'Clés OCR effacées.');
         showToast('Configuration OCR enregistrée.', 'ok');
     } catch(e) {
         showToast('Erreur OCR: ' + e.message, 'err', 5000);
@@ -1900,9 +1929,13 @@ async function saveAdminOcrConfig() {
 
 async function testAdminOcrConfig() {
     const input = document.getElementById('ocrApiKeyInput');
+    const geminiInput = document.getElementById('geminiApiKeyInput');
+    const modelInput = document.getElementById('geminiModelInput');
     const statusEl = document.getElementById('ocrConfigStatus');
     const apiKey = String(input?.value || '').trim();
-    if (!apiKey) { showToast('Renseignez une clé OCR.Space.', 'err'); return; }
+    const geminiApiKey = String(geminiInput?.value || '').trim();
+    const geminiModel = String(modelInput?.value || GEMINI_OCR_DEFAULT_MODEL).trim() || GEMINI_OCR_DEFAULT_MODEL;
+    if (!geminiApiKey && !apiKey) { showToast('Renseignez au moins une clé Gemini ou OCR.Space.', 'err'); return; }
     if (statusEl) statusEl.textContent = 'Test OCR en cours...';
     try {
         const canvas = document.createElement('canvas');
@@ -1914,6 +1947,16 @@ async function testAdminOcrConfig() {
         ctx.fillStyle = '#111';
         ctx.font = '42px monospace';
         ctx.fillText('1HGCM82633A004352', 12, 58);
+        if (geminiApiKey) {
+            const result = await appelerGeminiOCR([{ label: 'Test admin', data: canvas.toDataURL('image/png') }], {
+                geminiApiKey,
+                geminiModel
+            });
+            if (result?.meilleur?.vin !== '1HGCM82633A004352') throw new Error('Lecture Gemini incorrecte: ' + (result?.meilleur?.vin || 'vide'));
+            if (statusEl) statusEl.textContent = 'Test Gemini OCR réussi.';
+            showToast('Gemini OCR opérationnel.', 'ok');
+            return;
+        }
         const formData = new FormData();
         formData.append('apikey', apiKey);
         formData.append('base64Image', canvas.toDataURL('image/png'));
@@ -5662,15 +5705,78 @@ async function getTesseractWorker() {
 
 let _ocrWebBlocked = false; // Mémoriser si l'API web est bloquée pour cette session
 
-async function lancerOCRTesseract(imageInput) {
-    if (_ocrWebBlocked) {
-        // API web bloquée, aller directement en local
-        return await fallbackOCRLocal(
-            Array.isArray(imageInput) && imageInput.length > 0
-                ? imageInput
-                : (imageInput ? [{ label: 'Image OCR', data: imageInput }] : [])
-        );
+function extraireImagePartDepuisDataUrl(dataUrl) {
+    const match = String(dataUrl || '').match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) return null;
+    return { mimeType: match[1], data: match[2] };
+}
+
+function extraireTexteGemini(json) {
+    const parts = json?.candidates?.[0]?.content?.parts;
+    if (!Array.isArray(parts)) return '';
+    return parts.map(part => part?.text || '').filter(Boolean).join('\n').trim();
+}
+
+function extraireVinDepuisReponseIA(text) {
+    const cleaned = String(text || '').replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+    try {
+        const data = JSON.parse(cleaned);
+        const vin = String(data?.vin || data?.VIN || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (vin) return vin;
+    } catch(e) {}
+    return extraireVIN(cleaned);
+}
+
+async function appelerGeminiOCR(variantes, config) {
+    const apiKey = String(config?.geminiApiKey || '').trim();
+    if (!apiKey) return null;
+    const model = getGeminiOcrModel(config).replace(/^models\//i, '');
+    const endpoint = `${GEMINI_OCR_API_BASE}${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const candidats = [];
+    const prompt = [
+        'Lis le numéro VIN / numéro de châssis visible sur cette image.',
+        'Retourne uniquement un JSON compact comme {"vin":"17CARACTERES","confidence":0-100}.',
+        'VIN valide: exactement 17 caractères, lettres A-HJ-NPR-Z et chiffres 0-9, jamais I/O/Q.',
+        'Si tu n es pas sûr, retourne {"vin":"","confidence":0}.'
+    ].join(' ');
+
+    for (const variante of variantes.slice(0, 8)) {
+        const imagePart = extraireImagePartDepuisDataUrl(variante.data);
+        if (!imagePart) continue;
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [
+                        { text: prompt },
+                        { inline_data: { mime_type: imagePart.mimeType, data: imagePart.data } }
+                    ]
+                }],
+                generationConfig: { temperature: 0, maxOutputTokens: 96 }
+            }),
+            signal: AbortSignal.timeout(22000)
+        });
+        if (!response.ok) throw new Error('Gemini HTTP ' + response.status);
+        const json = await response.json();
+        const texte = extraireTexteGemini(json);
+        const raw = extraireVinDepuisReponseIA(texte);
+        if (!raw || raw.length < 8) continue;
+        const vin = raw.length === 17 ? corrigerVINparCheckDigit(raw) : raw;
+        const confMatch = texte.match(/"confidence"\s*:\s*(\d+(?:\.\d+)?)/i);
+        const conf = confMatch ? Math.max(0, Math.min(100, Number(confMatch[1]) || 0)) : 92;
+        candidats.push({ vin, raw, source: `Gemini · ${variante.label}`, conf });
     }
+
+    if (!candidats.length) return null;
+    candidats.sort((a, b) => evaluerCandidatVIN(b.vin, b.conf) - evaluerCandidatVIN(a.vin, a.conf));
+    const meilleur = candidats[0];
+    const consensus = evaluerConsensusOcr(candidats, meilleur.vin);
+    if (!candidatOcrPeutRemplirChamp(meilleur, candidats, 'web')) return null;
+    return { meilleur, candidats, consensus };
+}
+
+async function lancerOCRTesseract(imageInput) {
     setLoader(true, '☁️ OCR Web + secours local...', 'Analyse intelligente en cours');
     const ocrConfig = await loadOcrConfig();
     const ocrApiKey = resolveOcrApiKey(ocrConfig);
@@ -5678,6 +5784,10 @@ async function lancerOCRTesseract(imageInput) {
     const variantes = Array.isArray(imageInput) && imageInput.length > 0
         ? imageInput
         : (imageInput ? [{ label: 'Image OCR', data: imageInput }] : []);
+
+    if (_ocrWebBlocked && !String(ocrConfig?.geminiApiKey || '').trim()) {
+        return await fallbackOCRLocal(variantes);
+    }
 
     const variantesWeb = [];
     for (const variante of variantes.slice(0, 6)) {
@@ -5693,6 +5803,38 @@ async function lancerOCRTesseract(imageInput) {
     }, 15000);
 
     try {
+        if (String(ocrConfig?.geminiApiKey || '').trim()) {
+            try {
+                setLoaderSub('Lecture IA Gemini Vision...');
+                const geminiResult = await appelerGeminiOCR(variantesWeb, ocrConfig);
+                if (geminiResult?.meilleur) {
+                    const meilleur = geminiResult.meilleur;
+                    const wasFixed = meilleur.raw !== meilleur.vin;
+                    lastOcrDiagnostics = {
+                        mode: 'ia',
+                        source: meilleur.source,
+                        conf: meilleur.conf,
+                        raw: meilleur.raw,
+                        vin: meilleur.vin,
+                        wasFixed,
+                        consensus: geminiResult.consensus
+                    };
+                    registerDoubleScanResult(lastOcrDiagnostics);
+                    lastOcrDiagnostics.doubleScanConfirmed = doubleScanState.confirmedVin === meilleur.vin;
+                    setLoader(false);
+                    let finalMsg = `<span class="msg-ok">✓ VIN détecté via IA (${meilleur.source})</span>`;
+                    if (wasFixed) finalMsg += '<br><small>Auto-corrigé ✔</small>';
+                    setFeedback(finalMsg);
+                    document.getElementById('vinField').value = meilleur.vin;
+                    handleVinInput();
+                    updateOcrReviewUI(meilleur.vin);
+                    return;
+                }
+            } catch(e) {
+                console.warn('[OCR] Gemini indisponible, secours OCR.Space/local:', e.message);
+            }
+        }
+
         // Solution Internet 100% gratuite (25 000 requêtes/mois sans CB) : API OCR.Space
         const candidats = [];
         let apiBlocked = false;
