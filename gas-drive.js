@@ -113,7 +113,7 @@ function doGet(e) {
           message: 'VIN Expert GAS Backend v1.0',
           deployed: true,
           timestamp: new Date().toISOString(),
-          capabilities: ['saveVinReport', 'sendEmail', 'Drive archival', 'lookupVinRef', 'lookupByMarque', 'lookupWmiReference', 'initRefSheet', 'initWmiRefSheet', 'importBka', 'importWmiReferenceData', 'fetchVinExternal']
+          capabilities: ['saveVinReport', 'sendEmail', 'Drive archival', 'lookupVinRef', 'lookupByMarque', 'lookupWmiReference', 'listWmiReference', 'initRefSheet', 'initWmiRefSheet', 'importBka', 'importWmiReferenceData', 'fetchVinExternal']
         }))
         .setMimeType(ContentService.MimeType.JSON);
     }
@@ -139,6 +139,14 @@ function doGet(e) {
       }
       return ContentService
         .createTextOutput(JSON.stringify(getWmiReferenceData(refWmi)))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === 'listWmiReference') {
+      var qWmi = (e.parameter.q || '').trim();
+      var limitWmi = parseInt(e.parameter.limit || '20000', 10);
+      return ContentService
+        .createTextOutput(JSON.stringify(listWmiReferenceData(qWmi, limitWmi)))
         .setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -288,7 +296,7 @@ function doPost(e) {
     var payload = JSON.parse(e.postData.contents);
     logEvent('RECEIVED_POST', { action: payload.action, agentName: payload.agentName });
 
-    if (payload.action === 'saveVinReport' || payload.action === 'saveChatPhoto' || payload.action === 'saveProjectBackup' || payload.action === 'importBka' || payload.action === 'importBkaData' || payload.action === 'clearBkaData' || payload.action === 'importWmiReferenceData' || payload.action === 'clearWmiReferenceData') {
+    if (payload.action === 'saveVinReport' || payload.action === 'saveChatPhoto' || payload.action === 'saveProjectBackup' || payload.action === 'importBka' || payload.action === 'importBkaData' || payload.action === 'clearBkaData' || payload.action === 'importWmiReferenceData' || payload.action === 'clearWmiReferenceData' || payload.action === 'upsertWmiReferenceRow' || payload.action === 'deleteWmiReferenceRow') {
       payload._authUser = authenticatePayload(payload);
     }
 
@@ -393,6 +401,32 @@ function doPost(e) {
       } catch(err) {
         return ContentService
           .createTextOutput(JSON.stringify({ ok: false, error: 'clearWmiReferenceData: ' + err.message }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+
+    if (payload.action === 'upsertWmiReferenceRow') {
+      try {
+        var upsertResult = upsertWmiReferenceRow(payload.row || {});
+        return ContentService
+          .createTextOutput(JSON.stringify(upsertResult))
+          .setMimeType(ContentService.MimeType.JSON);
+      } catch(err) {
+        return ContentService
+          .createTextOutput(JSON.stringify({ ok: false, error: 'upsertWmiReferenceRow: ' + err.message }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+
+    if (payload.action === 'deleteWmiReferenceRow') {
+      try {
+        var deleteResult = deleteWmiReferenceRow(payload.wmi || '');
+        return ContentService
+          .createTextOutput(JSON.stringify(deleteResult))
+          .setMimeType(ContentService.MimeType.JSON);
+      } catch(err) {
+        return ContentService
+          .createTextOutput(JSON.stringify({ ok: false, error: 'deleteWmiReferenceRow: ' + err.message }))
           .setMimeType(ContentService.MimeType.JSON);
       }
     }
@@ -837,6 +871,71 @@ function importWmiReferenceData(rows, mode) {
     total: sheet.getLastRow() - 1,
     sheetName: WMI_REF_SHEET_NAME
   };
+}
+
+function listWmiReferenceData(q, limit) {
+  try {
+    var sheet = getOrCreateWmiReferenceSheet();
+    var data = sheet.getDataRange().getValues();
+    var needle = String(q || '').toLowerCase().trim();
+    var max = Math.max(1, Math.min(parseInt(limit || 20000, 10) || 20000, 50000));
+    var rows = [];
+    for (var i = 1; i < data.length && rows.length < max; i++) {
+      var wmi = String(data[i][0] || '').toUpperCase().trim();
+      var marque = String(data[i][1] || '').trim();
+      if (!wmi) continue;
+      var checkDigit = normalizeWmiCheckDigit(data[i][2], wmi);
+      if (needle && (wmi.toLowerCase().indexOf(needle) < 0 && marque.toLowerCase().indexOf(needle) < 0 && checkDigit.indexOf(needle) < 0)) {
+        continue;
+      }
+      rows.push([wmi, marque, checkDigit]);
+    }
+    return {
+      ok: true,
+      rows: rows,
+      total: Math.max(0, data.length - 1),
+      returned: rows.length,
+      sheetName: WMI_REF_SHEET_NAME
+    };
+  } catch(err) {
+    return { ok: false, error: 'Erreur list WMI reference: ' + err.message, rows: [] };
+  }
+}
+
+function upsertWmiReferenceRow(row) {
+  var sheet = getOrCreateWmiReferenceSheet();
+  var wmi = String(row && row.wmi || '').toUpperCase().trim();
+  if (!wmi) throw new Error('WMI requis.');
+  var marque = String(row && row.marque || '').trim();
+  var checkDigit = normalizeWmiCheckDigit(row && row.checkDigit, wmi);
+  var lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    var data = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0] || '').toUpperCase().trim() === wmi) {
+        sheet.getRange(i + 2, 1, 1, 3).setValues([[wmi, marque, checkDigit]]);
+        return { ok: true, action: 'updated', wmi: wmi, sheetName: WMI_REF_SHEET_NAME };
+      }
+    }
+  }
+  sheet.appendRow([wmi, marque, checkDigit]);
+  return { ok: true, action: 'created', wmi: wmi, sheetName: WMI_REF_SHEET_NAME };
+}
+
+function deleteWmiReferenceRow(wmiValue) {
+  var sheet = getOrCreateWmiReferenceSheet();
+  var wmi = String(wmiValue || '').toUpperCase().trim();
+  if (!wmi) throw new Error('WMI requis.');
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return { ok: true, deleted: false, wmi: wmi, sheetName: WMI_REF_SHEET_NAME };
+  var data = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][0] || '').toUpperCase().trim() === wmi) {
+      sheet.deleteRow(i + 2);
+      return { ok: true, deleted: true, wmi: wmi, sheetName: WMI_REF_SHEET_NAME };
+    }
+  }
+  return { ok: true, deleted: false, wmi: wmi, sheetName: WMI_REF_SHEET_NAME };
 }
 
 function getWmiReferenceData(wmi) {

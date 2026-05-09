@@ -11,13 +11,13 @@
     <meta name="application-name" content="VIN Expert ATTT">
     <meta name="description" content="Identification VIN — ATTT Direction Technique d'Automobiles">
     <title>ATTT · VIN Identification</title>
-    <link rel="manifest" href="manifest.json?v=3.1.1">
+    <link rel="manifest" href="manifest.json?v=3.1.2">
     <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="wmi-reference.js?v=3.1.1"></script>
+    <script src="wmi-reference.js?v=3.1.2"></script>
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&family=Exo+2:wght@300;400;600&display=swap" rel="stylesheet">
     <!-- Firebase SDK -->
     <script type="module">
@@ -38,7 +38,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "3.1.1";
+            window.APP_VERSION = "3.1.2";
             try {
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
@@ -115,7 +115,7 @@
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
         // Version définie tôt pour autoPurgeCache et SW
-        window.APP_VERSION = "3.1.1"; // cache si version différente OU force-update
+        window.APP_VERSION = "3.1.2"; // cache si version différente OU force-update
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -1245,9 +1245,10 @@
 
     <!-- TABS -->
     <div class="tabs">
-        <button class="tab-btn active" onclick="switchTab('scan')">NOUVEL Identification</button>
+        <button class="tab-btn active" onclick="switchTab('scan')" id="tabScan">NOUVEL Identification</button>
         <button class="tab-btn" onclick="switchTab('history')" id="histTab">HISTORIQUE <span id="hCount">0</span></button>
         <button class="tab-btn tab-btn-icon" onclick="switchTab('chat')" id="tabChat">💬<span id="chatBadge" class="chat-badge" style="display:none">0</span></button>
+        <button class="tab-btn tab-btn-icon" onclick="switchTab('wmi')" id="tabWmi">WMI</button>
         <button class="tab-btn tab-btn-icon" id="tabProfile" onclick="switchTab('profile')">👤</button>
         <button class="tab-btn tab-btn-icon" id="tabAdmin" onclick="switchTab('admin')" style="display:none">⚙️</button>
     </div>
@@ -1381,6 +1382,30 @@
             <div class="card-title">📋 Identifications Enregistrés</div>
             <div id="histList"></div>
         </div>
+    </div>
+
+    <!-- ====== WMI CONSULTATION SECTION ====== -->
+    <div class="section" id="wmiSection">
+      <div class="card">
+        <div class="card-title">Table WMI mondiale</div>
+        <div id="wmiPublicStats" style="font-size:0.8rem;color:var(--text-dim);margin-bottom:10px">Chargement...</div>
+        <input type="text" id="wmiPublicSearch" placeholder="Rechercher WMI ou marque..." oninput="renderWmiConsultationTable()"
+          style="width:100%;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:0.8rem;outline:none;margin-bottom:10px">
+        <div style="overflow:auto;border:1px solid var(--border);border-radius:8px;background:rgba(0,0,0,0.18);max-height:520px">
+          <table style="width:100%;border-collapse:collapse;font-size:0.78rem">
+            <thead style="position:sticky;top:0;background:var(--panel2);z-index:1">
+              <tr>
+                <th style="text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);color:var(--gold)">WMI</th>
+                <th style="text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);color:var(--gold)">Marque</th>
+                <th style="text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);color:var(--gold)">Check Digit</th>
+              </tr>
+            </thead>
+            <tbody id="wmiPublicTableBody">
+              <tr><td colspan="3" style="padding:14px;color:var(--text-dim)">Chargement...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- ====== PROFILE & INVITATION SECTION ====== -->
@@ -1652,10 +1677,11 @@
                     <th style="text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);color:var(--gold)">WMI</th>
                     <th style="text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);color:var(--gold)">Marque</th>
                     <th style="text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);color:var(--gold)">Check Digit</th>
+                    <th style="text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);color:var(--gold)">Actions</th>
                   </tr>
                 </thead>
                 <tbody id="wmiTableBody">
-                  <tr><td colspan="3" style="padding:14px;color:var(--text-dim)">Chargement...</td></tr>
+                  <tr><td colspan="4" style="padding:14px;color:var(--text-dim)">Chargement...</td></tr>
                 </tbody>
               </table>
             </div>
@@ -3628,40 +3654,60 @@ async function loadAdminReports() {
 }
 
 // ========== TABLE WMI ==========
+let _wmiLiveRows = null;
+let _wmiLiveLoadedAt = 0;
+
 function getWmiReferenceTableRows() {
-    return WMI_REFERENCE_ROWS.map(row => ({
+    const sourceRows = Array.isArray(_wmiLiveRows) && _wmiLiveRows.length ? _wmiLiveRows : WMI_REFERENCE_ROWS;
+    return sourceRows.map(row => ({
         wmi: String(row?.[0] || '').toUpperCase().trim(),
         marque: String(row?.[1] || '').trim(),
         checkDigit: String(row?.[2] || '').toLowerCase() === 'oui' ? 'oui' : 'non'
     })).filter(row => row.wmi);
 }
 
-function loadWmiAdmin() {
-    const rows = getWmiReferenceTableRows();
-    const statsEl = document.getElementById('wmiStats');
-    if (statsEl) {
-        const oui = rows.filter(r => r.checkDigit === 'oui').length;
-        const non = rows.length - oui;
-        statsEl.innerHTML = `<span style="color:var(--green)">OK</span> <b>${rows.length}</b> WMI charges | Check digit oui: <b>${oui}</b> | non: <b>${non}</b>`;
+async function loadWmiRows(force = false) {
+    if (!force && _wmiLiveRows && Date.now() - _wmiLiveLoadedAt < 5 * 60 * 1000) return getWmiReferenceTableRows();
+    try {
+        const res = await fetch(`${GAS_DRIVE_URL}?action=listWmiReference&limit=20000`, { signal: AbortSignal.timeout(12000) });
+        const data = await res.json();
+        if (data && data.ok && Array.isArray(data.rows) && data.rows.length) {
+            _wmiLiveRows = data.rows;
+            _wmiLiveLoadedAt = Date.now();
+        }
+    } catch(e) {
+        console.warn('[WMI] Consultation live indisponible:', e.message);
     }
+    return getWmiReferenceTableRows();
+}
+
+function updateWmiStats(el, rows, sourceLabel = '') {
+    if (!el) return;
+    const oui = rows.filter(r => r.checkDigit === 'oui').length;
+    const non = rows.length - oui;
+    el.innerHTML = `<span style="color:var(--green)">OK</span> <b>${rows.length}</b> WMI consultables | Check digit oui: <b>${oui}</b> | non: <b>${non}</b>${sourceLabel ? ` | ${sourceLabel}` : ''}`;
+}
+
+async function loadWmiConsultation(force = false) {
+    const statsEl = document.getElementById('wmiPublicStats');
+    if (statsEl) statsEl.textContent = 'Chargement de la table WMI...';
+    const rows = await loadWmiRows(force);
+    updateWmiStats(statsEl, rows, _wmiLiveRows ? 'source Sheet' : 'source locale');
+    renderWmiConsultationTable();
+}
+
+async function loadWmiAdmin() {
+    const rows = await loadWmiRows(true);
+    updateWmiStats(document.getElementById('wmiStats'), rows, _wmiLiveRows ? 'source Sheet' : 'source locale');
     renderAdminWmiTable();
 }
 
-function renderAdminWmiTable() {
-    const body = document.getElementById('wmiTableBody');
+function renderWmiRows(body, rows, withActions = false) {
     if (!body) return;
-    const needle = String(document.getElementById('wmiSearch')?.value || '').toLowerCase().trim();
-    let rows = getWmiReferenceTableRows();
-    if (needle) {
-        rows = rows.filter(row =>
-            row.wmi.toLowerCase().includes(needle) ||
-            row.marque.toLowerCase().includes(needle) ||
-            row.checkDigit.includes(needle)
-        );
-    }
     const visible = rows.slice(0, 250);
+    const colspan = withActions ? 4 : 3;
     if (!visible.length) {
-        body.innerHTML = '<tr><td colspan="3" style="padding:14px;color:var(--text-dim)">Aucun WMI trouve.</td></tr>';
+        body.innerHTML = `<tr><td colspan="${colspan}" style="padding:14px;color:var(--text-dim)">Aucun WMI trouve.</td></tr>`;
         return;
     }
     body.innerHTML = visible.map(row => `
@@ -3669,10 +3715,33 @@ function renderAdminWmiTable() {
           <td style="padding:7px 10px;border-bottom:1px solid rgba(255,255,255,0.05);font-family:var(--font-mono);color:var(--blue-light)">${escHtml(row.wmi)}</td>
           <td style="padding:7px 10px;border-bottom:1px solid rgba(255,255,255,0.05)">${escHtml(row.marque || '-')}</td>
           <td style="padding:7px 10px;border-bottom:1px solid rgba(255,255,255,0.05);color:${row.checkDigit === 'oui' ? 'var(--green)' : 'var(--text-dim)'}">${row.checkDigit}</td>
+          ${withActions ? `<td style="padding:7px 10px;border-bottom:1px solid rgba(255,255,255,0.05);white-space:nowrap">
+            <button class="btn-sm" style="font-size:0.7rem;padding:5px 8px;border-radius:6px" onclick="editWmiRow('${escHtml(row.wmi)}')">Modifier</button>
+            <button class="btn-sm btn-disable" style="font-size:0.7rem;padding:5px 8px;border-radius:6px" onclick="deleteWmiRow('${escHtml(row.wmi)}')">Supprimer</button>
+          </td>` : ''}
         </tr>
     `).join('') + (rows.length > visible.length
-        ? `<tr><td colspan="3" style="padding:9px 10px;color:var(--text-dim)">Affichage limite a ${visible.length} lignes sur ${rows.length}. Affinez la recherche.</td></tr>`
+        ? `<tr><td colspan="${colspan}" style="padding:9px 10px;color:var(--text-dim)">Affichage limite a ${visible.length} lignes sur ${rows.length}. Affinez la recherche.</td></tr>`
         : '');
+}
+
+function filterWmiRows(searchId) {
+    const needle = String(document.getElementById(searchId)?.value || '').toLowerCase().trim();
+    let rows = getWmiReferenceTableRows();
+    if (!needle) return rows;
+    return rows.filter(row =>
+        row.wmi.toLowerCase().includes(needle) ||
+        row.marque.toLowerCase().includes(needle) ||
+        row.checkDigit.includes(needle)
+    );
+}
+
+function renderWmiConsultationTable() {
+    renderWmiRows(document.getElementById('wmiPublicTableBody'), filterWmiRows('wmiPublicSearch'), false);
+}
+
+function renderAdminWmiTable() {
+    renderWmiRows(document.getElementById('wmiTableBody'), filterWmiRows('wmiSearch'), true);
 }
 
 async function syncWmiReferenceSheet() {
@@ -3703,10 +3772,69 @@ async function syncWmiReferenceSheet() {
         if (logEl) {
             logEl.innerHTML = `<span style="color:var(--green)">OK</span> ${data.written} WMI ecrits dans ${escHtml(data.sheetName || 'WMI_MARQUES')}. Total: ${data.total}.`;
         }
+        _wmiLiveRows = null;
+        await loadWmiRows(true);
+        loadWmiAdmin();
         showToast('Table WMI synchronisee.', 'ok', 3500);
     } catch(e) {
         if (logEl) logEl.innerHTML = `<span style="color:var(--red)">Erreur:</span> ${escHtml(e.message)}`;
         showToast('Erreur WMI: ' + e.message, 'err', 5000);
+    }
+}
+
+async function saveWmiRow(row) {
+    if (window.currentUser?.role !== 'admin') { showToast('Action reservee admin.', 'err'); return false; }
+    const authToken = await getCurrentFirebaseIdToken();
+    if (!authToken) throw new Error('Connexion Firebase requise.');
+    const res = await fetch(GAS_DRIVE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'upsertWmiReferenceRow', authToken, row })
+    });
+    const data = await res.json().catch(() => ({ ok: false, error: 'Reponse GAS invalide' }));
+    if (!data.ok) throw new Error(data.error || 'Enregistrement impossible');
+    _wmiLiveRows = null;
+    await loadWmiRows(true);
+    loadWmiAdmin();
+    return true;
+}
+
+async function editWmiRow(wmi) {
+    const row = getWmiReferenceTableRows().find(r => r.wmi === wmi);
+    if (!row) return;
+    const marque = prompt(`Marque pour ${wmi}`, row.marque || '');
+    if (marque === null) return;
+    const cdRaw = prompt('Check digit obligatoire ? (oui/non)', row.checkDigit || 'non');
+    if (cdRaw === null) return;
+    const checkDigit = cdRaw.trim().toLowerCase();
+    if (!['oui','non'].includes(checkDigit)) { showToast('Check digit doit etre oui ou non.', 'err'); return; }
+    try {
+        await saveWmiRow({ wmi, marque: marque.trim(), checkDigit });
+        showToast(`WMI ${wmi} modifie.`, 'ok');
+    } catch(e) {
+        showToast('Erreur modification WMI: ' + e.message, 'err', 5000);
+    }
+}
+
+async function deleteWmiRow(wmi) {
+    if (window.currentUser?.role !== 'admin') { showToast('Action reservee admin.', 'err'); return; }
+    if (!confirm(`Supprimer le WMI ${wmi} de la table modifiable ?`)) return;
+    try {
+        const authToken = await getCurrentFirebaseIdToken();
+        if (!authToken) throw new Error('Connexion Firebase requise.');
+        const res = await fetch(GAS_DRIVE_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'deleteWmiReferenceRow', authToken, wmi })
+        });
+        const data = await res.json().catch(() => ({ ok: false, error: 'Reponse GAS invalide' }));
+        if (!data.ok) throw new Error(data.error || 'Suppression impossible');
+        _wmiLiveRows = null;
+        await loadWmiRows(true);
+        loadWmiAdmin();
+        showToast(`WMI ${wmi} supprime.`, 'ok');
+    } catch(e) {
+        showToast('Erreur suppression WMI: ' + e.message, 'err', 5000);
     }
 }
 
@@ -4582,21 +4710,21 @@ window.onload = () => {
 function switchTab(t) {
     if (window.currentUser?.localOnly && t === 'chat') {
         // Afficher la section chat mais avec un message de connexion
-        ['scan','history','chat','admin','profile'].forEach(s => {
+        ['scan','history','chat','wmi','admin','profile'].forEach(s => {
             const el = document.getElementById(s+'Section');
             if (el) el.classList.toggle('active', t === s);
         });
         document.getElementById('chatMessages').innerHTML = '<div style="text-align:center;padding:40px 20px"><div style="font-size:2.5rem;margin-bottom:12px">🔒</div><div style="color:var(--text-dim);font-size:0.88rem;line-height:1.6">Le chat nécessite une connexion.<br>Connectez-vous pour discuter avec l\'équipe.</div></div>';
         return;
     }
-    ['scan','history','chat','admin','profile'].forEach(s => {
+    ['scan','history','chat','wmi','admin','profile'].forEach(s => {
         const el = document.getElementById(s+'Section');
         if (el) el.classList.toggle('active', t === s);
     });
-    document.querySelectorAll('.tab-btn').forEach((b,i) => {
-        b.classList.toggle('active', (i===0 && t==='scan') || (i===1 && t==='history') || (i===2 && t==='chat') || (i===3 && t==='profile') || (i===4 && t==='admin'));
-    });
+    const tabMap = { scan: 'tabScan', history: 'histTab', chat: 'tabChat', wmi: 'tabWmi', profile: 'tabProfile', admin: 'tabAdmin' };
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.id === tabMap[t]));
     if (t === 'history') renderHistory();
+    if (t === 'wmi') loadWmiConsultation();
     if (t === 'profile') loadProfile();
     if (t === 'chat') chargerMessagesChat();
     if (t === 'admin') {
