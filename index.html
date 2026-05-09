@@ -11,13 +11,13 @@
     <meta name="application-name" content="VIN Expert ATTT">
     <meta name="description" content="Identification VIN — ATTT Direction Technique d'Automobiles">
     <title>ATTT · VIN Identification</title>
-    <link rel="manifest" href="manifest.json?v=3.1.3">
+    <link rel="manifest" href="manifest.json?v=3.1.4">
     <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="wmi-reference.js?v=3.1.3"></script>
+    <script src="wmi-reference.js?v=3.1.4"></script>
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&family=Exo+2:wght@300;400;600&display=swap" rel="stylesheet">
     <!-- Firebase SDK -->
     <script type="module">
@@ -38,7 +38,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "3.1.3";
+            window.APP_VERSION = "3.1.4";
             try {
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
@@ -115,7 +115,7 @@
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
         // Version définie tôt pour autoPurgeCache et SW
-        window.APP_VERSION = "3.1.3"; // cache si version différente OU force-update
+        window.APP_VERSION = "3.1.4"; // cache si version différente OU force-update
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -1858,12 +1858,30 @@ const WMI_REFERENCE_MAP = (() => {
     return map;
 })();
 
+function buildWmiReferenceItem(row) {
+    if (!row) return null;
+    const wmi = String(row?.[0] || '').toUpperCase().trim();
+    if (!wmi) return null;
+    return {
+        wmi,
+        marque: String(row?.[1] || '').trim(),
+        checkDigit: String(row?.[2] || '').toLowerCase() === 'oui'
+    };
+}
+
+function findLiveWmiReference(code) {
+    if (!Array.isArray(_wmiLiveRows) || !_wmiLiveRows.length || !code) return null;
+    const normalized = String(code || '').toUpperCase().trim();
+    const row = _wmiLiveRows.find(r => String(r?.[0] || '').toUpperCase().trim() === normalized);
+    return buildWmiReferenceItem(row);
+}
+
 function getVinWmiCode(vin) {
     const normalized = String(vin || '').toUpperCase();
     const base = normalized.substring(0, 3);
     if (base.length === 3 && base[2] === '9' && normalized.length >= 14) {
         const extended = base + normalized.substring(11, 14);
-        if (WMI_REFERENCE_MAP[extended]) return extended;
+        if (findLiveWmiReference(extended) || WMI_REFERENCE_MAP[extended]) return extended;
     }
     return base;
 }
@@ -1871,10 +1889,16 @@ function getVinWmiCode(vin) {
 function getWmiReference(wmiOrVin) {
     const value = String(wmiOrVin || '').toUpperCase().trim();
     if (!value) return null;
+    const liveExact = findLiveWmiReference(value);
+    if (liveExact) return liveExact;
     const exact = WMI_REFERENCE_MAP[value];
     if (exact) return exact;
-    if (value.length >= 17) return WMI_REFERENCE_MAP[getVinWmiCode(value)] || null;
-    return WMI_REFERENCE_MAP[value.substring(0, 3)] || null;
+    if (value.length >= 17) {
+        const vinWmi = getVinWmiCode(value);
+        return findLiveWmiReference(vinWmi) || WMI_REFERENCE_MAP[vinWmi] || null;
+    }
+    const base = value.substring(0, 3);
+    return findLiveWmiReference(base) || WMI_REFERENCE_MAP[base] || null;
 }
 
 // ========== TABLES DE DÉCODAGE VIN (ISO 3779 / SAE J853) ==========
@@ -5837,8 +5861,8 @@ function getLibelleCheckDigit(vin, pourPdf) {
     const actual = vin.length >= 9 ? vin[8] : '?';
     if (cdInfo.respecte === false) {
         const msg = pourPdf
-            ? `Ce modele ne respecte pas le check-digit (${cdInfo.region} — ${cdInfo.norme})`
-            : `Ce modèle <b>ne respecte pas</b> le check-digit <small>(${cdInfo.region} — ${cdInfo.norme})</small>`;
+            ? `Ce modele ne supporte pas check digit (${cdInfo.wmi || 'WMI inconnu'} - ${cdInfo.marque || cdInfo.region})`
+            : `<b>Ce modéle ne supporte pas check digit</b> <small>(${cdInfo.wmi || 'WMI inconnu'} - ${cdInfo.marque || cdInfo.region})</small>`;
         return { respecte: false, texte: msg, computed, actual };
     }
     const isValid = computed === actual;
@@ -5907,6 +5931,7 @@ async function fullVerify() {
 
     setLoader(true, '🔎 Vérification Check Digit...', '');
     document.getElementById('resultBox').style.display = 'none';
+    await loadWmiRows(false);
 
     const vinStatus = evaluateVinStatus(vin);
     const computed = vinStatus.computed;
