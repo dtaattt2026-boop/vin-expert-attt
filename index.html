@@ -11,13 +11,13 @@
     <meta name="application-name" content="VIN Expert ATTT">
     <meta name="description" content="Identification VIN — ATTT Direction Technique d'Automobiles">
     <title>ATTT · VIN Identification</title>
-    <link rel="manifest" href="manifest.json?v=3.1.2">
+    <link rel="manifest" href="manifest.json?v=3.1.3">
     <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="wmi-reference.js?v=3.1.2"></script>
+    <script src="wmi-reference.js?v=3.1.3"></script>
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&family=Exo+2:wght@300;400;600&display=swap" rel="stylesheet">
     <!-- Firebase SDK -->
     <script type="module">
@@ -38,7 +38,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "3.1.2";
+            window.APP_VERSION = "3.1.3";
             try {
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
@@ -115,7 +115,7 @@
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
         // Version définie tôt pour autoPurgeCache et SW
-        window.APP_VERSION = "3.1.2"; // cache si version différente OU force-update
+        window.APP_VERSION = "3.1.3"; // cache si version différente OU force-update
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -3657,6 +3657,26 @@ async function loadAdminReports() {
 let _wmiLiveRows = null;
 let _wmiLiveLoadedAt = 0;
 
+function buildWmiRowsFromOverrides(data = {}) {
+    const byWmi = new Map(WMI_REFERENCE_ROWS.map(row => [
+        String(row?.[0] || '').toUpperCase().trim(),
+        [String(row?.[0] || '').toUpperCase().trim(), String(row?.[1] || '').trim(), String(row?.[2] || '').toLowerCase() === 'oui' ? 'oui' : 'non']
+    ]).filter(([wmi]) => wmi));
+    (Array.isArray(data.deleted) ? data.deleted : []).forEach(wmi => byWmi.delete(String(wmi || '').toUpperCase().trim()));
+    const rows = data.rows && typeof data.rows === 'object' ? data.rows : {};
+    Object.keys(rows).forEach(key => {
+        const wmi = String(key || '').toUpperCase().trim();
+        if (!wmi) return;
+        const row = rows[key] || {};
+        byWmi.set(wmi, [
+            wmi,
+            String(row.marque || '').trim(),
+            String(row.checkDigit || '').toLowerCase() === 'oui' ? 'oui' : 'non'
+        ]);
+    });
+    return Array.from(byWmi.values()).sort((a, b) => a[0].localeCompare(b[0]));
+}
+
 function getWmiReferenceTableRows() {
     const sourceRows = Array.isArray(_wmiLiveRows) && _wmiLiveRows.length ? _wmiLiveRows : WMI_REFERENCE_ROWS;
     return sourceRows.map(row => ({
@@ -3668,6 +3688,19 @@ function getWmiReferenceTableRows() {
 
 async function loadWmiRows(force = false) {
     if (!force && _wmiLiveRows && Date.now() - _wmiLiveLoadedAt < 5 * 60 * 1000) return getWmiReferenceTableRows();
+    const fb = window._fb;
+    if (fb) {
+        try {
+            const snap = await fb.getDoc(fb.doc(fb.db, 'config', 'wmiOverrides'));
+            if (snap.exists()) {
+                _wmiLiveRows = buildWmiRowsFromOverrides(snap.data());
+                _wmiLiveLoadedAt = Date.now();
+                return getWmiReferenceTableRows();
+            }
+        } catch(e) {
+            console.warn('[WMI] Firestore overrides indisponibles:', e.message);
+        }
+    }
     try {
         const res = await fetch(`${GAS_DRIVE_URL}?action=listWmiReference&limit=20000`, { signal: AbortSignal.timeout(12000) });
         const data = await res.json();
@@ -3714,9 +3747,14 @@ function renderWmiRows(body, rows, withActions = false) {
         <tr>
           <td style="padding:7px 10px;border-bottom:1px solid rgba(255,255,255,0.05);font-family:var(--font-mono);color:var(--blue-light)">${escHtml(row.wmi)}</td>
           <td style="padding:7px 10px;border-bottom:1px solid rgba(255,255,255,0.05)">${escHtml(row.marque || '-')}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid rgba(255,255,255,0.05);color:${row.checkDigit === 'oui' ? 'var(--green)' : 'var(--text-dim)'}">${row.checkDigit}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid rgba(255,255,255,0.05);color:${row.checkDigit === 'oui' ? 'var(--green)' : 'var(--text-dim)'}">
+            ${withActions ? `<select onchange="updateWmiCheckDigit('${escHtml(row.wmi)}', this.value)" style="background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:5px 8px;font-size:0.74rem">
+              <option value="oui" ${row.checkDigit === 'oui' ? 'selected' : ''}>oui</option>
+              <option value="non" ${row.checkDigit === 'non' ? 'selected' : ''}>non</option>
+            </select>` : row.checkDigit}
+          </td>
           ${withActions ? `<td style="padding:7px 10px;border-bottom:1px solid rgba(255,255,255,0.05);white-space:nowrap">
-            <button class="btn-sm" style="font-size:0.7rem;padding:5px 8px;border-radius:6px" onclick="editWmiRow('${escHtml(row.wmi)}')">Modifier</button>
+            <button class="btn-sm" style="font-size:0.7rem;padding:5px 8px;border-radius:6px" onclick="editWmiRow('${escHtml(row.wmi)}')">Marque</button>
             <button class="btn-sm btn-disable" style="font-size:0.7rem;padding:5px 8px;border-radius:6px" onclick="deleteWmiRow('${escHtml(row.wmi)}')">Supprimer</button>
           </td>` : ''}
         </tr>
@@ -3784,6 +3822,29 @@ async function syncWmiReferenceSheet() {
 
 async function saveWmiRow(row) {
     if (window.currentUser?.role !== 'admin') { showToast('Action reservee admin.', 'err'); return false; }
+    const fb = window._fb;
+    if (fb) {
+        const wmi = String(row.wmi || '').toUpperCase().trim();
+        const ref = fb.doc(fb.db, 'config', 'wmiOverrides');
+        const snap = await fb.getDoc(ref);
+        const data = snap.exists() ? snap.data() : {};
+        const rows = data.rows && typeof data.rows === 'object' ? data.rows : {};
+        const deleted = (Array.isArray(data.deleted) ? data.deleted : []).filter(v => String(v || '').toUpperCase().trim() !== wmi);
+        rows[wmi] = {
+            marque: String(row.marque || '').trim(),
+            checkDigit: String(row.checkDigit || '').toLowerCase() === 'oui' ? 'oui' : 'non'
+        };
+        await fb.setDoc(ref, {
+            rows,
+            deleted,
+            updatedAt: fb.serverTimestamp(),
+            updatedBy: window.currentUser?.email || 'admin'
+        });
+        _wmiLiveRows = buildWmiRowsFromOverrides({ rows, deleted });
+        _wmiLiveLoadedAt = Date.now();
+        loadWmiAdmin();
+        return true;
+    }
     const authToken = await getCurrentFirebaseIdToken();
     if (!authToken) throw new Error('Connexion Firebase requise.');
     const res = await fetch(GAS_DRIVE_URL, {
@@ -3804,15 +3865,23 @@ async function editWmiRow(wmi) {
     if (!row) return;
     const marque = prompt(`Marque pour ${wmi}`, row.marque || '');
     if (marque === null) return;
-    const cdRaw = prompt('Check digit obligatoire ? (oui/non)', row.checkDigit || 'non');
-    if (cdRaw === null) return;
-    const checkDigit = cdRaw.trim().toLowerCase();
-    if (!['oui','non'].includes(checkDigit)) { showToast('Check digit doit etre oui ou non.', 'err'); return; }
     try {
-        await saveWmiRow({ wmi, marque: marque.trim(), checkDigit });
+        await saveWmiRow({ wmi, marque: marque.trim(), checkDigit: row.checkDigit });
         showToast(`WMI ${wmi} modifie.`, 'ok');
     } catch(e) {
         showToast('Erreur modification WMI: ' + e.message, 'err', 5000);
+    }
+}
+
+async function updateWmiCheckDigit(wmi, checkDigit) {
+    const row = getWmiReferenceTableRows().find(r => r.wmi === wmi);
+    if (!row) return;
+    try {
+        await saveWmiRow({ wmi, marque: row.marque, checkDigit });
+        showToast(`Check digit ${wmi}: ${checkDigit}`, 'ok', 1800);
+    } catch(e) {
+        showToast('Erreur check digit: ' + e.message, 'err', 5000);
+        loadWmiAdmin();
     }
 }
 
@@ -3820,6 +3889,26 @@ async function deleteWmiRow(wmi) {
     if (window.currentUser?.role !== 'admin') { showToast('Action reservee admin.', 'err'); return; }
     if (!confirm(`Supprimer le WMI ${wmi} de la table modifiable ?`)) return;
     try {
+        const fb = window._fb;
+        if (fb) {
+            const ref = fb.doc(fb.db, 'config', 'wmiOverrides');
+            const snap = await fb.getDoc(ref);
+            const data = snap.exists() ? snap.data() : {};
+            const rows = data.rows && typeof data.rows === 'object' ? data.rows : {};
+            delete rows[wmi];
+            const deleted = Array.from(new Set([...(Array.isArray(data.deleted) ? data.deleted : []), wmi]));
+            await fb.setDoc(ref, {
+                rows,
+                deleted,
+                updatedAt: fb.serverTimestamp(),
+                updatedBy: window.currentUser?.email || 'admin'
+            });
+            _wmiLiveRows = buildWmiRowsFromOverrides({ rows, deleted });
+            _wmiLiveLoadedAt = Date.now();
+            loadWmiAdmin();
+            showToast(`WMI ${wmi} supprime.`, 'ok');
+            return;
+        }
         const authToken = await getCurrentFirebaseIdToken();
         if (!authToken) throw new Error('Connexion Firebase requise.');
         const res = await fetch(GAS_DRIVE_URL, {
