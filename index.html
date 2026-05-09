@@ -11,20 +11,20 @@
     <meta name="application-name" content="VIN Expert ATTT">
     <meta name="description" content="Identification VIN — ATTT Direction Technique d'Automobiles">
     <title>ATTT · VIN Identification</title>
-    <link rel="manifest" href="manifest.json?v=3.1.6">
+    <link rel="manifest" href="manifest.json?v=3.1.7">
     <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="wmi-reference.js?v=3.1.6"></script>
+    <script src="wmi-reference.js?v=3.1.7"></script>
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&family=Exo+2:wght@300;400;600&display=swap" rel="stylesheet">
     <!-- Firebase SDK -->
     <script type="module">
       import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
       import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail }
         from "https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js";
-      import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, deleteDoc, addDoc, query, where, orderBy, serverTimestamp, onSnapshot, limit }
+      import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, deleteDoc, addDoc, query, where, orderBy, serverTimestamp, onSnapshot, limit, runTransaction }
         from "https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js";
 
       // ===== FIREBASE CONFIG =====
@@ -38,7 +38,7 @@
       };
 
             window._firebaseAvailable = false;
-            window.APP_VERSION = "3.1.6";
+            window.APP_VERSION = "3.1.7";
             try {
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
@@ -46,7 +46,7 @@
 
                 // Expose to global scope
                 window._fb = { auth, db, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail,
-                    doc, setDoc, getDoc, collection, getDocs, updateDoc, deleteDoc, addDoc, query, where, orderBy, serverTimestamp, onSnapshot, limit };
+                    doc, setDoc, getDoc, collection, getDocs, updateDoc, deleteDoc, addDoc, query, where, orderBy, serverTimestamp, onSnapshot, limit, runTransaction };
                 window._firebaseAvailable = true;
 
                 // Auth state listener
@@ -115,7 +115,7 @@
     <!-- Enregistrer Service Worker dès le chargement de la page (avant connexion) -->
     <script>
         // Version définie tôt pour autoPurgeCache et SW
-        window.APP_VERSION = "3.1.6"; // cache si version différente OU force-update
+        window.APP_VERSION = "3.1.7"; // cache si version différente OU force-update
         (async function autoPurgeCache() {
             try {
                 const CURRENT = window.APP_VERSION || '0';
@@ -1510,6 +1510,7 @@
           <button onclick="switchAdmin('chat')">💬 Chat</button>
           <button onclick="switchAdmin('wmi')">WMI</button>
           <button onclick="switchAdmin('ocr')">OCR</button>
+          <button onclick="switchAdmin('invites')">Convocations</button>
           <button onclick="switchAdmin('bka')">📦 Base BKA</button>
         </div>
 
@@ -1710,6 +1711,22 @@
               <button class="btn-auth" style="flex:1;padding:10px;font-size:0.82rem;border-radius:8px;margin-top:0" onclick="saveAdminOcrConfig()">Enregistrer</button>
               <button class="btn-auth" style="flex:1;padding:10px;font-size:0.82rem;border-radius:8px;margin-top:0;background:var(--panel2);color:var(--text);border:1px solid var(--border)" onclick="testAdminOcrConfig()">Tester</button>
             </div>
+          </div>
+        </div>
+
+        <!-- INVITATIONS / CONVOCATIONS SUB -->
+        <div class="admin-sub" id="adminInvites">
+          <div style="margin-bottom:14px">
+            <div style="font-size:0.82rem;color:var(--text-dim);line-height:1.7;margin-bottom:12px">
+              Suivi des codes de convocation générés par les utilisateurs, avec date de création, consommation et nouvel utilisateur validé.
+            </div>
+            <div id="adminInviteStats" style="font-size:0.8rem;color:var(--text-dim);margin-bottom:10px">-</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+              <input type="text" id="adminInviteSearch" placeholder="Code, agent, nouvel utilisateur..." oninput="renderAdminInvites()"
+                style="flex:1;min-width:180px;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:0.8rem;outline:none">
+              <button class="btn-auth" style="padding:10px;font-size:0.78rem;border-radius:8px;margin-top:0;background:var(--panel2);border:1px solid var(--border);color:var(--text)" onclick="loadAdminInvites()">Actualiser</button>
+            </div>
+            <div id="adminInviteList"><div class="empty-state"><div class="empty-icon">🎟️</div><p>Chargement...</p></div></div>
           </div>
         </div>
 
@@ -3039,22 +3056,29 @@ async function doRegister() {
         window._registering = true;
         const cred = await fb.createUserWithEmailAndPassword(fb.auth, email, pass);
         const uid = cred.user.uid;
+        const createdAt = new Date().toISOString();
         const profileData = {
             prenom, nom, matricule: mat, lieuTravail: lieu, email,
             role: roleInitial, disabled: false,
             invitedBy: inviteData?.createdBy || null,
             invitedByName: inviteData?.createdByName || null,
-            createdAt: new Date().toISOString()
+            inviteCode: inviteData ? invCode : null,
+            inviteConsumedAt: inviteData ? createdAt : null,
+            autoValidatedByInvite: !!inviteData,
+            createdAt
         };
-        await fb.setDoc(fb.doc(fb.db, 'users', uid), profileData);
+        if (inviteData) {
+            await consommerInvitationEtCreerProfil(invCode, uid, profileData);
+        } else {
+            await fb.setDoc(fb.doc(fb.db, 'users', uid), profileData);
+        }
         window._registering = false;
 
         if (inviteData) {
-            await markInviteCodeUsed(invCode, uid, `${prenom} ${nom}`);
             // Profil complet disponible → charger et afficher l'app directement
             window.currentUser = { uid, email, ...profileData };
             window._pendingInviteCode = null;
-            showToast('Bienvenue ! Inscription approuvée.', 'ok');
+            showToast('Bienvenue ! Compte validé automatiquement et code consommé.', 'ok', 6000);
             showApp();
         } else {
             showAuthScreen('pending');
@@ -3062,6 +3086,11 @@ async function doRegister() {
         }
     } catch(e) {
         window._registering = false;
+        if (e.message === 'invite-consumed') {
+            try { await fb.auth.currentUser?.delete(); } catch(delErr) { try { await fb.signOut(fb.auth); } catch(_) {} }
+            showAuthError('registerErr', 'Code d\'invitation déjà consommé. Demandez un nouveau code.');
+            return;
+        }
         const msgs = {
             'auth/email-already-in-use': 'Cet email est déjà utilisé.',
             'auth/invalid-email': 'Email invalide.',
@@ -3233,7 +3262,7 @@ function switchAdmin(sub) {
     document.querySelectorAll('.admin-nav button').forEach(b => b.classList.remove('active'));
     document.getElementById('admin' + sub.charAt(0).toUpperCase() + sub.slice(1)).classList.add('active');
     const btns = document.querySelectorAll('.admin-nav button');
-    const map = { users:0, lieux:1, update:2, reports:3, chat:4, wmi:5, ocr:6, bka:7 };
+    const map = { users:0, lieux:1, update:2, reports:3, chat:4, wmi:5, ocr:6, invites:7, bka:8 };
     if (btns[map[sub]] !== undefined) btns[map[sub]].classList.add('active');
     if (sub === 'users')   loadAdminUsers();
     if (sub === 'lieux')   loadAdminLieux();
@@ -3242,6 +3271,7 @@ function switchAdmin(sub) {
     if (sub === 'chat')    loadAdminChat();
     if (sub === 'wmi')     loadWmiAdmin();
     if (sub === 'ocr')     loadAdminOcrConfig();
+    if (sub === 'invites') loadAdminInvites();
     if (sub === 'bka')     loadBkaStats();
 }
 
@@ -3359,6 +3389,9 @@ function renderAdminUsers() {
         const dateCreation = u.createdAt
             ? new Date(u.createdAt).toLocaleString('fr-FR', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'})
             : '—';
+        const inviteLine = u.autoValidatedByInvite
+            ? `<div style="margin-top:2px;font-size:0.72rem;color:var(--green)">Convocation: ${escHtml(u.inviteCode || '—')} · par ${escHtml(u.invitedByName || '—')} · consommée ${escHtml(formatInviteDate(u.inviteConsumedAt))}</div>`
+            : '';
         html += `<div class="user-row" id="urow-${uid}" style="display:flex;gap:10px;align-items:flex-start">
           <label style="display:flex;align-items:center;padding-top:14px;cursor:pointer">
             <input type="checkbox" class="agent-cb" data-uid="${uid}" onchange="updateBulkBar()" style="width:17px;height:17px;cursor:pointer;accent-color:var(--blue)">
@@ -3368,6 +3401,7 @@ function renderAdminUsers() {
             <div class="user-row-meta">🪪 ${escHtml(u.matricule || '')} · ✉ ${escHtml(u.email || '')}</div>
             <div style="margin-top:3px;font-size:0.78rem;color:var(--text-dim)">🏢 ${escHtml(u.lieuTravail || '— non défini —')}</div>
             <div style="margin-top:2px;font-size:0.72rem;color:var(--text-dim)">🕒 Créé le : ${dateCreation}</div>
+            ${inviteLine}
             <div style="margin-top:4px;display:flex;gap:5px;flex-wrap:wrap">${envoyerBadge}${obligBadge}</div>
           </div>
           <div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">
@@ -3823,6 +3857,60 @@ async function loadAdminReports() {
         });
         list.innerHTML = html;
     } catch(e) { list.innerHTML = `<div class="empty-state"><p>Erreur : ${e.message}</p></div>`; }
+}
+
+let _adminInvitesAll = [];
+
+async function loadAdminInvites() {
+    const fb = window._fb;
+    const listEl = document.getElementById('adminInviteList');
+    const statsEl = document.getElementById('adminInviteStats');
+    if (!fb || !listEl) return;
+    listEl.innerHTML = '<div class="empty-state"><p>Chargement...</p></div>';
+    try {
+        const snap = await fb.getDocs(fb.collection(fb.db, 'inviteCodes'));
+        _adminInvitesAll = [];
+        snap.forEach(d => _adminInvitesAll.push({ id: d.id, ...d.data() }));
+        _adminInvitesAll.sort((a,b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+        const total = _adminInvitesAll.length;
+        const used = _adminInvitesAll.filter(i => i.used).length;
+        const active = _adminInvitesAll.filter(i => !i.used && !i.revoked).length;
+        const revoked = _adminInvitesAll.filter(i => i.revoked && !i.used).length;
+        if (statsEl) statsEl.innerHTML = `<span style="color:var(--green)">OK</span> <b>${total}</b> convocation(s) | Actives: <b>${active}</b> | Consommées: <b>${used}</b> | Désactivées: <b>${revoked}</b>`;
+        renderAdminInvites();
+    } catch(e) {
+        listEl.innerHTML = `<div class="empty-state"><p>Erreur : ${escHtml(e.message)}</p></div>`;
+        if (statsEl) statsEl.textContent = 'Erreur chargement convocations.';
+    }
+}
+
+function renderAdminInvites() {
+    const listEl = document.getElementById('adminInviteList');
+    if (!listEl) return;
+    const q = (document.getElementById('adminInviteSearch')?.value || '').toLowerCase().trim();
+    let rows = [..._adminInvitesAll];
+    if (q) {
+        rows = rows.filter(inv => [
+            inv.code, inv.createdByName, inv.createdByEmail, inv.usedByName, inv.usedByEmail, inv.usedByMatricule
+        ].some(v => String(v || '').toLowerCase().includes(q)));
+    }
+    if (!rows.length) {
+        listEl.innerHTML = '<div class="empty-state"><p>Aucune convocation.</p></div>';
+        return;
+    }
+    listEl.innerHTML = rows.map(inv => {
+        const status = inv.used ? 'CONSOMMÉ' : (inv.revoked ? 'DÉSACTIVÉ' : 'ACTIF');
+        const color = inv.used ? 'var(--green)' : (inv.revoked ? 'var(--red)' : 'var(--orange)');
+        return `<div style="padding:12px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;margin-bottom:8px;font-size:0.8rem">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <span style="font-family:var(--font-mono);font-size:1rem;color:var(--gold-light)">${escHtml(inv.code || inv.id || '')}</span>
+            <span style="font-size:0.65rem;padding:2px 7px;border-radius:5px;background:rgba(255,255,255,0.06);color:${color};border:1px solid rgba(255,255,255,0.08)">${status}</span>
+          </div>
+          <div style="margin-top:6px;color:var(--text-dim)">Créée le: ${escHtml(formatInviteDate(inv.createdAt))} · Par: <b style="color:var(--text)">${escHtml(inv.createdByName || '—')}</b>${inv.createdByEmail ? ` · ${escHtml(inv.createdByEmail)}` : ''}</div>
+          ${inv.used ? `<div style="margin-top:5px;color:var(--text)">Consommée le: ${escHtml(formatInviteDate(inv.usedAt || inv.consumedAt))}<br>Nouvel utilisateur: <b>${escHtml(inv.usedByName || '—')}</b>${inv.usedByEmail ? ` · ${escHtml(inv.usedByEmail)}` : ''}${inv.usedByMatricule ? ` · ${escHtml(inv.usedByMatricule)}` : ''}</div>` : ''}
+          ${inv.revoked && !inv.used ? `<div style="margin-top:5px;color:var(--text-dim)">Désactivée le: ${escHtml(formatInviteDate(inv.revokedAt))}</div>` : ''}
+        </div>`;
+    }).join('');
 }
 
 // ========== TABLE WMI ==========
@@ -4415,6 +4503,7 @@ async function loadProfile() {
               <span style="color:var(--text-dim);font-size:0.72rem">Lieu</span><span id="profileLieuDisplay">${escHtml(u.lieuTravail||'—')}</span>
               <span style="color:var(--text-dim);font-size:0.72rem">Email</span><span>${escHtml(u.email||'—')}</span>
               <span style="color:var(--text-dim);font-size:0.72rem">Rôle</span><span><span class="badge-role ${u.role==='admin'?'badge-admin':'badge-agent'}">${(u.role||'agent').toUpperCase()}</span></span>
+              ${u.autoValidatedByInvite ? `<span style="color:var(--text-dim);font-size:0.72rem">Convocation</span><span>Validé automatiquement par <b>${escHtml(u.invitedByName||'—')}</b><br><small style="color:var(--text-dim)">Code ${escHtml(u.inviteCode||'—')} · ${escHtml(formatInviteDate(u.inviteConsumedAt))}</small></span>` : ''}
             </div>`;
     }
     // Le lieu de travail ne peut être modifié que par l'administrateur
@@ -4718,6 +4807,14 @@ async function resetLieuxAnciens() {
 // ========== INVITATION SYSTEM ==========
 const INVITE_PREFIX = 'ATT-';
 
+function formatInviteDate(value) {
+    if (!value) return '—';
+    if (typeof value?.toDate === 'function') value = value.toDate().toISOString();
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return String(value || '—');
+    return d.toLocaleString('fr-FR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+}
+
 function genCode() {
     const chars = 'ABCDEFGHJKLMNPRSTUVWXYZ0123456789';
     let code = INVITE_PREFIX;
@@ -4758,11 +4855,26 @@ async function creerNouveauCode() {
     const fb = window._fb;
     const u = window.currentUser;
     if (!fb || !u) return null;
+    try {
+        const oldSnap = await fb.getDoc(fb.doc(fb.db, 'invitations', u.uid));
+        if (oldSnap.exists() && oldSnap.data()?.code && !oldSnap.data()?.used) {
+            const oldCode = String(oldSnap.data().code || '').trim();
+            if (oldCode) {
+                await fb.updateDoc(fb.doc(fb.db, 'inviteCodes', oldCode), {
+                    revoked: true,
+                    revokedAt: new Date().toISOString(),
+                    revokedBy: u.uid
+                });
+            }
+        }
+    } catch(e) {}
     const code = genCode();
     const data = {
         code, createdBy: u.uid,
         createdByName: `${u.prenom||''} ${u.nom||''}`.trim(),
-        used: false, usedBy: null, usedByName: null, usedAt: null,
+        createdByEmail: u.email || '',
+        used: false, revoked: false,
+        usedBy: null, usedByName: null, usedByEmail: null, usedByMatricule: null, usedAt: null,
         createdAt: new Date().toISOString()
     };
     // Store by uid (current active invite) + indexed by code
@@ -4779,12 +4891,13 @@ function afficherMonCode(data) {
     const usedEl = document.getElementById('myInviteUsedInfo');
     if (codeEl) codeEl.textContent = data.code || '—';
     if (linkEl) linkEl.textContent = getInviteLink(data.code);
-    if (statusEl) statusEl.textContent = data.used ? '✓ UTILISÉ' : '● ACTIF';
-    if (statusEl) statusEl.style.color = data.used ? 'var(--green)' : 'var(--orange)';
+    const inactive = data.used || data.revoked;
+    if (statusEl) statusEl.textContent = data.used ? '✓ UTILISÉ' : (data.revoked ? '✗ DÉSACTIVÉ' : '● ACTIF');
+    if (statusEl) statusEl.style.color = data.used ? 'var(--green)' : (data.revoked ? 'var(--red)' : 'var(--orange)');
     if (usedEl) {
         usedEl.textContent = data.used
-            ? `Utilisé par : ${data.usedByName || '—'} le ${data.usedAt || '—'}`
-            : 'Non encore utilisé';
+            ? `Utilisé par : ${data.usedByName || '—'} le ${formatInviteDate(data.usedAt)}`
+            : (inactive ? 'Code désactivé.' : 'Non encore utilisé');
     }
 }
 
@@ -4850,9 +4963,10 @@ async function loadMyInviteHistory() {
         el.innerHTML = mine.map(inv => `
             <div style="padding:10px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;font-size:0.8rem">
               <span style="font-family:var(--font-mono);color:var(--gold-light)">${escHtml(inv.code)}</span>
-              <span style="margin-left:8px;font-size:0.65rem;padding:2px 6px;border-radius:4px;${inv.used?'background:rgba(0,200,122,0.15);color:var(--green)':'background:rgba(240,160,32,0.15);color:var(--orange)'}">${inv.used?'UTILISÉ':'ACTIF'}</span>
-              ${inv.used ? `<div style="color:var(--text-dim);margin-top:3px">→ ${escHtml(inv.usedByName||'—')} · ${escHtml(inv.usedAt||'')}</div>` : ''}
-              <div style="color:var(--text-dim);font-size:0.65rem;margin-top:2px">Créé : ${escHtml(inv.createdAt?.slice(0,10)||'')}</div>
+              <span style="margin-left:8px;font-size:0.65rem;padding:2px 6px;border-radius:4px;${inv.used?'background:rgba(0,200,122,0.15);color:var(--green)':inv.revoked?'background:rgba(224,48,80,0.15);color:var(--red)':'background:rgba(240,160,32,0.15);color:var(--orange)'}">${inv.used?'CONSOMMÉ':inv.revoked?'DÉSACTIVÉ':'ACTIF'}</span>
+              <div style="color:var(--text-dim);font-size:0.72rem;margin-top:5px">Créé : ${escHtml(formatInviteDate(inv.createdAt))}</div>
+              ${inv.used ? `<div style="color:var(--text);margin-top:3px">Nouvel utilisateur : <b>${escHtml(inv.usedByName||'—')}</b> ${inv.usedByEmail ? `· ${escHtml(inv.usedByEmail)}` : ''}</div>
+              <div style="color:var(--text-dim);font-size:0.72rem;margin-top:2px">Consommé : ${escHtml(formatInviteDate(inv.usedAt))}</div>` : ''}
             </div>`).join('');
     } catch(e) { el.innerHTML = '<div class="empty-state"><p>Erreur chargement.</p></div>'; }
 }
@@ -4865,15 +4979,57 @@ async function validateInviteCode(code) {
         const snap = await fb.getDoc(fb.doc(fb.db, 'inviteCodes', code.toUpperCase().trim()));
         if (!snap.exists()) return null;
         const data = snap.data();
-        if (data.used) return null;
+        if (data.used || data.revoked) return null;
         return data;
     } catch(e) { return null; }
 }
 
+async function consommerInvitationEtCreerProfil(code, uid, profileData) {
+    const fb = window._fb; if (!fb || !code) throw new Error('invite-consumed');
+    const inviteRef = fb.doc(fb.db, 'inviteCodes', code.toUpperCase().trim());
+    const userRef = fb.doc(fb.db, 'users', uid);
+    await fb.runTransaction(fb.db, async (transaction) => {
+        const inviteSnap = await transaction.get(inviteRef);
+        if (!inviteSnap.exists()) throw new Error('invite-consumed');
+        const invite = inviteSnap.data() || {};
+        if (invite.used || invite.revoked) throw new Error('invite-consumed');
+        let inviterSlotRef = null;
+        let inviterSlotSnap = null;
+        if (invite.createdBy) {
+            inviterSlotRef = fb.doc(fb.db, 'invitations', invite.createdBy);
+            inviterSlotSnap = await transaction.get(inviterSlotRef);
+        }
+        const now = new Date().toISOString();
+        const usedUpdate = {
+            used: true,
+            revoked: false,
+            usedBy: uid,
+            usedByName: `${profileData.prenom || ''} ${profileData.nom || ''}`.trim(),
+            usedByEmail: profileData.email || '',
+            usedByMatricule: profileData.matricule || '',
+            usedAt: now,
+            consumedAt: now
+        };
+        transaction.set(userRef, Object.assign({}, profileData, {
+            role: 'agent',
+            disabled: false,
+            invitedBy: invite.createdBy || null,
+            invitedByName: invite.createdByName || null,
+            inviteCode: code.toUpperCase().trim(),
+            inviteConsumedAt: now,
+            autoValidatedByInvite: true
+        }));
+        transaction.update(inviteRef, usedUpdate);
+        if (inviterSlotRef && inviterSlotSnap?.exists() && inviterSlotSnap.data()?.code === code.toUpperCase().trim()) {
+            transaction.update(inviterSlotRef, usedUpdate);
+        }
+    });
+}
+
 async function markInviteCodeUsed(code, uid, nom) {
     const fb = window._fb; if (!fb || !code) return;
-    const now = new Date().toLocaleString('fr-TN');
-    const update = { used: true, usedBy: uid, usedByName: nom, usedAt: now };
+    const now = new Date().toISOString();
+    const update = { used: true, usedBy: uid, usedByName: nom, usedAt: now, consumedAt: now };
     try {
         await fb.updateDoc(fb.doc(fb.db, 'inviteCodes', code), update);
         // Also update the inviter's active slot if it matches
